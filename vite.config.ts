@@ -12,7 +12,13 @@ export default defineConfig(({ mode }) => {
   const emitSourcemaps = mode === 'development'
 
   return {
-    base: process.env.FIGMA_PUBLIC_URL ? `${process.env.FIGMA_PUBLIC_URL}/` : '/',
+    // GitHub Pages serves this as a project page at /navi-ui/, not the
+    // domain root — every asset URL needs that prefix or they 404 once
+    // deployed. GITHUB_PAGES is set by the deploy workflow below; local
+    // dev/preview still gets '/' via the FIGMA_PUBLIC_URL branch.
+    base: process.env.GITHUB_PAGES
+      ? '/navi-ui/'
+      : process.env.FIGMA_PUBLIC_URL ? `${process.env.FIGMA_PUBLIC_URL}/` : '/',
     build: {
       sourcemap: emitSourcemaps ? 'inline' : false,
       minify: !emitSourcemaps,
@@ -41,7 +47,12 @@ export default defineConfig(({ mode }) => {
           name: 'NAVI',
           short_name: 'NAVI',
           description: 'Personal AI agent companion — chat, research, and brainstorm modes.',
-          start_url: '/',
+          // Relative (no leading slash) — with a leading slash these hardcode
+          // to the domain root, which is fine on localhost but 404s once
+          // deployed under GitHub Pages' /navi-ui/ subpath. Relative paths
+          // resolve against whatever `base` is active in each build.
+          start_url: '.',
+          scope: '.',
           display: 'standalone',
           // Matches the canvas background (#06050a) and the icon's own
           // radial-gradient backdrop — no white flash behind the icon
@@ -49,9 +60,9 @@ export default defineConfig(({ mode }) => {
           background_color: '#06050a',
           theme_color: '#06050a',
           icons: [
-            { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
-            { src: '/icon-512.png', sizes: '512x512', type: 'image/png' },
-            { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+            { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },
+            { src: 'icon-512.png', sizes: '512x512', type: 'image/png' },
+            { src: 'icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
           ],
         },
       }),

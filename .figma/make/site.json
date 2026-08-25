@@ -2,7 +2,7 @@
   "title": "NAVI",
   "description": "Engage users with an interactive phone screen chat featuring captivating animations that transition from red to purple on a sleek black background.",
   "icons": {
-    "icon": "/icon-192.png"
+    "icon": "icon-192.png"
   },
   "robots": {
     "index": false
