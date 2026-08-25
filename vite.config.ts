@@ -1,6 +1,7 @@
 import { defineConfig, type HtmlTagDescriptor, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import { VitePWA } from 'vite-plugin-pwa'
 import path from 'node:path'
 
 import siteConfiguration from './.figma/make/site.json'
@@ -23,6 +24,37 @@ export default defineConfig(({ mode }) => {
       figmaErrorOverlayReplay(),
       figmaReactRefreshBoundaryFallback(),
       figmaMakeKitPlugin({ storiesGlob: '/src/**/*.stories.{ts,tsx,js,jsx}' }),
+      VitePWA({
+        registerType: 'autoUpdate',
+        // vite-plugin-pwa only generates the manifest/SW for production
+        // builds by default — without this, `npm run dev` serves
+        // neither and there's nothing to actually test against locally.
+        devOptions: { enabled: true, type: 'module' },
+        // Precaches the built JS/CSS/HTML shell so the app still opens
+        // (even if just to a "you're offline" state for anything
+        // dynamic) after the OS kills it and the network's briefly gone
+        // — this is the actual "survives the phone closing the app"
+        // piece, not the message persistence itself (that's a later,
+        // separate IndexedDB layer).
+        includeAssets: ['icon-192.png', 'icon-512.png'],
+        manifest: {
+          name: 'NAVI',
+          short_name: 'NAVI',
+          description: 'Personal AI agent companion — chat, research, and brainstorm modes.',
+          start_url: '/',
+          display: 'standalone',
+          // Matches the canvas background (#06050a) and the icon's own
+          // radial-gradient backdrop — no white flash behind the icon
+          // or on the splash screen while the app loads.
+          background_color: '#06050a',
+          theme_color: '#06050a',
+          icons: [
+            { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
+            { src: '/icon-512.png', sizes: '512x512', type: 'image/png' },
+            { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+          ],
+        },
+      }),
     ],
     resolve: {
       alias: {
