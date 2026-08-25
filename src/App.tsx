@@ -20,6 +20,7 @@ import {
   spacing, radius, fontSize, fontWeight, lineHeight, iconSize, controlSize, blur,
   fontFamily, neutral,
 } from "./tokens";
+import { loadMessages, saveMessages } from "./storage";
 
 const DOT_SIZE = 8;
 
@@ -525,11 +526,31 @@ export default function App() {
 
   // Local-only chat state — no backend wiring yet, just enough to test
   // real send-events against (versus fake trigger buttons) once the
-  // fairy/leaves animation gets built next.
+  // fairy/leaves animation gets built next. This mock intro is the
+  // default for a genuinely first-ever launch; loadedFromStorage below
+  // overwrites it with whatever's actually saved, if anything is.
   const [messages, setMessages] = useState<{ role: "user" | "navi"; text: string }[]>([
     { role: "navi", text: "Hey — this is just a mock reply so both bubble styles are visible while we tune the look." },
     { role: "user", text: "Got it, this is what a sent message looks like." },
   ]);
+  // Guards the save effect below from firing before the load effect has
+  // had a chance to run — without this, mounting would immediately
+  // persist the mock intro messages over whatever was actually stored,
+  // since both effects fire on the same initial render.
+  const loadedFromStorage = useRef(false);
+
+  useEffect(() => {
+    loadMessages().then(stored => {
+      if (stored !== undefined) setMessages(stored);
+      loadedFromStorage.current = true;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!loadedFromStorage.current) return;
+    saveMessages(messages);
+  }, [messages]);
+
   const [draft, setDraft] = useState("");
   // Which toolbar popover is open, if any — only one at a time.
   const [openPanel, setOpenPanel] = useState<"newConvo" | "history" | "models" | "routing" | "usage" | null>(null);
