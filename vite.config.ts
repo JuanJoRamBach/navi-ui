@@ -40,6 +40,15 @@ export default defineConfig(({ mode }) => {
         srcDir: 'src',
         filename: 'sw.ts',
         registerType: 'autoUpdate',
+        // The plugin's own auto-injected register call doesn't expose
+        // updateViaCache, and GitHub Pages serves sw.js with
+        // Cache-Control: max-age=600 — without forcing that off, the
+        // browser's update check can be satisfied by its 10-minute-old
+        // cached copy instead of actually fetching the new worker, so a
+        // fix can silently not take effect for up to 10 minutes even
+        // after reopening the app. Registering by hand in main.tsx
+        // (below) with updateViaCache: 'none' instead.
+        injectRegister: false,
         // vite-plugin-pwa only generates the manifest/SW for production
         // builds by default — without this, `npm run dev` serves
         // neither and there's nothing to actually test against locally.
