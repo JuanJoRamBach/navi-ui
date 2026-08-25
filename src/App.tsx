@@ -182,6 +182,23 @@ interface Fairy {
   flickerSeed: number;
 }
 
+// Typewriter-reveal for a message that just arrived live (a real send,
+// or a push) — history loaded from storage renders instantly instead
+// (see hydratedCountRef). Owns its own reveal-progress state rather
+// than lifting it to the parent: this way each animating bubble
+// re-renders itself every ~18ms, not the whole message list.
+function StreamingMessageText({ text, animate }: { text: string; animate: boolean }) {
+  const [revealed, setRevealed] = useState(animate ? 0 : text.length);
+
+  useEffect(() => {
+    if (!animate || revealed >= text.length) return;
+    const id = setTimeout(() => setRevealed(r => Math.min(text.length, r + 2)), 18);
+    return () => clearTimeout(id);
+  }, [animate, revealed, text.length]);
+
+  return <>{text.slice(0, revealed)}</>;
+}
+
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const modeRef = useRef<Mode>("ambient");
@@ -562,12 +579,26 @@ export default function App() {
   // persist the mock intro messages over whatever was actually stored,
   // since both effects fire on the same initial render.
   const loadedFromStorage = useRef(false);
+  // How many messages existed at hydration — anything at or past this
+  // index arrived live during the session (a real send, or a push) and
+  // gets the streaming-text reveal; anything before it is history and
+  // renders instantly. Starts at Infinity, not 0 — hydration is async,
+  // and with 0 as the starting value the initial mock messages would
+  // briefly satisfy "index >= 0" and stream in on every launch, before
+  // the real baseline is set moments later.
+  const hydratedCountRef = useRef(Infinity);
 
   useEffect(() => {
     loadMessages().then(stored => {
-      if (stored !== undefined) setMessages(stored);
+      if (stored !== undefined) {
+        setMessages(stored);
+        hydratedCountRef.current = stored.length;
+      } else {
+        hydratedCountRef.current = messages.length; // the 2-message mock default, nothing saved yet
+      }
       loadedFromStorage.current = true;
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -602,7 +633,7 @@ export default function App() {
   // that message in the actual visual (oldest-at-top) reading order.
   type RenderItem =
     | { kind: "divider"; key: string; label: string }
-    | { kind: "message"; key: string; message: StoredMessage };
+    | { kind: "message"; key: string; message: StoredMessage; index: number };
   const renderItems = useMemo<RenderItem[]>(() => {
     const items: RenderItem[] = [];
     let lastDay: string | null = null;
@@ -612,7 +643,7 @@ export default function App() {
         items.push({ kind: "divider", key: `divider-${day}`, label: formatDayLabel(m.timestamp) });
         lastDay = day;
       }
-      items.push({ kind: "message", key: `msg-${i}`, message: m });
+      items.push({ kind: "message", key: `msg-${i}`, message: m, index: i });
     });
     return [...items].reverse();
   }, [messages]);
@@ -728,21 +759,42 @@ export default function App() {
     el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
   }, [draft]);
 
+  // The "working" label shown in place of a reply while one's being
+  // generated — null means nothing's pending. Mode-specific step
+  // sequences stand in for what a real backend would eventually report
+  // (search progress, tool calls, etc.) — Research gets more of them
+  // since that's the mode where "steps" actually means something.
+  const [pendingStep, setPendingStep] = useState<string | null>(null);
+
   const sendMessage = useCallback(() => {
     const text = draft.trim();
     if (!text) return;
-    if (chatModeRef.current === "research") {
-      // NAVI's reply is added instantly below (no real backend yet) —
-      // this stands in for "research completed" until there's an actual
-      // async reply to key off of.
-      celebrateUntilRef.current = fairyTickRef.current + 600; // 10s at 60fps
-    }
-    setMessages(m => [
-      ...m,
-      { role: "user", text, timestamp: Date.now() },
-      { role: "navi", text: "(mock reply — no backend wired up yet)", timestamp: Date.now() },
-    ]);
+    setMessages(m => [...m, { role: "user", text, timestamp: Date.now() }]);
     setDraft("");
+
+    const steps = chatModeRef.current === "research"
+      ? ["Searching…", "Reading results…", "Drafting answer…"]
+      : chatModeRef.current === "brainstorm"
+        ? ["Exploring ideas…", "Drafting answer…"]
+        : ["Thinking…"];
+
+    let stepIndex = 0;
+    const advance = () => {
+      setPendingStep(steps[stepIndex]);
+      stepIndex += 1;
+      if (stepIndex < steps.length) {
+        setTimeout(advance, 550 + Math.random() * 300);
+        return;
+      }
+      setTimeout(() => {
+        setPendingStep(null);
+        if (chatModeRef.current === "research") {
+          celebrateUntilRef.current = fairyTickRef.current + 600; // 10s at 60fps
+        }
+        setMessages(m => [...m, { role: "navi", text: "(mock reply — no backend wired up yet)", timestamp: Date.now() }]);
+      }, 550 + Math.random() * 300);
+    };
+    advance();
   }, [draft]);
 
   return (
@@ -843,6 +895,24 @@ export default function App() {
           display: "flex", flexDirection: "column-reverse", gap: spacing.xxl - spacing.xxs,
           paddingRight: spacing.xxs,
         }}>
+          {/* Pending-reply indicator — DOM-first (before renderItems, not
+              after) so column-reverse places it at the very bottom,
+              exactly where the real reply will land once it arrives. */}
+          {pendingStep && (
+            <div className="step-pulse" style={{
+              alignSelf: "flex-start", maxWidth: "78%",
+              padding: `${spacing.md - 1}px ${spacing.lg}px`,
+              borderRadius: radius.lg,
+              fontSize: fontSize.sm,
+              color: neutral.textMuted,
+              backdropFilter: `blur(${blur.lg}px)`,
+              background: theme.bubbleBg,
+              border: `1px solid ${theme.bubbleBorder}`,
+              boxShadow: `0 4px 18px rgba(0,0,0,0.35), 0 0 14px ${theme.glow}`,
+            }}>
+              {pendingStep}
+            </div>
+          )}
           {renderItems.map(item => {
             if (item.kind === "divider") {
               return (
@@ -881,7 +951,10 @@ export default function App() {
                   ? `0 4px 18px rgba(0,0,0,0.35), 0 0 14px ${theme.glow}`
                   : `0 4px 18px rgba(0,0,0,0.35), 0 0 14px ${neutral.userBubbleGlow}`,
               }}>
-                {m.text}
+                <StreamingMessageText
+                  text={m.text}
+                  animate={m.role === "navi" && item.index >= hydratedCountRef.current}
+                />
                 <div style={{
                   display: "flex",
                   justifyContent: m.role === "navi" ? "space-between" : "flex-end",

@@ -70,3 +70,14 @@ body {
 .snap-item {
   scroll-snap-align: start;
 }
+
+/* "Working" step indicator, shown while a reply is being generated —
+   soft breathing opacity so it reads as active/alive, not a static
+   label sitting there. */
+@keyframes step-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+.step-pulse {
+  animation: step-pulse 1.4s ease-in-out infinite;
+}
