@@ -13,6 +13,7 @@ import { openDB, type DBSchema } from "idb";
 export interface StoredMessage {
   role: "user" | "navi";
   text: string;
+  timestamp: number; // ms since epoch — drives the per-message time label and day dividers
 }
 
 interface NaviDB extends DBSchema {
@@ -38,7 +39,19 @@ const dbPromise = openDB<NaviDB>(DB_NAME, DB_VERSION, {
 
 export async function loadMessages(): Promise<StoredMessage[] | undefined> {
   const db = await dbPromise;
-  return db.get(STORE, CURRENT_KEY);
+  const stored = await db.get(STORE, CURRENT_KEY);
+  if (!stored) return stored;
+  // Migration for messages saved before `timestamp` existed — backfill
+  // with "now" rather than crash the day-divider logic on a missing
+  // field. Cast to Partial: the static type says timestamp always
+  // exists, but data written before this field was added genuinely
+  // won't have it at runtime. Only matters once; the next save
+  // persists the real value.
+  return (stored as Partial<StoredMessage>[]).map(m => ({
+    role: m.role ?? "navi",
+    text: m.text ?? "",
+    timestamp: m.timestamp ?? Date.now(),
+  }));
 }
 
 export async function saveMessages(messages: StoredMessage[]): Promise<void> {

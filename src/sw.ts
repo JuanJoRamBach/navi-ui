@@ -44,7 +44,7 @@ self.addEventListener("push", event => {
     payload = { title: "NAVI", body: event.data?.text() ?? "New message" };
   }
 
-  const message = { role: "navi" as const, text: payload.body };
+  const message = { role: "navi" as const, text: payload.body, timestamp: Date.now() };
 
   event.waitUntil(
     Promise.all([

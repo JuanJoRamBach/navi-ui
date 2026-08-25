@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useCallback } from "react";
+import { useRef, useEffect, useState, useCallback, useMemo } from "react";
 import {
   PaperAirplaneIcon,
   PaperclipIcon,
@@ -22,10 +22,31 @@ import {
   spacing, radius, fontSize, fontWeight, lineHeight, iconSize, controlSize, blur,
   fontFamily, neutral,
 } from "./tokens";
-import { loadMessages, saveMessages } from "./storage";
+import { type StoredMessage, loadMessages, saveMessages } from "./storage";
 import { type PushStatus, getPushStatus, subscribeToPush } from "./push";
 
 const DOT_SIZE = 8;
+
+function formatTime(timestamp: number): string {
+  return new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+// "Today" / "Yesterday" / a real date — the day divider inserted
+// between messages that cross midnight. Compares calendar days, not
+// 24h windows, so a message at 00:05 correctly gets its own divider
+// even though it's minutes after one at 23:58.
+function formatDayLabel(timestamp: number): string {
+  const d = new Date(timestamp);
+  const now = new Date();
+  const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diffDays = Math.round((startOfDay(now) - startOfDay(d)) / 86_400_000);
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Yesterday";
+  return d.toLocaleDateString([], {
+    month: "long", day: "numeric",
+    year: d.getFullYear() === now.getFullYear() ? undefined : "numeric",
+  });
+}
 
 // "Best at" taxonomy borrowed from OpenRouter's benchmark categories
 // (Intelligence/Coding/Agentic composite indices) — not live-fetched
@@ -532,9 +553,9 @@ export default function App() {
   // fairy/leaves animation gets built next. This mock intro is the
   // default for a genuinely first-ever launch; loadedFromStorage below
   // overwrites it with whatever's actually saved, if anything is.
-  const [messages, setMessages] = useState<{ role: "user" | "navi"; text: string }[]>([
-    { role: "navi", text: "Hey — this is just a mock reply so both bubble styles are visible while we tune the look." },
-    { role: "user", text: "Got it, this is what a sent message looks like." },
+  const [messages, setMessages] = useState<StoredMessage[]>([
+    { role: "navi", text: "Hey — this is just a mock reply so both bubble styles are visible while we tune the look.", timestamp: Date.now() },
+    { role: "user", text: "Got it, this is what a sent message looks like.", timestamp: Date.now() },
   ]);
   // Guards the save effect below from firing before the load effect has
   // had a chance to run — without this, mounting would immediately
@@ -571,6 +592,30 @@ export default function App() {
     navigator.serviceWorker.addEventListener("message", onMessage);
     return () => navigator.serviceWorker.removeEventListener("message", onMessage);
   }, []);
+
+  // Flattens messages + day dividers into one render list, computed in
+  // chronological order (oldest→newest, matching `messages` itself)
+  // then reversed for DOM order — same trick as the plain message
+  // list below, needed because column-reverse means DOM-first renders
+  // visually last. A divider goes in front of the first message of
+  // each new calendar day; reversing afterward keeps it directly above
+  // that message in the actual visual (oldest-at-top) reading order.
+  type RenderItem =
+    | { kind: "divider"; key: string; label: string }
+    | { kind: "message"; key: string; message: StoredMessage };
+  const renderItems = useMemo<RenderItem[]>(() => {
+    const items: RenderItem[] = [];
+    let lastDay: string | null = null;
+    messages.forEach((m, i) => {
+      const day = new Date(m.timestamp).toDateString();
+      if (day !== lastDay) {
+        items.push({ kind: "divider", key: `divider-${day}`, label: formatDayLabel(m.timestamp) });
+        lastDay = day;
+      }
+      items.push({ kind: "message", key: `msg-${i}`, message: m });
+    });
+    return [...items].reverse();
+  }, [messages]);
 
   // Push notifications — see src/push.ts for the actual subscribe flow
   // and src/sw.ts for how an incoming push gets shown/persisted.
@@ -694,8 +739,8 @@ export default function App() {
     }
     setMessages(m => [
       ...m,
-      { role: "user", text },
-      { role: "navi", text: "(mock reply — no backend wired up yet)" },
+      { role: "user", text, timestamp: Date.now() },
+      { role: "navi", text: "(mock reply — no backend wired up yet)", timestamp: Date.now() },
     ]);
     setDraft("");
   }, [draft]);
@@ -798,50 +843,71 @@ export default function App() {
           display: "flex", flexDirection: "column-reverse", gap: spacing.xxl - spacing.xxs,
           paddingRight: spacing.xxs,
         }}>
-          {[...messages].map((m, i) => ({ m, i })).reverse().map(({ m, i }) => (
-            <div key={i} style={{
-              alignSelf: m.role === "navi" ? "flex-start" : "flex-end",
-              maxWidth: "78%",
-              padding: `${spacing.md - 1}px ${spacing.lg}px`,
-              borderRadius: radius.lg,
-              fontSize: fontSize.sm,
-              lineHeight: lineHeight.base,
-              color: neutral.textPrimary,
-              // Heavier blur does the legibility work here instead of a
-              // solid fill, so the color underneath can go darker/more
-              // transparent without the text losing contrast.
-              backdropFilter: `blur(${blur.lg}px)`,
-              // NAVI's bubble fully carries the active mode's tint — that's
-              // the "content" layer, meant to feel immersive. Your own
-              // messages stay neutral on purpose (see the button-color
-              // discussion: chrome stays stable, content shifts).
-              background: m.role === "navi" ? theme.bubbleBg : neutral.userBubbleBg,
-              border: m.role === "navi"
-                ? `1px solid ${theme.bubbleBorder}`
-                : `1px solid ${neutral.userBubbleBorder}`,
-              boxShadow: m.role === "navi"
-                ? `0 4px 18px rgba(0,0,0,0.35), 0 0 14px ${theme.glow}`
-                : `0 4px 18px rgba(0,0,0,0.35), 0 0 14px ${neutral.userBubbleGlow}`,
-            }}>
-              {m.text}
-              {m.role === "navi" && (
-                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: spacing.xs }}>
-                  <button
-                    aria-label="Pin this response"
-                    title="Pin this response"
-                    style={{
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      width: controlSize.sm, height: controlSize.sm, padding: 0,
-                      border: "none", borderRadius: radius.xs, cursor: "pointer",
-                      background: "transparent", color: neutral.textFaint,
-                    }}
-                  >
-                    <PinIcon size={iconSize.sm} />
-                  </button>
+          {renderItems.map(item => {
+            if (item.kind === "divider") {
+              return (
+                <div key={item.key} style={{
+                  alignSelf: "center", fontSize: fontSize.xxs, color: neutral.textMuted,
+                  padding: `${spacing.xxs}px ${spacing.md}px`, borderRadius: radius.sm,
+                  background: "rgba(255,255,255,0.06)",
+                }}>
+                  {item.label}
                 </div>
-              )}
-            </div>
-          ))}
+              );
+            }
+            const m = item.message;
+            return (
+              <div key={item.key} style={{
+                alignSelf: m.role === "navi" ? "flex-start" : "flex-end",
+                maxWidth: "78%",
+                padding: `${spacing.md - 1}px ${spacing.lg}px`,
+                borderRadius: radius.lg,
+                fontSize: fontSize.sm,
+                lineHeight: lineHeight.base,
+                color: neutral.textPrimary,
+                // Heavier blur does the legibility work here instead of a
+                // solid fill, so the color underneath can go darker/more
+                // transparent without the text losing contrast.
+                backdropFilter: `blur(${blur.lg}px)`,
+                // NAVI's bubble fully carries the active mode's tint — that's
+                // the "content" layer, meant to feel immersive. Your own
+                // messages stay neutral on purpose (see the button-color
+                // discussion: chrome stays stable, content shifts).
+                background: m.role === "navi" ? theme.bubbleBg : neutral.userBubbleBg,
+                border: m.role === "navi"
+                  ? `1px solid ${theme.bubbleBorder}`
+                  : `1px solid ${neutral.userBubbleBorder}`,
+                boxShadow: m.role === "navi"
+                  ? `0 4px 18px rgba(0,0,0,0.35), 0 0 14px ${theme.glow}`
+                  : `0 4px 18px rgba(0,0,0,0.35), 0 0 14px ${neutral.userBubbleGlow}`,
+              }}>
+                {m.text}
+                <div style={{
+                  display: "flex",
+                  justifyContent: m.role === "navi" ? "space-between" : "flex-end",
+                  alignItems: "center", marginTop: spacing.xs, gap: spacing.xs,
+                }}>
+                  <span style={{ fontSize: fontSize.xxs, color: neutral.textMuted }}>
+                    {formatTime(m.timestamp)}
+                  </span>
+                  {m.role === "navi" && (
+                    <button
+                      aria-label="Pin this response"
+                      title="Pin this response"
+                      style={{
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        width: controlSize.sm, height: controlSize.sm, padding: 0,
+                        border: "none", borderRadius: radius.xs, cursor: "pointer",
+                        background: "transparent", color: neutral.textFaint,
+                      }}
+                    >
+                      <PinIcon size={iconSize.sm} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
 
         {/* Utility toolbar — horizontal row sitting right above the
