@@ -1,0 +1,10 @@
+{
+  "description": "Engage users with an interactive phone screen chat featuring captivating animations that transition from red to purple on a sleek black background.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}

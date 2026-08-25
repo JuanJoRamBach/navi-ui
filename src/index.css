@@ -1,0 +1,72 @@
+@import 'tailwindcss';
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: #080608;
+  overflow: hidden;
+}
+
+/* Chat column: top padding clears the mode selector and the model
+   picker pill just below it — the toolbar row moved down next to the
+   input bar it actually relates to. Above 900px the column caps its
+   width and centers instead of stretching edge to edge. */
+.chat-column {
+  display: flex;
+  flex-direction: column;
+  padding: 100px 20px 16px; /* 20/16 mirror tokens.spacing.xl/lg; 100 is a derived clearance value, not a scale step */
+}
+
+/* 860px comfortably fits the 5-button toolbar row (~770px of content +
+   48px padding) without it ever needing to scroll — a narrower cap
+   here made the column snap noticeably thinner right as this
+   breakpoint kicked in, since the toolbar no longer fit and fell back
+   to its horizontal-scroll state. */
+@media (min-width: 860px) {
+  .chat-column {
+    max-width: 860px;
+    margin: 0 auto;
+    padding-left: 24px;
+    padding-right: 24px;
+  }
+}
+
+/* Any scrollable region that shouldn't show a scrollbar (Firefox +
+   WebKit) — message list, growing input, toolbar row, popovers.
+   Scrolling still works via touch/wheel/drag, it just doesn't draw a
+   bar. */
+.hide-scrollbar {
+  scrollbar-width: none;
+}
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Right-edge fade only: hints there's more to scroll instead of
+   clipping the last button abruptly at the container edge (toolbar row
+   on narrow screens). The first button is always the start of the
+   list — nothing precedes it — so a left fade there was misleading,
+   not a symmetric scroll hint. */
+.scroll-fade-x {
+  mask-image: linear-gradient(to right, black calc(100% - 20px), transparent);
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - 20px), transparent);
+}
+
+/* Top-edge fade for the (bottom-anchored, column-reverse) message
+   list — older messages dissolve as they scroll up toward the top of
+   the viewport instead of just getting clipped at the edge. */
+.message-fade-top {
+  mask-image: linear-gradient(to bottom, transparent, black 40px);
+  -webkit-mask-image: linear-gradient(to bottom, transparent, black 40px);
+}
+
+/* Toolbar row scroll-snap: dragging/flicking settles on a fully-visible
+   button instead of stopping with one half-cut-off at the edge.
+   "proximity" (not "mandatory") so it only snaps when already close to
+   a stopping point — doesn't fight small scroll adjustments. */
+.snap-row {
+  scroll-snap-type: x proximity;
+}
+.snap-item {
+  scroll-snap-align: start;
+}
