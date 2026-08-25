@@ -31,6 +31,14 @@ export default defineConfig(({ mode }) => {
       figmaReactRefreshBoundaryFallback(),
       figmaMakeKitPlugin({ storiesGlob: '/src/**/*.stories.{ts,tsx,js,jsx}' }),
       VitePWA({
+        // 'generateSW' (the default, used until now) auto-writes the
+        // whole service worker with no way to add custom logic —
+        // push notifications need a real `push` event handler, which
+        // only 'injectManifest' allows: we own src/sw.ts, Workbox just
+        // injects the precache list into it via self.__WB_MANIFEST.
+        strategies: 'injectManifest',
+        srcDir: 'src',
+        filename: 'sw.ts',
         registerType: 'autoUpdate',
         // vite-plugin-pwa only generates the manifest/SW for production
         // builds by default — without this, `npm run dev` serves

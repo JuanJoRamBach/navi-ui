@@ -3,11 +3,11 @@
 //      read/write; fine for a handful of KB, but this grows unbounded
 //      as the conversation does.
 //   2. localStorage doesn't exist in a service worker's global scope at
-//      all. Once push notifications land (a later piece), the service
-//      worker needs to write an incoming message to storage from a
-//      push event — with the app not even open. Only IndexedDB is
-//      reachable from both contexts, so starting there now avoids a
-//      storage-layer rewrite later.
+//      all — and the service worker's push handler (src/sw.ts) needs
+//      to write an incoming message to storage from a push event, with
+//      the app not even open. Only IndexedDB is reachable from both
+//      contexts, which is the whole reason this module exists instead
+//      of a one-line localStorage call.
 import { openDB, type DBSchema } from "idb";
 
 export interface StoredMessage {
@@ -44,4 +44,16 @@ export async function loadMessages(): Promise<StoredMessage[] | undefined> {
 export async function saveMessages(messages: StoredMessage[]): Promise<void> {
   const db = await dbPromise;
   await db.put(STORE, messages, CURRENT_KEY);
+}
+
+// Used from the service worker's push handler — appends one incoming
+// message without needing the full array the page's React state holds.
+// Read-modify-write against the same store the app itself reads on
+// load, so a message that arrives while the app is closed is just
+// there next time it opens, no separate "pending notifications" queue
+// to reconcile.
+export async function appendMessage(message: StoredMessage): Promise<void> {
+  const db = await dbPromise;
+  const existing = (await db.get(STORE, CURRENT_KEY)) ?? [];
+  await db.put(STORE, [...existing, message], CURRENT_KEY);
 }

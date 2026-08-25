@@ -11,6 +11,8 @@ import {
   ChevronDownIcon,
   ChevronRightIcon,
   CheckIcon,
+  BellIcon,
+  BellFillIcon,
   // Reserved for the future step-log UI (not built yet — no host for
   // these until the fairy-animation research mode exists to pair with):
   // SearchIcon, GlobeIcon, SyncIcon
@@ -21,6 +23,7 @@ import {
   fontFamily, neutral,
 } from "./tokens";
 import { loadMessages, saveMessages } from "./storage";
+import { type PushStatus, getPushStatus, subscribeToPush } from "./push";
 
 const DOT_SIZE = 8;
 
@@ -551,6 +554,28 @@ export default function App() {
     saveMessages(messages);
   }, [messages]);
 
+  // Push notifications — see src/push.ts for the actual subscribe flow
+  // and src/sw.ts for how an incoming push gets shown/persisted.
+  const [pushStatus, setPushStatus] = useState<PushStatus>("unsubscribed");
+  const [pushError, setPushError] = useState<string | null>(null);
+
+  useEffect(() => {
+    getPushStatus().then(setPushStatus);
+  }, []);
+
+  const handleTogglePush = useCallback(() => {
+    if (pushStatus === "subscribed" || pushStatus === "unsupported") return;
+    setPushError(null);
+    subscribeToPush().then(result => {
+      if (result.ok) {
+        setPushStatus("subscribed");
+      } else {
+        setPushStatus("unsubscribed");
+        setPushError(result.error ?? "Something went wrong.");
+      }
+    });
+  }, [pushStatus]);
+
   const [draft, setDraft] = useState("");
   // Which toolbar popover is open, if any — only one at a time.
   const [openPanel, setOpenPanel] = useState<"newConvo" | "history" | "models" | "routing" | "usage" | null>(null);
@@ -862,6 +887,51 @@ export default function App() {
               </button>
             );
           })}
+
+          {/* Not a popover like the other five — a direct toggle, so it
+              doesn't fit the togglePanel()/openPanel plumbing above.
+              Label and icon reflect actual subscription state (checked
+              via getPushStatus on mount) rather than assuming success —
+              "Enable notifications" would be a lie once already
+              subscribed, or on a browser that doesn't support push at
+              all. pushError surfaces via title (hover/long-press) rather
+              than a toast — good enough for now, matches how the rest
+              of this prototype defers polish on secondary states. */}
+          <button
+            className="snap-item"
+            aria-label={
+              pushStatus === "subscribed" ? "Notifications on"
+                : pushStatus === "denied" ? "Notifications blocked in browser settings"
+                : pushStatus === "unsupported" ? "Notifications not supported in this browser"
+                : "Enable notifications"
+            }
+            title={pushError ?? undefined}
+            onClick={handleTogglePush}
+            style={{
+              display: "flex", alignItems: "center", gap: spacing.xs, flexShrink: 0,
+              padding: `${spacing.sm}px ${spacing.md}px`,
+              borderRadius: radius.sm,
+              border: `1px solid ${theme.bubbleBorder}`,
+              background: theme.bubbleBg,
+              color: pushStatus === "denied" || pushStatus === "unsupported" ? neutral.textMuted : neutral.textPrimary,
+              cursor: pushStatus === "subscribed" || pushStatus === "unsupported" ? "default" : "pointer",
+              fontSize: fontSize.xs,
+              fontFamily,
+              fontWeight: fontWeight.medium,
+              whiteSpace: "nowrap",
+              backdropFilter: `blur(${blur.sm}px)`,
+              boxShadow: pushStatus === "subscribed"
+                ? `0 2px 20px rgba(0,0,0,0.5), 0 0 16px ${theme.glow}, inset 0 0 12px ${theme.glow}`
+                : `0 2px 20px rgba(0,0,0,0.45), 0 0 10px ${theme.glow}, inset 0 0 8px ${theme.glow}`,
+              transition: "all 0.35s ease",
+            }}
+          >
+            {pushStatus === "subscribed" ? <BellFillIcon size={iconSize.sm} /> : <BellIcon size={iconSize.sm} />}
+            {pushStatus === "subscribed" ? "Notifications on"
+              : pushStatus === "denied" ? "Blocked"
+              : pushStatus === "unsupported" ? "Unsupported"
+              : "Enable notifications"}
+          </button>
         </div>
 
         {openPanel && anchorRect && (
