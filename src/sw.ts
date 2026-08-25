@@ -44,18 +44,28 @@ self.addEventListener("push", event => {
     payload = { title: "NAVI", body: event.data?.text() ?? "New message" };
   }
 
+  const message = { role: "navi" as const, text: payload.body };
+
   event.waitUntil(
     Promise.all([
       // Written to the same IndexedDB store the app reads on load, so
-      // the message is just there next time it opens — no separate
-      // "unread notifications" queue to reconcile against the real
-      // conversation history.
-      appendMessage({ role: "navi", text: payload.body }),
+      // the message is there even if the app was fully closed and gets
+      // relaunched later.
+      appendMessage(message),
       self.registration.showNotification(payload.title, {
         body: payload.body,
         icon: "icon-192.png",
         badge: "icon-192.png",
         data: { url: payload.url ?? "." },
+      }),
+      // If the app is already open (foreground or just backgrounded,
+      // not closed), it already loaded its message list once at mount
+      // and has no way to know IndexedDB changed underneath it — a
+      // push landing wouldn't show up until the next full relaunch
+      // without this. Tell every open tab directly instead of relying
+      // on a reload.
+      self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(clients => {
+        for (const client of clients) client.postMessage({ type: "navi-message", message });
       }),
     ]),
   );

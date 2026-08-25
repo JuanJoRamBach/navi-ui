@@ -554,6 +554,24 @@ export default function App() {
     saveMessages(messages);
   }, [messages]);
 
+  // The service worker's push handler (src/sw.ts) writes an incoming
+  // message straight to IndexedDB so it's there on the next launch —
+  // but if the app is already open (foreground or just backgrounded,
+  // not closed), it loaded its message list once at mount and has no
+  // way to know storage changed underneath it. The SW posts the new
+  // message directly to every open tab for exactly this case, so a
+  // push shows up immediately instead of only after a manual relaunch.
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type === "navi-message") {
+        setMessages(m => [...m, event.data.message]);
+      }
+    };
+    navigator.serviceWorker.addEventListener("message", onMessage);
+    return () => navigator.serviceWorker.removeEventListener("message", onMessage);
+  }, []);
+
   // Push notifications — see src/push.ts for the actual subscribe flow
   // and src/sw.ts for how an incoming push gets shown/persisted.
   const [pushStatus, setPushStatus] = useState<PushStatus>("unsubscribed");
