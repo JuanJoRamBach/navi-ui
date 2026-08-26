@@ -578,6 +578,23 @@ export default function App() {
     saveMessages(messages);
   }, [messages]);
 
+  // The "working" label shown in place of a reply while one's being
+  // generated — declared up here (ahead of where it's first used, below)
+  // because the push-listener effect right after this needs
+  // stopResearchPoll, and JS's TDZ means a const used inside an earlier
+  // effect can't be declared further down in the same component body,
+  // even though the effect itself only actually runs later.
+  const [pendingStep, setPendingStep] = useState<string | null>(null);
+  // Holds the setInterval id while polling /research/status for an
+  // in-flight async job — a plain ref since it doesn't drive rendering.
+  const researchPollRef = useRef<number | null>(null);
+  const stopResearchPoll = useCallback(() => {
+    if (researchPollRef.current !== null) {
+      clearInterval(researchPollRef.current);
+      researchPollRef.current = null;
+    }
+  }, []);
+
   // The service worker's push handler (src/sw.ts) writes an incoming
   // message straight to IndexedDB so it's there on the next launch —
   // but if the app is already open (foreground or just backgrounded,
@@ -590,11 +607,17 @@ export default function App() {
     const onMessage = (event: MessageEvent) => {
       if (event.data?.type === "navi-message") {
         setMessages(m => [...m, event.data.message]);
+        // A pushed message arriving is also how an async job (currently
+        // just /research) signals it's actually done — stop polling for
+        // status and clear the pending indicator. Harmless no-op if
+        // neither was active (an ordinary Telegram-originated push).
+        stopResearchPoll();
+        setPendingStep(null);
       }
     };
     navigator.serviceWorker.addEventListener("message", onMessage);
     return () => navigator.serviceWorker.removeEventListener("message", onMessage);
-  }, []);
+  }, [stopResearchPoll]);
 
   // Flattens messages + day dividers into one render list, computed in
   // chronological order (oldest→newest, matching `messages` itself)
@@ -778,18 +801,15 @@ export default function App() {
     el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
   }, [draft]);
 
-  // The "working" label shown in place of a reply while one's being
-  // generated — null means nothing's pending. Mode-specific step
-  // sequences stand in for what a real backend would eventually report
-  // (search progress, tool calls, etc.) — Research gets more of them
-  // since that's the mode where "steps" actually means something.
-  const [pendingStep, setPendingStep] = useState<string | null>(null);
-
   // Real backend call to NAVI's /chat/send — see server.py. The step
   // label shown while pending is real (a genuine wait, not a fake timed
-  // sequence like before), so it just shows the first label for its mode
-  // and clears once the actual reply lands, rather than cycling through
-  // fabricated stages.
+  // sequence like before). Most replies clear it once the response
+  // lands; a /research command is different — the backend acks
+  // immediately ({async: true}) and finishes the actual work in the
+  // background, so pendingStep instead switches to polling
+  // /research/status for live progress until the real result arrives
+  // via push (see the "navi-message" listener below, which stops the
+  // poll and clears pendingStep once that happens).
   const sendMessage = useCallback(() => {
     const text = draft.trim();
     if (!text) return;
@@ -807,16 +827,33 @@ export default function App() {
       body: JSON.stringify({ text, mode: chatModeRef.current }),
     })
       .then(res => res.json())
-      .then((data: { reply?: string; error?: string }) => {
-        setPendingStep(null);
-        if (chatModeRef.current === "research") {
-          celebrateUntilRef.current = fairyTickRef.current + 600; // 10s at 60fps
-        }
+      .then((data: { reply?: string; error?: string; async?: boolean }) => {
         setMessages(m => [...m, {
           role: "navi",
           text: data.reply ?? data.error ?? "(empty reply)",
           timestamp: Date.now(),
         }]);
+
+        if (data.async) {
+          // Keep pendingStep alive — the real result hasn't arrived yet,
+          // only an ack that the job started. Poll for progress until
+          // the push-delivered result clears it.
+          stopResearchPoll();
+          researchPollRef.current = window.setInterval(() => {
+            fetch(`${NAVI_BACKEND_URL}/research/status`)
+              .then(res => res.json())
+              .then((s: { status?: string | null }) => {
+                if (s.status) setPendingStep(s.status);
+              })
+              .catch(() => {}); // a missed poll tick just tries again next interval
+          }, 3000);
+          return;
+        }
+
+        setPendingStep(null);
+        if (chatModeRef.current === "research") {
+          celebrateUntilRef.current = fairyTickRef.current + 600; // 10s at 60fps
+        }
       })
       .catch(() => {
         setPendingStep(null);
@@ -826,7 +863,7 @@ export default function App() {
           timestamp: Date.now(),
         }]);
       });
-  }, [draft]);
+  }, [draft, stopResearchPoll]);
 
   return (
     <div style={{ width: "100vw", height: "100vh", position: "relative", overflow: "hidden", background: "#06050a" }}>
