@@ -79,6 +79,12 @@ export const neutral = {
   // to a chat mode — the old rgba(255,255,255,0.28) read as too dim to
   // register as a status indicator.
   dotNeutral: "rgb(190, 196, 210)",
+  // Server-awake indicator (see the top-right status dot in App.tsx) —
+  // reuses the same solid-dot treatment as dotNeutral, just with
+  // meaning attached: green/amber/red rather than neutral gray.
+  statusAwake: "rgb(96, 210, 140)",
+  statusWaking: "rgb(230, 180, 80)",
+  statusUnreachable: "rgb(220, 100, 100)",
 } as const;
 
 export const MODE_THEME: Record<ChatMode, {

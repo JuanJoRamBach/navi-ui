@@ -693,6 +693,39 @@ export default function App() {
       .catch(() => {}); // panels just show their loading/empty state
   }, []);
 
+  // Server-awake indicator (top-right dot). A plain fetch can't tell
+  // "asleep" apart from "just slow" on its own — Render's cold start is
+  // itself just a slow response to the same request — so this races the
+  // health check against a short timer: still no answer after 3s reads
+  // as "waking up" (cold-starting), a response after that flips it to
+  // "awake". The fetch is never aborted on that timer, since we still
+  // want it to actually finish waking the server up.
+  type ServerStatus = "checking" | "awake" | "waking" | "unreachable";
+  const [serverStatus, setServerStatus] = useState<ServerStatus>("checking");
+  useEffect(() => {
+    let cancelled = false;
+
+    const checkStatus = () => {
+      const slowTimer = window.setTimeout(() => {
+        if (!cancelled) setServerStatus("waking");
+      }, 3000);
+
+      fetch(NAVI_BACKEND_URL)
+        .then(res => {
+          window.clearTimeout(slowTimer);
+          if (!cancelled) setServerStatus(res.ok ? "awake" : "unreachable");
+        })
+        .catch(() => {
+          window.clearTimeout(slowTimer);
+          if (!cancelled) setServerStatus("unreachable");
+        });
+    };
+
+    checkStatus();
+    const interval = window.setInterval(checkStatus, 60000);
+    return () => { cancelled = true; window.clearInterval(interval); };
+  }, []);
+
   // "Today's models" catalog, grouped by provider, derived from every
   // (provider, model) pair NAVI is actually configured to use — the
   // dispatcher roles plus every command's primary/fallback chain. A model
@@ -998,6 +1031,38 @@ export default function App() {
             </button>
           );
         })}
+      </div>
+
+      {/* Server status — top-right. A glance-able answer to "is NAVI
+          asleep right now" (Render free tier spins down after 15min
+          idle) without having to send a message and wait to find out. */}
+      <div
+        title={
+          serverStatus === "awake" ? "NAVI is awake"
+            : serverStatus === "waking" ? "NAVI is waking up (cold start)…"
+            : serverStatus === "unreachable" ? "Can't reach NAVI"
+            : "Checking…"
+        }
+        style={{
+          position: "absolute", top: spacing.xl, right: spacing.xl,
+          display: "flex", alignItems: "center", gap: spacing.xs,
+          zIndex: 10,
+        }}
+      >
+        <span style={{
+          width: DOT_SIZE, height: DOT_SIZE, borderRadius: 9999, flexShrink: 0,
+          background: serverStatus === "awake" ? neutral.statusAwake
+            : serverStatus === "waking" ? neutral.statusWaking
+            : serverStatus === "unreachable" ? neutral.statusUnreachable
+            : neutral.dotNeutral,
+          transition: "background 0.3s ease",
+        }} />
+        <span style={{ fontSize: fontSize.xxs, color: neutral.textMuted }}>
+          {serverStatus === "awake" ? "Online"
+            : serverStatus === "waking" ? "Waking up…"
+            : serverStatus === "unreachable" ? "Unreachable"
+            : "Checking…"}
+        </span>
       </div>
 
       {/* Model picker — shows the model actually in effect for the
