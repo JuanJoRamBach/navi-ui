@@ -29,6 +29,30 @@ import { NAVI_BACKEND_URL } from "./config";
 
 const DOT_SIZE = 8;
 
+// Render's free tier spins the server down after ~15min idle; a cold
+// start can take anywhere from a few seconds to over a minute. Without
+// this, the first fetch after a spin-down just fails outright and the
+// message is effectively lost (the user has to notice the error and
+// retype it) — so on failure, poll this cheap health check until the
+// server answers instead of giving up immediately.
+const WAKE_POLL_INTERVAL_MS = 5000;
+const WAKE_MAX_WAIT_MS = 90000;
+
+async function waitForServer(onStatus: (msg: string) => void): Promise<boolean> {
+  const deadline = Date.now() + WAKE_MAX_WAIT_MS;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(NAVI_BACKEND_URL, { method: "GET" });
+      if (res.ok) return true;
+    } catch {
+      // still asleep/booting — keep polling
+    }
+    onStatus("Waking up NAVI…");
+    await new Promise(r => setTimeout(r, WAKE_POLL_INTERVAL_MS));
+  }
+  return false;
+}
+
 function formatTime(timestamp: number): string {
   return new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
@@ -865,47 +889,67 @@ export default function App() {
       : "Thinking…";
     setPendingStep(firstStep);
 
-    fetch(`${NAVI_BACKEND_URL}/chat/send`, {
+    const handleResponse = (data: { reply?: string; error?: string; async?: boolean }) => {
+      setMessages(m => [...m, {
+        role: "navi",
+        text: data.reply ?? data.error ?? "(empty reply)",
+        timestamp: Date.now(),
+      }]);
+
+      if (data.async) {
+        // Keep pendingStep alive — the real result hasn't arrived yet,
+        // only an ack that the job started. Poll for progress until
+        // the push-delivered result clears it.
+        stopResearchPoll();
+        researchPollRef.current = window.setInterval(() => {
+          fetch(`${NAVI_BACKEND_URL}/research/status`)
+            .then(res => res.json())
+            .then((s: { status?: string | null }) => {
+              if (s.status) setPendingStep(s.status);
+            })
+            .catch(() => {}); // a missed poll tick just tries again next interval
+        }, 3000);
+        return;
+      }
+
+      setPendingStep(null);
+      if (chatModeRef.current === "research") {
+        celebrateUntilRef.current = fairyTickRef.current + 600; // 10s at 60fps
+      }
+    };
+
+    const send = () => fetch(`${NAVI_BACKEND_URL}/chat/send`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text, mode: chatModeRef.current }),
-    })
-      .then(res => res.json())
-      .then((data: { reply?: string; error?: string; async?: boolean }) => {
-        setMessages(m => [...m, {
-          role: "navi",
-          text: data.reply ?? data.error ?? "(empty reply)",
-          timestamp: Date.now(),
-        }]);
+    }).then(res => res.json());
 
-        if (data.async) {
-          // Keep pendingStep alive — the real result hasn't arrived yet,
-          // only an ack that the job started. Poll for progress until
-          // the push-delivered result clears it.
-          stopResearchPoll();
-          researchPollRef.current = window.setInterval(() => {
-            fetch(`${NAVI_BACKEND_URL}/research/status`)
-              .then(res => res.json())
-              .then((s: { status?: string | null }) => {
-                if (s.status) setPendingStep(s.status);
-              })
-              .catch(() => {}); // a missed poll tick just tries again next interval
-          }, 3000);
+    send()
+      .then(handleResponse)
+      .catch(async () => {
+        // First attempt failing usually means the server was asleep and
+        // the cold-start request just errored out instead of waiting —
+        // poll the health check until it answers, then retry the real
+        // send once, rather than losing the message outright.
+        setPendingStep("Waking up NAVI…");
+        const awake = await waitForServer(setPendingStep);
+        if (!awake) {
+          setPendingStep(null);
+          setMessages(m => [...m, {
+            role: "navi",
+            text: "Couldn't reach NAVI after a while — it may be down. Try again shortly.",
+            timestamp: Date.now(),
+          }]);
           return;
         }
-
-        setPendingStep(null);
-        if (chatModeRef.current === "research") {
-          celebrateUntilRef.current = fairyTickRef.current + 600; // 10s at 60fps
-        }
-      })
-      .catch(() => {
-        setPendingStep(null);
-        setMessages(m => [...m, {
-          role: "navi",
-          text: "Couldn't reach NAVI — it may still be waking up (Render free tier sleeps), try again in a moment.",
-          timestamp: Date.now(),
-        }]);
+        send().then(handleResponse).catch(() => {
+          setPendingStep(null);
+          setMessages(m => [...m, {
+            role: "navi",
+            text: "NAVI woke up but the reply itself failed — try sending again.",
+            timestamp: Date.now(),
+          }]);
+        });
       });
   }, [draft, stopResearchPoll]);
 
