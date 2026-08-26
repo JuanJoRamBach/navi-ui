@@ -1,7 +1,7 @@
 import { useRef, useEffect, useState, useCallback, useMemo } from "react";
 import {
   PaperAirplaneIcon,
-  PaperclipIcon,
+  CommandPaletteIcon,
   GitBranchIcon,
   PlusIcon,
   HistoryIcon,
@@ -11,8 +11,6 @@ import {
   ChevronDownIcon,
   ChevronRightIcon,
   CheckIcon,
-  BellIcon,
-  BellFillIcon,
   // Reserved for the future step-log UI (not built yet — no host for
   // these until the fairy-animation research mode exists to pair with):
   // SearchIcon, GlobeIcon, SyncIcon
@@ -23,7 +21,7 @@ import {
   fontFamily, neutral,
 } from "./tokens";
 import { type StoredMessage, loadMessages, saveMessages } from "./storage";
-import { type PushStatus, getPushStatus, subscribeToPush } from "./push";
+import { NAVI_BACKEND_URL } from "./config";
 
 const DOT_SIZE = 8;
 
@@ -124,6 +122,25 @@ const USAGE_COUNTERS: { provider: string; used: number; quota: number; unit: str
   { provider: "Cloudflare", used: 3200, quota: 10000, unit: "Neurons", period: "this week" },
   { provider: "OpenRouter", used: 12, quota: 50, unit: "requests", period: "today" },
   { provider: "OVHcloud", used: 4, quota: 0, unit: "requests", period: "today" }, // 0 quota = untracked anonymous tier
+];
+
+// The command list shown in the toolbar's "Commands" panel. `available`
+// tracks what NAVI's parser actually recognizes today (see COMMANDS in
+// dispatcher/parser.py) versus what's agreed for a later version — kept
+// visible either way so the panel doubles as a roadmap, but greyed out
+// and labeled so tapping a not-yet-real one doesn't look broken.
+const COMMANDS: { name: string; description: string; available: boolean }[] = [
+  { name: "/research", description: "Deep dive with live web search, source reading, and notes.", available: true },
+  { name: "/graph-data", description: "Turns numbers into a real rendered chart instead of a described one.", available: true },
+  { name: "/create-image", description: "Generates an image from a text description.", available: true },
+  { name: "/code", description: "Routes to a coding-specialist model for code-focused requests.", available: true },
+  { name: "/brainstorm", description: "Runs a dedicated ideation pass outside the normal chat flow.", available: true },
+  { name: "/summarize", description: "Condenses a long article, PDF, or posting into a tight digest.", available: false },
+  { name: "/remind", description: "Sets a reminder that arrives as a push notification when it's due.", available: false },
+  { name: "/tailor", description: "Drafts a tailored cover note and company rundown from a job posting + your CV.", available: false },
+  { name: "/design-read", description: "Reads a design screenshot and describes the pattern, plus a ready prompt for Claude Code.", available: false },
+  { name: "/recap", description: "Captures findings and decisions from this conversation as a structured summary.", available: false },
+  { name: "/note", description: "Lightly captures a passing thought or tangent — no structure forced.", available: false },
 ];
 
 const MOCK_HISTORY: { title: string; timestamp: string; mode: ChatMode }[] = [
@@ -648,31 +665,9 @@ export default function App() {
     return [...items].reverse();
   }, [messages]);
 
-  // Push notifications — see src/push.ts for the actual subscribe flow
-  // and src/sw.ts for how an incoming push gets shown/persisted.
-  const [pushStatus, setPushStatus] = useState<PushStatus>("unsubscribed");
-  const [pushError, setPushError] = useState<string | null>(null);
-
-  useEffect(() => {
-    getPushStatus().then(setPushStatus);
-  }, []);
-
-  const handleTogglePush = useCallback(() => {
-    if (pushStatus === "subscribed" || pushStatus === "unsupported") return;
-    setPushError(null);
-    subscribeToPush().then(result => {
-      if (result.ok) {
-        setPushStatus("subscribed");
-      } else {
-        setPushStatus("unsubscribed");
-        setPushError(result.error ?? "Something went wrong.");
-      }
-    });
-  }, [pushStatus]);
-
   const [draft, setDraft] = useState("");
   // Which toolbar popover is open, if any — only one at a time.
-  const [openPanel, setOpenPanel] = useState<"newConvo" | "history" | "models" | "routing" | "usage" | null>(null);
+  const [openPanel, setOpenPanel] = useState<"newConvo" | "history" | "models" | "routing" | "usage" | "commands" | null>(null);
   // Which provider row is expanded in the "Today's models" catalog.
   const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
   // Manual model pick per mode — null means "use DEFAULT_MODEL (auto)".
@@ -766,35 +761,47 @@ export default function App() {
   // since that's the mode where "steps" actually means something.
   const [pendingStep, setPendingStep] = useState<string | null>(null);
 
+  // Real backend call to NAVI's /chat/send — see server.py. The step
+  // label shown while pending is real (a genuine wait, not a fake timed
+  // sequence like before), so it just shows the first label for its mode
+  // and clears once the actual reply lands, rather than cycling through
+  // fabricated stages.
   const sendMessage = useCallback(() => {
     const text = draft.trim();
     if (!text) return;
     setMessages(m => [...m, { role: "user", text, timestamp: Date.now() }]);
     setDraft("");
 
-    const steps = chatModeRef.current === "research"
-      ? ["Searching…", "Reading results…", "Drafting answer…"]
-      : chatModeRef.current === "brainstorm"
-        ? ["Exploring ideas…", "Drafting answer…"]
-        : ["Thinking…"];
+    const firstStep = chatModeRef.current === "research" ? "Searching…"
+      : chatModeRef.current === "brainstorm" ? "Exploring ideas…"
+      : "Thinking…";
+    setPendingStep(firstStep);
 
-    let stepIndex = 0;
-    const advance = () => {
-      setPendingStep(steps[stepIndex]);
-      stepIndex += 1;
-      if (stepIndex < steps.length) {
-        setTimeout(advance, 550 + Math.random() * 300);
-        return;
-      }
-      setTimeout(() => {
+    fetch(`${NAVI_BACKEND_URL}/chat/send`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    })
+      .then(res => res.json())
+      .then((data: { reply?: string; error?: string }) => {
         setPendingStep(null);
         if (chatModeRef.current === "research") {
           celebrateUntilRef.current = fairyTickRef.current + 600; // 10s at 60fps
         }
-        setMessages(m => [...m, { role: "navi", text: "(mock reply — no backend wired up yet)", timestamp: Date.now() }]);
-      }, 550 + Math.random() * 300);
-    };
-    advance();
+        setMessages(m => [...m, {
+          role: "navi",
+          text: data.reply ?? data.error ?? "(empty reply)",
+          timestamp: Date.now(),
+        }]);
+      })
+      .catch(() => {
+        setPendingStep(null);
+        setMessages(m => [...m, {
+          role: "navi",
+          text: "Couldn't reach NAVI — it may still be waking up (Render free tier sleeps), try again in a moment.",
+          timestamp: Date.now(),
+        }]);
+      });
   }, [draft]);
 
   return (
@@ -1044,51 +1051,6 @@ export default function App() {
               </button>
             );
           })}
-
-          {/* Not a popover like the other five — a direct toggle, so it
-              doesn't fit the togglePanel()/openPanel plumbing above.
-              Label and icon reflect actual subscription state (checked
-              via getPushStatus on mount) rather than assuming success —
-              "Enable notifications" would be a lie once already
-              subscribed, or on a browser that doesn't support push at
-              all. pushError surfaces via title (hover/long-press) rather
-              than a toast — good enough for now, matches how the rest
-              of this prototype defers polish on secondary states. */}
-          <button
-            className="snap-item"
-            aria-label={
-              pushStatus === "subscribed" ? "Notifications on"
-                : pushStatus === "denied" ? "Notifications blocked in browser settings"
-                : pushStatus === "unsupported" ? "Notifications not supported in this browser"
-                : "Enable notifications"
-            }
-            title={pushError ?? undefined}
-            onClick={handleTogglePush}
-            style={{
-              display: "flex", alignItems: "center", gap: spacing.xs, flexShrink: 0,
-              padding: `${spacing.sm}px ${spacing.md}px`,
-              borderRadius: radius.sm,
-              border: `1px solid ${theme.bubbleBorder}`,
-              background: theme.bubbleBg,
-              color: pushStatus === "denied" || pushStatus === "unsupported" ? neutral.textMuted : neutral.textPrimary,
-              cursor: pushStatus === "subscribed" || pushStatus === "unsupported" ? "default" : "pointer",
-              fontSize: fontSize.xs,
-              fontFamily,
-              fontWeight: fontWeight.medium,
-              whiteSpace: "nowrap",
-              backdropFilter: `blur(${blur.sm}px)`,
-              boxShadow: pushStatus === "subscribed"
-                ? `0 2px 20px rgba(0,0,0,0.5), 0 0 16px ${theme.glow}, inset 0 0 12px ${theme.glow}`
-                : `0 2px 20px rgba(0,0,0,0.45), 0 0 10px ${theme.glow}, inset 0 0 8px ${theme.glow}`,
-              transition: "all 0.35s ease",
-            }}
-          >
-            {pushStatus === "subscribed" ? <BellFillIcon size={iconSize.sm} /> : <BellIcon size={iconSize.sm} />}
-            {pushStatus === "subscribed" ? "Notifications on"
-              : pushStatus === "denied" ? "Blocked"
-              : pushStatus === "unsupported" ? "Unsupported"
-              : "Enable notifications"}
-          </button>
         </div>
 
         {openPanel && anchorRect && (
@@ -1308,6 +1270,29 @@ export default function App() {
                 </div>
               )}
 
+              {openPanel === "commands" && (
+                <div>
+                  <div style={{ fontSize: fontSize.xs, color: neutral.textMuted, marginBottom: spacing.sm }}>
+                    Commands
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: spacing.sm }}>
+                    {COMMANDS.map(c => (
+                      <div key={c.name} style={{ opacity: c.available ? 1 : 0.5 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, fontSize: fontSize.xs, color: neutral.textPrimary }}>
+                          {c.name}
+                          {!c.available && (
+                            <span style={{ fontSize: fontSize.xxs, color: neutral.textMuted }}>(coming soon)</span>
+                          )}
+                        </div>
+                        <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted, marginTop: 2 }}>
+                          {c.description}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {openPanel === "usage" && (
                 <div>
                   <div style={{ fontSize: fontSize.xs, color: neutral.textMuted, marginBottom: spacing.md }}>
@@ -1349,8 +1334,9 @@ export default function App() {
           backdropFilter: `blur(${blur.md}px)`,
         }}>
           <button
-            aria-label="Attach file"
-            title="Attach file"
+            aria-label="Commands"
+            title="Commands"
+            onClick={e => togglePanel("commands", e.currentTarget)}
             style={{
               width: controlSize.md, height: controlSize.md, flexShrink: 0,
               display: "flex", alignItems: "center", justifyContent: "center",
@@ -1358,7 +1344,7 @@ export default function App() {
               background: "transparent", color: neutral.textMuted,
             }}
           >
-            <PaperclipIcon size={iconSize.md} />
+            <CommandPaletteIcon size={iconSize.md} />
           </button>
           <textarea
             ref={textareaRef}

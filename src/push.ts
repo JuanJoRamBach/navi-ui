@@ -3,14 +3,13 @@
 // the one-time setup: ask permission, register with the browser's push
 // service, hand the resulting subscription to NAVI's backend so it
 // knows where to send future pushes.
+import { NAVI_BACKEND_URL } from "./config";
 
 // Public key only — safe to ship in client source. Must match
 // VAPID_PUBLIC_KEY in NAVI's .env exactly; if the backend's key pair is
 // ever rotated, this needs updating too or subscribe calls will fail
 // with a key-mismatch error from the push service.
 const VAPID_PUBLIC_KEY = "BK1C5jSXcABSJRzDQuU5761LwzUC9_9KZ6Fwyz55Pr6Swqsa1P72mmDT0x7ORstt5dv-7rQG-T81oy0Y7moYUQM";
-
-const NAVI_BACKEND_URL = "https://navi-fih8.onrender.com";
 
 export type PushStatus = "unsupported" | "denied" | "subscribed" | "unsubscribed";
 
