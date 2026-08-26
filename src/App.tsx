@@ -96,7 +96,7 @@ const COMMANDS: { name: string; description: string; available: boolean }[] = [
   { name: "/code", description: "Routes to a coding-specialist model for code-focused requests.", available: true },
   { name: "/summarize", description: "Condenses a long article, PDF, or posting into a tight digest.", available: true },
   { name: "/remind", description: "Sets a reminder that arrives as a push notification when it's due.", available: true },
-  { name: "/tailor", description: "Drafts a tailored cover note and company rundown from a job posting + your CV.", available: false },
+  { name: "/tailor", description: "Drafts a tailored cover note and company rundown from a job posting + your CV.", available: true },
   { name: "/design-read", description: "Reads a design screenshot and describes the pattern, plus a ready prompt for Claude Code.", available: false },
   { name: "/recap", description: "Captures findings and decisions from this conversation as a structured summary.", available: true },
   { name: "/note", description: "Lightly captures a passing thought or tangent — no structure forced.", available: true },
