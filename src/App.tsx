@@ -46,77 +46,32 @@ function formatDayLabel(timestamp: number): string {
   });
 }
 
-// "Best at" taxonomy borrowed from OpenRouter's benchmark categories
-// (Intelligence/Coding/Agentic composite indices) — not live-fetched
-// scores, since NAVI's actual roster is mostly Groq/Cloudflare/Ollama
-// Cloud/OVHcloud, and OpenRouter's benchmark set only covers models
-// that route through OpenRouter itself. Using their taxonomy as a
-// shared vocabulary while the tags themselves stay editorial for now.
-type ModelTag = "Intelligence" | "Coding" | "Agentic";
-const TAG_COLOR: Record<ModelTag, { bg: string; text: string }> = {
-  Intelligence: { bg: "rgba(150, 140, 255, 0.16)", text: "rgba(190, 180, 255, 0.95)" },
-  Coding: { bg: "rgba(90, 180, 255, 0.16)", text: "rgba(140, 200, 255, 0.95)" },
-  Agentic: { bg: "rgba(255, 170, 90, 0.16)", text: "rgba(255, 195, 130, 0.95)" },
+// Real provider/model data, fetched from NAVI's own config at
+// /config/routing (see server.py) instead of hardcoded here — this used
+// to be a static mock that silently drifted from whatever NAVI was
+// actually configured to use. See RoutingConfig/useEffect fetch below.
+type ModelEntry = { provider: string; model: string };
+interface RoutingConfig {
+  roles: { dispatcher_chat: ModelEntry | null; dispatcher_autonomous: ModelEntry | null };
+  task_routing: Record<string, { primary: ModelEntry | null; fallback: ModelEntry[] } | null>;
+  enabled_providers: string[];
+}
+
+// Display label + (for the three that map to a chat mode) the dot color
+// carried over from that mode's theme — /code and /create-image aren't
+// chat modes, so they get no dot, same as the old mock's Code/Images rows.
+const COMMAND_ROUTING_LABEL: Record<string, { label: string; dotColor?: string }> = {
+  research: { label: "Research", dotColor: MODE_THEME.research.dot },
+  brainstorm: { label: "Brainstorm", dotColor: MODE_THEME.brainstorm.dot },
+  code: { label: "Code" },
+  "graph-data": { label: "Graphs" },
+  "create-image": { label: "Images" },
 };
 
-// "Today's models" — a provider catalog (every model NAVI has access
-// to per provider), not a per-task assignment table. That's what
-// Routing & Fallbacks is for; the two panels showed the same
-// information before this split. `note` stands in for a tag row on
-// models the Intelligence/Coding/Agentic taxonomy doesn't fit (image
-// generation, mainly).
-const PROVIDER_MODELS: { provider: string; models: { name: string; tags: ModelTag[]; note?: string }[] }[] = [
-  {
-    provider: "Groq", models: [
-      { name: "gpt-oss-20b", tags: ["Intelligence"] },
-      { name: "gpt-oss-120b", tags: ["Intelligence", "Agentic"] },
-      { name: "compound", tags: ["Agentic"] },
-      { name: "compound-mini", tags: ["Agentic"] },
-      { name: "llama-3.1-8b-instant", tags: ["Intelligence"] },
-    ],
-  },
-  {
-    provider: "Cloudflare", models: [
-      { name: "qwen2.5-coder-32b-instruct", tags: ["Coding"] },
-    ],
-  },
-  {
-    provider: "Ollama Cloud", models: [
-      { name: "minimax-m3:cloud", tags: ["Intelligence", "Agentic"] },
-      { name: "deepseek-v4-flash:cloud", tags: ["Intelligence"] },
-    ],
-  },
-  {
-    provider: "OpenRouter", models: [
-      { name: "meta-llama/llama-3.3-70b-instruct:free", tags: ["Intelligence"] },
-      { name: "deepseek/deepseek-r1:free", tags: ["Intelligence", "Agentic"] },
-      { name: "google/gemini-2.0-flash-exp:free", tags: ["Intelligence", "Coding"] },
-      { name: "qwen/qwen-2.5-72b-instruct:free", tags: ["Coding"] },
-    ],
-  },
-  {
-    provider: "OVHcloud", models: [
-      { name: "stable-diffusion-xl", tags: [], note: "Image generation" },
-    ],
-  },
-];
-
-// What each mode uses when nothing's been manually picked (see
-// modelOverride state) — the per-mode auto-routing default.
-const DEFAULT_MODEL: Record<ChatMode, { provider: string; model: string }> = {
-  normal: { provider: "Groq", model: "gpt-oss-20b" },
-  research: { provider: "Groq", model: "compound" },
-  brainstorm: { provider: "Ollama Cloud", model: "minimax-m3:cloud" },
-};
-
-const ROUTING_CHAINS: { label: string; chain: string[]; dotColor?: string }[] = [
-  { label: "Normal Chat", chain: ["Groq · gpt-oss-20b", "Groq · gpt-oss-120b"], dotColor: MODE_THEME.normal.dot },
-  { label: "Research", chain: ["Groq · compound", "Groq · compound-mini"], dotColor: MODE_THEME.research.dot },
-  { label: "Brainstorm", chain: ["Ollama Cloud · minimax-m3:cloud"], dotColor: MODE_THEME.brainstorm.dot },
-  { label: "Code", chain: ["Cloudflare · qwen2.5-coder-32b-instruct"] },
-  { label: "Images", chain: ["OVHcloud · stable-diffusion-xl"] },
-];
-
+// USAGE_COUNTERS stays a mock on purpose — NAVI doesn't track real usage
+// anywhere yet (no persisted counters), so wiring this panel to real data
+// means building actual instrumentation, not just reading existing state.
+// Deliberately left as-is rather than silently pretending it's live.
 const USAGE_COUNTERS: { provider: string; used: number; quota: number; unit: string; period: string }[] = [
   { provider: "Groq", used: 640, quota: 1000, unit: "requests", period: "today" },
   { provider: "Cloudflare", used: 3200, quota: 10000, unit: "Neurons", period: "this week" },
@@ -665,20 +620,90 @@ export default function App() {
     return [...items].reverse();
   }, [messages]);
 
+  // Real provider/model roster from NAVI itself — see RoutingConfig above
+  // and GET /config/routing in server.py. Null until the fetch resolves;
+  // every consumer below has to handle that (loading, or the backend
+  // being asleep — Render free tier).
+  const [routingConfig, setRoutingConfig] = useState<RoutingConfig | null>(null);
+  useEffect(() => {
+    fetch(`${NAVI_BACKEND_URL}/config/routing`)
+      .then(res => res.json())
+      .then(setRoutingConfig)
+      .catch(() => {}); // panels just show their loading/empty state
+  }, []);
+
+  // "Today's models" catalog, grouped by provider, derived from every
+  // (provider, model) pair NAVI is actually configured to use — the
+  // dispatcher roles plus every command's primary/fallback chain. A model
+  // used in more than one place (e.g. a fallback shared across commands)
+  // collects all its usage labels rather than appearing twice.
+  const providerModels = useMemo(() => {
+    if (!routingConfig) return [];
+    const byProvider = new Map<string, Map<string, string[]>>();
+    const add = (entry: ModelEntry | null | undefined, label: string) => {
+      if (!entry) return;
+      const models = byProvider.get(entry.provider) ?? new Map<string, string[]>();
+      const labels = models.get(entry.model) ?? [];
+      labels.push(label);
+      models.set(entry.model, labels);
+      byProvider.set(entry.provider, models);
+    };
+    add(routingConfig.roles.dispatcher_chat, "Normal chat");
+    add(routingConfig.roles.dispatcher_autonomous, "Autonomous jobs");
+    for (const [cmd, routing] of Object.entries(routingConfig.task_routing)) {
+      if (!routing?.primary) continue;
+      const cmdLabel = COMMAND_ROUTING_LABEL[cmd]?.label ?? cmd;
+      add(routing.primary, `/${cmd}`);
+      routing.fallback.forEach(fb => add(fb, `${cmdLabel} fallback`));
+    }
+    return Array.from(byProvider.entries()).map(([provider, models]) => ({
+      provider,
+      models: Array.from(models.entries()).map(([name, labels]) => ({ name, labels })),
+    }));
+  }, [routingConfig]);
+
+  // "Routing & fallbacks" chains, one per command that has a primary
+  // configured — plus Normal Chat, which comes from the dispatcher_chat
+  // role rather than task_routing.
+  const routingChains = useMemo(() => {
+    if (!routingConfig) return [];
+    const chains: { label: string; chain: string[]; dotColor?: string }[] = [];
+    const chat = routingConfig.roles.dispatcher_chat;
+    if (chat) chains.push({ label: "Normal Chat", chain: [`${chat.provider} · ${chat.model}`], dotColor: MODE_THEME.normal.dot });
+    for (const [cmd, routing] of Object.entries(routingConfig.task_routing)) {
+      if (!routing?.primary) continue;
+      const meta = COMMAND_ROUTING_LABEL[cmd] ?? { label: cmd };
+      const chain = [routing.primary, ...routing.fallback].map(e => `${e.provider} · ${e.model}`);
+      chains.push({ label: meta.label, chain, dotColor: meta.dotColor });
+    }
+    return chains;
+  }, [routingConfig]);
+
   const [draft, setDraft] = useState("");
   // Which toolbar popover is open, if any — only one at a time.
   const [openPanel, setOpenPanel] = useState<"newConvo" | "history" | "models" | "routing" | "usage" | "commands" | null>(null);
   // Which provider row is expanded in the "Today's models" catalog.
   const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
-  // Manual model pick per mode — null means "use DEFAULT_MODEL (auto)".
-  // Scoped per-mode rather than one global override, since each mode
-  // already has its own task/model role.
+  // Manual model pick per mode — null means "use the auto-routed
+  // default". Scoped per-mode rather than one global override, since
+  // each mode already has its own task/model role.
   const [modelOverride, setModelOverride] = useState<Record<ChatMode, { provider: string; model: string } | null>>({
     normal: null, research: null, brainstorm: null,
   });
-  // The model actually in effect for the current mode — a manual pick
-  // if one exists, otherwise the auto-routed default.
-  const effectiveModel = modelOverride[chatMode] ?? DEFAULT_MODEL[chatMode];
+  // The real auto-routed default for the current mode: Normal maps to
+  // dispatcher_chat (what /chat/send actually uses today); Research and
+  // Brainstorm map to their command's primary, since NAVI doesn't yet
+  // route those modes differently from Normal in live chat — see the
+  // "modes aren't mode-locked yet" design note in memory.
+  const autoModelFor = useCallback((mode: ChatMode): ModelEntry | null => {
+    if (!routingConfig) return null;
+    if (mode === "normal") return routingConfig.roles.dispatcher_chat;
+    return routingConfig.task_routing[mode]?.primary ?? null;
+  }, [routingConfig]);
+  // The model actually in effect for the current mode — a manual pick if
+  // one exists, otherwise the real auto-routed default (or a loading
+  // placeholder while /config/routing hasn't resolved yet).
+  const effectiveModel = modelOverride[chatMode] ?? autoModelFor(chatMode) ?? { provider: "—", model: "loading…" };
   // The clicked button's on-screen position at open time, in viewport
   // pixels — the popover renders as position:fixed off of this instead
   // of position:absolute nested inside the button. The toolbar row
@@ -1159,12 +1184,14 @@ export default function App() {
                   </div>
                   {/* A provider catalog, not a per-task assignment table
                       — that's what Routing & Fallbacks is for. Each
-                      provider expands to its available models, tagged
-                      with what it's good at. Every model row (plus the
-                      Auto row below) is selectable, scoped to whichever
-                      chat mode is active — see modelOverride/
-                      effectiveModel and the picker pill under the mode
-                      selector. */}
+                      provider expands to its available models, labeled
+                      with where NAVI actually uses each one. Every model
+                      row (plus the Auto row below) is selectable, scoped
+                      to whichever chat mode is active — see
+                      modelOverride/effectiveModel and the picker pill
+                      under the mode selector. Data comes from
+                      /config/routing (routingConfig) — empty until that
+                      fetch resolves. */}
                   <button
                     onClick={() => { setModelOverride(o => ({ ...o, [chatMode]: null })); setOpenPanel(null); }}
                     style={{
@@ -1178,8 +1205,11 @@ export default function App() {
                     <span>Auto (recommended)</span>
                     {!modelOverride[chatMode] && <CheckIcon size={12} />}
                   </button>
+                  {!routingConfig && (
+                    <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted }}>Loading…</div>
+                  )}
                   <div style={{ display: "flex", flexDirection: "column", gap: spacing.xs }}>
-                    {PROVIDER_MODELS.map(p => {
+                    {providerModels.map(p => {
                       const expanded = expandedProvider === p.provider;
                       return (
                         <div key={p.provider}>
@@ -1219,18 +1249,8 @@ export default function App() {
                                   >
                                     <span>
                                       <div style={{ fontSize: fontSize.xs, color: neutral.textPrimary }}>{m.name}</div>
-                                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 3 }}>
-                                        {m.tags.map(t => (
-                                          <span key={t} style={{
-                                            fontSize: 10, fontWeight: fontWeight.medium, padding: "2px 6px",
-                                            borderRadius: 9999, background: TAG_COLOR[t].bg, color: TAG_COLOR[t].text,
-                                          }}>
-                                            {t}
-                                          </span>
-                                        ))}
-                                        {m.note && (
-                                          <span style={{ fontSize: fontSize.xxs, color: neutral.textMuted }}>{m.note}</span>
-                                        )}
+                                      <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted, marginTop: 2 }}>
+                                        {m.labels.join(" · ")}
                                       </div>
                                     </span>
                                     {isSelected && <CheckIcon size={12} />}
@@ -1251,8 +1271,11 @@ export default function App() {
                   <div style={{ fontSize: fontSize.xs, color: neutral.textMuted, marginBottom: spacing.sm }}>
                     Routing &amp; fallbacks
                   </div>
+                  {!routingConfig && (
+                    <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted }}>Loading…</div>
+                  )}
                   <div style={{ display: "flex", flexDirection: "column", gap: spacing.sm }}>
-                    {ROUTING_CHAINS.map(r => (
+                    {routingChains.map(r => (
                       <div key={r.label}>
                         <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, marginBottom: 2 }}>
                           <span style={{
