@@ -690,15 +690,14 @@ export default function App() {
   const [modelOverride, setModelOverride] = useState<Record<ChatMode, { provider: string; model: string } | null>>({
     normal: null, research: null, brainstorm: null,
   });
-  // The real auto-routed default for the current mode: Normal maps to
-  // dispatcher_chat (what /chat/send actually uses today); Research and
-  // Brainstorm map to their command's primary, since NAVI doesn't yet
-  // route those modes differently from Normal in live chat — see the
-  // "modes aren't mode-locked yet" design note in memory.
-  const autoModelFor = useCallback((mode: ChatMode): ModelEntry | null => {
-    if (!routingConfig) return null;
-    if (mode === "normal") return routingConfig.roles.dispatcher_chat;
-    return routingConfig.task_routing[mode]?.primary ?? null;
+  // The real auto-routed default — the same dispatcher_chat model
+  // answers every mode's free-form chat; only the system prompt and
+  // allowed tools change per mode (see dispatcher/modes/ + dispatcher/
+  // chat.py in NAVI). A typed /research or /brainstorm command still
+  // uses that command's own task_routing model — this pill is about
+  // what answers your actual chat messages, not the slash commands.
+  const autoModelFor = useCallback((_mode: ChatMode): ModelEntry | null => {
+    return routingConfig?.roles.dispatcher_chat ?? null;
   }, [routingConfig]);
   // The model actually in effect for the current mode — a manual pick if
   // one exists, otherwise the real auto-routed default (or a loading
@@ -805,7 +804,7 @@ export default function App() {
     fetch(`${NAVI_BACKEND_URL}/chat/send`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text, mode: chatModeRef.current }),
     })
       .then(res => res.json())
       .then((data: { reply?: string; error?: string }) => {
