@@ -57,12 +57,13 @@ interface RoutingConfig {
   enabled_providers: string[];
 }
 
-// Display label + (for the three that map to a chat mode) the dot color
-// carried over from that mode's theme — /code and /create-image aren't
-// chat modes, so they get no dot, same as the old mock's Code/Images rows.
+// Display label + (for /research, which maps to a chat mode) the dot
+// color carried over from that mode's theme — /code, /graph-data, and
+// /create-image aren't chat modes, so they get no dot. No "brainstorm"
+// entry — the /brainstorm command was retired in favor of Brainstorm
+// mode's own conversational chat, which does its job better.
 const COMMAND_ROUTING_LABEL: Record<string, { label: string; dotColor?: string }> = {
   research: { label: "Research", dotColor: MODE_THEME.research.dot },
-  brainstorm: { label: "Brainstorm", dotColor: MODE_THEME.brainstorm.dot },
   code: { label: "Code" },
   "graph-data": { label: "Graphs" },
   "create-image": { label: "Images" },
@@ -89,7 +90,6 @@ const COMMANDS: { name: string; description: string; available: boolean }[] = [
   { name: "/graph-data", description: "Turns numbers into a real rendered chart instead of a described one.", available: true },
   { name: "/create-image", description: "Generates an image from a text description.", available: true },
   { name: "/code", description: "Routes to a coding-specialist model for code-focused requests.", available: true },
-  { name: "/brainstorm", description: "Runs a dedicated ideation pass outside the normal chat flow.", available: true },
   { name: "/summarize", description: "Condenses a long article, PDF, or posting into a tight digest.", available: false },
   { name: "/remind", description: "Sets a reminder that arrives as a push notification when it's due.", available: false },
   { name: "/tailor", description: "Drafts a tailored cover note and company rundown from a job posting + your CV.", available: false },
@@ -716,9 +716,9 @@ export default function App() {
   // The real auto-routed default — the same dispatcher_chat model
   // answers every mode's free-form chat; only the system prompt and
   // allowed tools change per mode (see dispatcher/modes/ + dispatcher/
-  // chat.py in NAVI). A typed /research or /brainstorm command still
-  // uses that command's own task_routing model — this pill is about
-  // what answers your actual chat messages, not the slash commands.
+  // chat.py in NAVI). A typed /research command still uses its own
+  // task_routing model — this pill is about what answers your actual
+  // chat messages, not the slash commands.
   const autoModelFor = useCallback((_mode: ChatMode): ModelEntry | null => {
     return routingConfig?.roles.dispatcher_chat ?? null;
   }, [routingConfig]);
