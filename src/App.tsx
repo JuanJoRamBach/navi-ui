@@ -20,7 +20,11 @@ import {
   spacing, radius, fontSize, fontWeight, lineHeight, iconSize, controlSize, blur,
   fontFamily, neutral,
 } from "./tokens";
-import { type StoredMessage, loadMessages, saveMessages } from "./storage";
+import {
+  type StoredMessage, type Conversation,
+  getActiveConversationId, loadConversation, saveConversation,
+  createConversation, listConversations, switchActiveConversation, deriveTitle,
+} from "./storage";
 import { NAVI_BACKEND_URL } from "./config";
 
 const DOT_SIZE = 8;
@@ -96,12 +100,6 @@ const COMMANDS: { name: string; description: string; available: boolean }[] = [
   { name: "/design-read", description: "Reads a design screenshot and describes the pattern, plus a ready prompt for Claude Code.", available: false },
   { name: "/recap", description: "Captures findings and decisions from this conversation as a structured summary.", available: false },
   { name: "/note", description: "Lightly captures a passing thought or tangent — no structure forced.", available: false },
-];
-
-const MOCK_HISTORY: { title: string; timestamp: string; mode: ChatMode }[] = [
-  { title: "Junior UX portfolio feedback", timestamp: "Yesterday, 14:32", mode: "brainstorm" },
-  { title: "AEMET alert integration research", timestamp: "2 days ago", mode: "research" },
-  { title: "Just checking in", timestamp: "4 days ago", mode: "normal" },
 ];
 
 interface Particle {
@@ -537,45 +535,61 @@ export default function App() {
 
   const theme = MODE_THEME[chatMode];
 
-  // Local-only chat state — no backend wiring yet, just enough to test
-  // real send-events against (versus fake trigger buttons) once the
-  // fairy/leaves animation gets built next. This mock intro is the
-  // default for a genuinely first-ever launch; loadedFromStorage below
-  // overwrites it with whatever's actually saved, if anything is.
-  const [messages, setMessages] = useState<StoredMessage[]>([
-    { role: "navi", text: "Hey — this is just a mock reply so both bubble styles are visible while we tune the look.", timestamp: Date.now() },
-    { role: "user", text: "Got it, this is what a sent message looks like.", timestamp: Date.now() },
-  ]);
+  // Chat state for whichever conversation is currently active — empty
+  // until the load effect below hydrates it (real conversation, or a
+  // freshly created one on a genuinely first-ever launch).
+  const [messages, setMessages] = useState<StoredMessage[]>([]);
+  // Which conversation `messages` belongs to — a ref, not state, since
+  // writing it should never itself trigger a re-render (only `messages`
+  // changing should). Read by the save effect and by loadConversation
+  // when switching.
+  const activeConversationIdRef = useRef<string | null>(null);
   // Guards the save effect below from firing before the load effect has
   // had a chance to run — without this, mounting would immediately
-  // persist the mock intro messages over whatever was actually stored,
-  // since both effects fire on the same initial render.
+  // persist an empty array over whatever was actually stored, since both
+  // effects fire on the same initial render.
   const loadedFromStorage = useRef(false);
   // How many messages existed at hydration — anything at or past this
   // index arrived live during the session (a real send, or a push) and
   // gets the streaming-text reveal; anything before it is history and
-  // renders instantly. Starts at Infinity, not 0 — hydration is async,
-  // and with 0 as the starting value the initial mock messages would
-  // briefly satisfy "index >= 0" and stream in on every launch, before
-  // the real baseline is set moments later.
+  // renders instantly. Starts at Infinity so nothing streams before the
+  // real baseline is set (hydration is async).
   const hydratedCountRef = useRef(Infinity);
 
+  // Loads whichever conversation was last active, or creates a fresh one
+  // on a genuinely first-ever launch (no active id yet, or the id points
+  // at a conversation that's somehow gone missing).
+  // Guards against StrictMode's double-invoke: without this, both
+  // invocations' async getActiveConversationId() calls can resolve null
+  // before either commits a newly-created conversation as active, so both
+  // branches call createConversation() and two empty conversations get made.
+  const initStartedRef = useRef(false);
   useEffect(() => {
-    loadMessages().then(stored => {
-      if (stored !== undefined) {
-        setMessages(stored);
-        hydratedCountRef.current = stored.length;
-      } else {
-        hydratedCountRef.current = messages.length; // the 2-message mock default, nothing saved yet
-      }
+    if (initStartedRef.current) return;
+    initStartedRef.current = true;
+    (async () => {
+      const activeId = await getActiveConversationId();
+      const conversation = (activeId && await loadConversation(activeId)) || await createConversation(chatModeRef.current);
+      activeConversationIdRef.current = conversation.id;
+      setMessages(conversation.messages);
+      hydratedCountRef.current = conversation.messages.length;
+      selectChatMode(conversation.mode);
       loadedFromStorage.current = true;
-    });
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (!loadedFromStorage.current) return;
-    saveMessages(messages);
+    const id = activeConversationIdRef.current;
+    if (!id) return;
+    saveConversation({
+      id,
+      title: deriveTitle(messages),
+      mode: chatModeRef.current,
+      updatedAt: messages.length ? messages[messages.length - 1].timestamp : Date.now(),
+      messages,
+    });
   }, [messages]);
 
   // The "working" label shown in place of a reply while one's being
@@ -705,6 +719,36 @@ export default function App() {
   const [draft, setDraft] = useState("");
   // Which toolbar popover is open, if any — only one at a time.
   const [openPanel, setOpenPanel] = useState<"newConvo" | "history" | "models" | "routing" | "usage" | "commands" | null>(null);
+  // Real saved conversations for the "Past conversations" panel —
+  // refreshed each time that panel opens (see the effect below) rather
+  // than kept live at all times, since it's the only place this list is
+  // shown.
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  useEffect(() => {
+    if (openPanel !== "history") return;
+    listConversations().then(setConversations);
+  }, [openPanel]);
+
+  // Loads a saved conversation into view, replacing whatever's currently
+  // showing. Switches the active-conversation pointer in storage too, so
+  // a push arriving afterward (or the next launch) lands here, not back
+  // on the conversation this replaced.
+  const openConversation = useCallback(async (conversation: Conversation) => {
+    await switchActiveConversation(conversation.id);
+    activeConversationIdRef.current = conversation.id;
+    setMessages(conversation.messages);
+    hydratedCountRef.current = conversation.messages.length;
+    selectChatMode(conversation.mode);
+    setOpenPanel(null);
+  }, [selectChatMode]);
+
+  const startNewConversation = useCallback(async () => {
+    const conversation = await createConversation(chatModeRef.current);
+    activeConversationIdRef.current = conversation.id;
+    setMessages([]);
+    hydratedCountRef.current = 0;
+    setOpenPanel(null);
+  }, []);
   // Which provider row is expanded in the "Today's models" catalog.
   const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
   // Manual model pick per mode — null means "use the auto-routed
@@ -1146,7 +1190,7 @@ export default function App() {
               {openPanel === "newConvo" && (
                 <div>
                   <div style={{ fontSize: fontSize.sm, marginBottom: spacing.sm }}>
-                    Start a new conversation? This clears the current chat.
+                    Start a new conversation? The current one is saved — find it under Past conversations.
                   </div>
                   <div style={{ display: "flex", gap: spacing.xs, justifyContent: "flex-end" }}>
                     <button
@@ -1160,7 +1204,7 @@ export default function App() {
                       Cancel
                     </button>
                     <button
-                      onClick={() => { setMessages([]); setOpenPanel(null); }}
+                      onClick={startNewConversation}
                       style={{
                         padding: `${spacing.xs}px ${spacing.md}px`, borderRadius: radius.sm,
                         border: `1px solid ${theme.bubbleBorder}`, background: neutral.surface,
@@ -1179,15 +1223,21 @@ export default function App() {
                   <div style={{ fontSize: fontSize.xs, color: neutral.textMuted, marginBottom: spacing.sm }}>
                     Past conversations
                   </div>
+                  {conversations.length === 0 && (
+                    <div style={{ fontSize: fontSize.xs, color: neutral.textMuted }}>
+                      Nothing saved yet.
+                    </div>
+                  )}
                   <div style={{ display: "flex", flexDirection: "column", gap: spacing.xs }}>
-                    {MOCK_HISTORY.map(h => (
+                    {conversations.map(c => (
                       <button
-                        key={h.title}
-                        onClick={() => setOpenPanel(null)}
+                        key={c.id}
+                        onClick={() => openConversation(c)}
                         style={{
                           display: "flex", alignItems: "flex-start", gap: spacing.xs,
                           padding: spacing.xs, borderRadius: radius.sm, border: "none",
-                          background: "transparent", cursor: "pointer", textAlign: "left",
+                          background: c.id === activeConversationIdRef.current ? "rgba(255,255,255,0.06)" : "transparent",
+                          cursor: "pointer", textAlign: "left",
                           width: "100%",
                         }}
                       >
@@ -1199,13 +1249,15 @@ export default function App() {
                         <span style={{
                           width: DOT_SIZE, height: DOT_SIZE, borderRadius: 9999, flexShrink: 0,
                           marginTop: 3,
-                          background: MODE_THEME[h.mode].dot,
+                          background: MODE_THEME[c.mode].dot,
                         }} />
                         <span style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: fontSize.xs, color: neutral.textPrimary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {h.title}
+                            {c.title}
                           </div>
-                          <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted }}>{h.timestamp}</div>
+                          <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted }}>
+                            {formatDayLabel(c.updatedAt)}, {formatTime(c.updatedAt)}
+                          </div>
                         </span>
                       </button>
                     ))}
