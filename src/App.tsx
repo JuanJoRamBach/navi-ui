@@ -12,9 +12,11 @@ import {
   ChevronRightIcon,
   CheckIcon,
   FileIcon,
+  DownloadIcon,
+  GlobeIcon,
   // Reserved for the future step-log UI (not built yet — no host for
   // these until the fairy-animation research mode exists to pair with):
-  // SearchIcon, GlobeIcon, SyncIcon
+  // SearchIcon, SyncIcon
 } from "@primer/octicons-react";
 import {
   type Mode, type ChatMode, MODE_THEME,
@@ -183,25 +185,78 @@ interface Fairy {
 // than lifting it to the parent: this way each animating bubble
 // re-renders itself every ~18ms, not the whole message list.
 // NAVI has no real attachment channel to the PWA the way Telegram gets
-// real file uploads — a saved artifact reaches here as a plain
-// "📎 filename: url" line appended to the reply text (see server.py's
-// _pwa_download_links). Parsed out at render time rather than changing
-// what's stored, so a downloaded file becomes a real chip/button below
-// the message instead of a raw URL sitting in the middle of the prose.
-const ATTACHMENT_LINE_RE = /📎 (.+?): (https?:\/\/\S+)/g;
+// real file uploads — a saved artifact reaches here as plain
+// "📎 filename: url" (download) and, for /code's viewable HTML output,
+// an additional "🌐 filename: url" (view) line appended to the reply
+// text (see server.py's _pwa_download_links). Parsed out at render
+// time rather than changing what's stored, so a saved file becomes
+// real chip/button(s) below the message instead of a raw URL sitting
+// in the middle of the prose.
+const DOWNLOAD_LINE_RE = /📎 (.+?): (https?:\/\/\S+)/g;
+const VIEW_LINE_RE = /🌐 (.+?): (https?:\/\/\S+)/g;
 
 interface MessageAttachment {
   filename: string;
-  url: string;
+  downloadUrl: string;
+  viewUrl?: string;
 }
 
 function splitMessageAttachments(text: string): { body: string; attachments: MessageAttachment[] } {
-  const attachments: MessageAttachment[] = [];
-  const body = text.replace(ATTACHMENT_LINE_RE, (_match, filename: string, url: string) => {
-    attachments.push({ filename, url });
+  const byFilename = new Map<string, MessageAttachment>();
+  let body = text.replace(DOWNLOAD_LINE_RE, (_match, filename: string, url: string) => {
+    byFilename.set(filename, { filename, downloadUrl: url });
+    return "";
+  });
+  body = body.replace(VIEW_LINE_RE, (_match, filename: string, url: string) => {
+    const existing = byFilename.get(filename);
+    if (existing) existing.viewUrl = url;
+    else byFilename.set(filename, { filename, downloadUrl: url, viewUrl: url });
     return "";
   }).trim();
+  const attachments = Array.from(byFilename.values());
   return { body, attachments };
+}
+
+// Renders fenced ```lang\n...\n``` blocks (from /code's replies, or any
+// message that happens to include one) as real styled code blocks —
+// monospace, bordered, horizontally scrollable — instead of plain prose
+// with literal backticks sitting in the middle of it. Not full syntax
+// highlighting (no new dependency for that), just properly distinguished
+// from body text. Works against whatever's been revealed so far, so an
+// in-progress fence just renders as plain text until it closes rather
+// than needing special partial-block handling.
+const CODE_BLOCK_RE = /```(\w*)\n([\s\S]*?)```/g;
+
+function renderMessageBody(text: string) {
+  const nodes: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let key = 0;
+  CODE_BLOCK_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = CODE_BLOCK_RE.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      nodes.push(
+        <span key={key++} style={{ whiteSpace: "pre-wrap" }}>{text.slice(lastIndex, match.index)}</span>
+      );
+    }
+    const code = match[2].replace(/\n$/, "");
+    nodes.push(
+      <pre key={key++} style={{
+        margin: `${spacing.xs}px 0`, padding: spacing.sm,
+        borderRadius: radius.sm, background: "rgba(0,0,0,0.35)",
+        border: "1px solid rgba(255,255,255,0.1)",
+        overflowX: "auto", fontSize: fontSize.xs,
+        fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+      }}>
+        <code>{code}</code>
+      </pre>
+    );
+    lastIndex = CODE_BLOCK_RE.lastIndex;
+  }
+  if (lastIndex < text.length) {
+    nodes.push(<span key={key++} style={{ whiteSpace: "pre-wrap" }}>{text.slice(lastIndex)}</span>);
+  }
+  return nodes;
 }
 
 function StreamingMessageText({ text, animate }: { text: string; animate: boolean }) {
@@ -213,7 +268,7 @@ function StreamingMessageText({ text, animate }: { text: string; animate: boolea
     return () => clearTimeout(id);
   }, [animate, revealed, text.length]);
 
-  return <>{text.slice(0, revealed)}</>;
+  return <>{renderMessageBody(text.slice(0, revealed))}</>;
 }
 
 export default function App() {
@@ -1213,25 +1268,43 @@ export default function App() {
                 {attachments.length > 0 && (
                   <div style={{ display: "flex", flexDirection: "column", gap: spacing.xs, marginTop: spacing.sm }}>
                     {attachments.map(a => (
-                      <a
-                        key={a.url}
-                        href={a.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                      <div
+                        key={a.filename}
                         style={{
                           display: "flex", alignItems: "center", gap: spacing.xs,
                           padding: `${spacing.xs}px ${spacing.sm}px`, borderRadius: radius.sm,
                           background: "rgba(255,255,255,0.06)",
                           border: "1px solid rgba(255,255,255,0.12)",
-                          color: neutral.textPrimary, textDecoration: "none",
                           fontSize: fontSize.xs,
                         }}
                       >
                         <FileIcon size={iconSize.sm} />
-                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        <span style={{
+                          flex: 1, overflow: "hidden", textOverflow: "ellipsis",
+                          whiteSpace: "nowrap", color: neutral.textPrimary,
+                        }}>
                           {a.filename}
                         </span>
-                      </a>
+                        {/* View only shows up for /code's bundled-HTML
+                            output (viewUrl set) — every other saved file
+                            only ever gets a download action. */}
+                        {a.viewUrl && (
+                          <a
+                            href={a.viewUrl} target="_blank" rel="noopener noreferrer"
+                            title="View" aria-label="View in browser"
+                            style={{ display: "flex", flexShrink: 0, color: neutral.textMuted }}
+                          >
+                            <GlobeIcon size={iconSize.sm} />
+                          </a>
+                        )}
+                        <a
+                          href={a.downloadUrl} target="_blank" rel="noopener noreferrer"
+                          title="Download" aria-label="Download"
+                          style={{ display: "flex", flexShrink: 0, color: neutral.textMuted }}
+                        >
+                          <DownloadIcon size={iconSize.sm} />
+                        </a>
+                      </div>
                     ))}
                   </div>
                 )}
