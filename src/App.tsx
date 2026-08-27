@@ -11,6 +11,7 @@ import {
   ChevronDownIcon,
   ChevronRightIcon,
   CheckIcon,
+  FileIcon,
   // Reserved for the future step-log UI (not built yet — no host for
   // these until the fairy-animation research mode exists to pair with):
   // SearchIcon, GlobeIcon, SyncIcon
@@ -181,6 +182,28 @@ interface Fairy {
 // (see hydratedCountRef). Owns its own reveal-progress state rather
 // than lifting it to the parent: this way each animating bubble
 // re-renders itself every ~18ms, not the whole message list.
+// NAVI has no real attachment channel to the PWA the way Telegram gets
+// real file uploads — a saved artifact reaches here as a plain
+// "📎 filename: url" line appended to the reply text (see server.py's
+// _pwa_download_links). Parsed out at render time rather than changing
+// what's stored, so a downloaded file becomes a real chip/button below
+// the message instead of a raw URL sitting in the middle of the prose.
+const ATTACHMENT_LINE_RE = /📎 (.+?): (https?:\/\/\S+)/g;
+
+interface MessageAttachment {
+  filename: string;
+  url: string;
+}
+
+function splitMessageAttachments(text: string): { body: string; attachments: MessageAttachment[] } {
+  const attachments: MessageAttachment[] = [];
+  const body = text.replace(ATTACHMENT_LINE_RE, (_match, filename: string, url: string) => {
+    attachments.push({ filename, url });
+    return "";
+  }).trim();
+  return { body, attachments };
+}
+
 function StreamingMessageText({ text, animate }: { text: string; animate: boolean }) {
   const [revealed, setRevealed] = useState(animate ? 0 : text.length);
 
@@ -1157,6 +1180,7 @@ export default function App() {
               );
             }
             const m = item.message;
+            const { body, attachments } = splitMessageAttachments(m.text);
             return (
               <div key={item.key} style={{
                 alignSelf: m.role === "navi" ? "flex-start" : "flex-end",
@@ -1183,9 +1207,34 @@ export default function App() {
                   : `0 4px 18px rgba(0,0,0,0.35), 0 0 14px ${neutral.userBubbleGlow}`,
               }}>
                 <StreamingMessageText
-                  text={m.text}
+                  text={body}
                   animate={m.role === "navi" && item.index >= hydratedCountRef.current}
                 />
+                {attachments.length > 0 && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: spacing.xs, marginTop: spacing.sm }}>
+                    {attachments.map(a => (
+                      <a
+                        key={a.url}
+                        href={a.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          display: "flex", alignItems: "center", gap: spacing.xs,
+                          padding: `${spacing.xs}px ${spacing.sm}px`, borderRadius: radius.sm,
+                          background: "rgba(255,255,255,0.06)",
+                          border: "1px solid rgba(255,255,255,0.12)",
+                          color: neutral.textPrimary, textDecoration: "none",
+                          fontSize: fontSize.xs,
+                        }}
+                      >
+                        <FileIcon size={iconSize.sm} />
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {a.filename}
+                        </span>
+                      </a>
+                    ))}
+                  </div>
+                )}
                 <div style={{
                   display: "flex",
                   justifyContent: m.role === "navi" ? "space-between" : "flex-end",
