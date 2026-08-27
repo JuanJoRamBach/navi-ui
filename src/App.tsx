@@ -917,10 +917,20 @@ export default function App() {
     setMessages(m => [...m, { role: "user", text, timestamp: Date.now() }]);
     setDraft("");
 
+    // A research poll already tracking an in-flight async job takes
+    // priority over this message's own transient status — without this,
+    // sending a plain message while /research is still running stomps
+    // the live "gathering sources…" status with "Thinking…", then clears
+    // it outright once the plain reply lands, even though the research
+    // job is still working. The poll interval itself is untouched and
+    // does self-correct within ~3s, but that's still a visibly wrong or
+    // blank status in the meantime — this avoids the whole window.
+    const asyncJobActive = () => researchPollRef.current !== null;
+
     const firstStep = chatModeRef.current === "research" ? "Searching…"
       : chatModeRef.current === "brainstorm" ? "Exploring ideas…"
       : "Thinking…";
-    setPendingStep(firstStep);
+    if (!asyncJobActive()) setPendingStep(firstStep);
 
     const handleResponse = (data: { reply?: string; error?: string; async?: boolean }) => {
       setMessages(m => [...m, {
@@ -945,7 +955,7 @@ export default function App() {
         return;
       }
 
-      setPendingStep(null);
+      if (!asyncJobActive()) setPendingStep(null);
       if (chatModeRef.current === "research") {
         celebrateUntilRef.current = fairyTickRef.current + 600; // 10s at 60fps
       }
@@ -964,10 +974,10 @@ export default function App() {
         // the cold-start request just errored out instead of waiting —
         // poll the health check until it answers, then retry the real
         // send once, rather than losing the message outright.
-        setPendingStep("Waking up NAVI…");
-        const awake = await waitForServer(setPendingStep);
+        if (!asyncJobActive()) setPendingStep("Waking up NAVI…");
+        const awake = await waitForServer(msg => { if (!asyncJobActive()) setPendingStep(msg); });
         if (!awake) {
-          setPendingStep(null);
+          if (!asyncJobActive()) setPendingStep(null);
           setMessages(m => [...m, {
             role: "navi",
             text: "Couldn't reach NAVI after a while — it may be down. Try again shortly.",
@@ -976,7 +986,7 @@ export default function App() {
           return;
         }
         send().then(handleResponse).catch(() => {
-          setPendingStep(null);
+          if (!asyncJobActive()) setPendingStep(null);
           setMessages(m => [...m, {
             role: "navi",
             text: "NAVI woke up but the reply itself failed — try sending again.",
