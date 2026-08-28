@@ -32,10 +32,19 @@ export const radius = {
   xl: 18,  // input bar container
 } as const;
 
+// Bumped 2026-08-29 for readability across a wide user age range
+// (25-65) — 12px labels and 11px meta text are genuinely hard to read
+// for anyone with reduced near-vision (common past ~50), and the old
+// 14.5 body size wasn't much better. xxs=14 is a deliberate floor, not
+// just a bump — JuanJo's explicit call, "at least 14px" anywhere in
+// the UI. sm=17 is a first pass on the chat body specifically and may
+// come back down after live testing — flagged by JuanJo as possibly
+// too big, worth checking by feel rather than assuming these numbers
+// are final.
 export const fontSize = {
-  xxs: 11,   // popover meta text (timestamps, secondary labels)
-  xs: 12,    // button/pill labels
-  sm: 14.5,  // body copy — chat text, input
+  xxs: 14,   // popover meta text (timestamps, secondary labels) — floor
+  xs: 15,    // button/pill labels, menu/panel content
+  sm: 17,    // body copy — chat text, input
 } as const;
 
 export const fontWeight = {
