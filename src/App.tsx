@@ -14,6 +14,8 @@ import {
   FileIcon,
   DownloadIcon,
   GlobeIcon,
+  BellIcon,
+  BellFillIcon,
   // Reserved for the future step-log UI (not built yet — no host for
   // these until the fairy-animation research mode exists to pair with):
   // SearchIcon, SyncIcon
@@ -29,6 +31,7 @@ import {
   createConversation, listConversations, switchActiveConversation, deriveTitle,
 } from "./storage";
 import { NAVI_BACKEND_URL } from "./config";
+import { getPushStatus, subscribeToPush, type PushStatus } from "./push";
 
 const DOT_SIZE = 8;
 
@@ -854,6 +857,23 @@ export default function App() {
   const [draft, setDraft] = useState("");
   // Which toolbar popover is open, if any — only one at a time.
   const [openPanel, setOpenPanel] = useState<"newConvo" | "history" | "models" | "routing" | "usage" | "commands" | null>(null);
+
+  // Push notification subscribe state — not a popover, a direct action
+  // button. Re-checked on mount since subscriptions are per-origin: a
+  // browser that was subscribed under a previous domain (e.g. GitHub
+  // Pages before the getnavi.online migration) shows "unsubscribed"
+  // here even though the user remembers having enabled it before.
+  const [pushStatus, setPushStatus] = useState<PushStatus | "loading">("unsubscribed");
+  useEffect(() => {
+    getPushStatus().then(setPushStatus);
+  }, []);
+  const handleEnablePush = useCallback(async () => {
+    if (pushStatus === "subscribed" || pushStatus === "loading") return;
+    setPushStatus("loading");
+    const res = await subscribeToPush();
+    setPushStatus(res.ok ? "subscribed" : await getPushStatus());
+    if (!res.ok) alert(res.error || "Couldn't enable notifications.");
+  }, [pushStatus]);
   // Real saved conversations for the "Past conversations" panel —
   // refreshed each time that panel opens (see the effect below) rather
   // than kept live at all times, since it's the only place this list is
@@ -1397,6 +1417,50 @@ export default function App() {
               </button>
             );
           })}
+          {pushStatus !== "unsupported" && (
+            <button
+              key="push"
+              className="snap-item"
+              aria-label={pushStatus === "subscribed" ? "Notifications enabled" : "Enable notifications"}
+              title={
+                pushStatus === "denied"
+                  ? "Notifications blocked — re-enable them in your browser's site settings."
+                  : pushStatus === "subscribed"
+                  ? "Notifications enabled"
+                  : "Enable notifications"
+              }
+              onClick={handleEnablePush}
+              disabled={pushStatus === "subscribed" || pushStatus === "loading" || pushStatus === "denied"}
+              style={{
+                display: "flex", alignItems: "center", gap: spacing.xs, flexShrink: 0,
+                padding: `${spacing.sm}px ${spacing.md}px`,
+                borderRadius: radius.sm,
+                border: `1px solid ${theme.bubbleBorder}`,
+                background: theme.bubbleBg,
+                color: neutral.textPrimary,
+                cursor: pushStatus === "subscribed" || pushStatus === "denied" ? "default" : "pointer",
+                opacity: pushStatus === "denied" ? 0.5 : 1,
+                fontSize: fontSize.xs,
+                fontFamily,
+                fontWeight: fontWeight.medium,
+                whiteSpace: "nowrap",
+                backdropFilter: `blur(${blur.sm}px)`,
+                boxShadow: `0 2px 20px rgba(0,0,0,0.45), 0 0 10px ${theme.glow}, inset 0 0 8px ${theme.glow}`,
+                transition: "all 0.35s ease",
+              }}
+            >
+              {pushStatus === "subscribed"
+                ? <BellFillIcon size={iconSize.sm} />
+                : <BellIcon size={iconSize.sm} />}
+              {pushStatus === "loading"
+                ? "Enabling…"
+                : pushStatus === "subscribed"
+                ? "Notifications on"
+                : pushStatus === "denied"
+                ? "Notifications blocked"
+                : "Enable notifications"}
+            </button>
+          )}
         </div>
 
         {openPanel && anchorRect && (
