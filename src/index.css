@@ -71,6 +71,50 @@ body {
   scroll-snap-align: start;
 }
 
+/* V3 sidebar shell — mirrors tokens.layout in tokens.ts (sidebarWidth:
+   280, sidebarBreakpoint: 1440); duplicated here since inline styles
+   can't express a media query, same reasoning as .chat-column above.
+
+   .sidebar defaults to an off-canvas drawer (translated fully off-
+   screen, slides in via .sidebar.open) — that's the mobile/tablet/
+   narrower-desktop behavior. At/above the breakpoint it's forced
+   persistently visible regardless of the .open class. Deliberately NOT
+   shifting/shrinking .app-shell here (see tokens.ts's layout comment) —
+   .chat-column's own centering already leaves enough empty margin at
+   this width for the sidebar to occupy without touching the chat at
+   all. .sidebar-backdrop only ever matters below the breakpoint
+   (click-outside-to-close for the drawer) — auto-hidden above it even
+   if React still thinks the drawer is "open", so wide desktop never
+   shows a stray dimming overlay. */
+.sidebar {
+  position: fixed;
+  top: 0; left: 0; bottom: 0;
+  width: 280px;
+  transform: translateX(-100%);
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+  z-index: 30;
+}
+.sidebar.open {
+  transform: translateX(0);
+}
+.sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 29;
+}
+@media (min-width: 1440px) {
+  .sidebar {
+    transform: translateX(0) !important;
+  }
+  .sidebar-backdrop {
+    display: none;
+  }
+  .sidebar-toggle {
+    display: none; /* nothing to toggle — sidebar's always visible */
+  }
+}
+
 /* "Working" step indicator, shown while a reply is being generated —
    soft breathing opacity so it reads as active/alive, not a static
    label sitting there. */

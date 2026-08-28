@@ -65,6 +65,22 @@ export const blur = {
   lg: 24,
 } as const;
 
+// V3 sidebar shell — persistent on wide desktop, an off-canvas drawer
+// below the breakpoint. 1440 is deliberate, not Material 3's usual
+// 840–1024dp guidance: .chat-column caps at 860px and centers on the
+// full viewport (see index.css), so the sidebar should occupy the
+// margin space that's already empty on either side of it rather than
+// shifting/shrinking the chat — (1440-860)/2 = 290px of existing margin
+// per side, just over the 280px sidebar width, with zero overlap.
+// Below 1440, that margin isn't wide enough yet, so it stays a drawer
+// like on mobile/tablet rather than intruding on the chat. Mirrored
+// into index.css's media queries — inline styles can't express a
+// breakpoint, same reasoning as .chat-column there.
+export const layout = {
+  sidebarWidth: 280,
+  sidebarBreakpoint: 1440,
+} as const;
+
 // Neutral (mode-independent) surface/text tokens.
 export const neutral = {
   textPrimary: "rgba(240, 244, 255, 0.95)",

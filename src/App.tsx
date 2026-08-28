@@ -16,6 +16,8 @@ import {
   GlobeIcon,
   BellIcon,
   BellFillIcon,
+  ThreeBarsIcon,
+  XIcon,
   // Reserved for the future step-log UI (not built yet — no host for
   // these until the fairy-animation research mode exists to pair with):
   // SearchIcon, SyncIcon
@@ -23,7 +25,7 @@ import {
 import {
   type Mode, type ChatMode, MODE_THEME,
   spacing, radius, fontSize, fontWeight, lineHeight, iconSize, controlSize, blur,
-  fontFamily, neutral,
+  fontFamily, neutral, layout,
 } from "./tokens";
 import {
   type StoredMessage, type Conversation,
@@ -857,6 +859,11 @@ export default function App() {
   const [draft, setDraft] = useState("");
   // Which toolbar popover is open, if any — only one at a time.
   const [openPanel, setOpenPanel] = useState<"newConvo" | "history" | "models" | "routing" | "usage" | "commands" | null>(null);
+  // V3 sidebar (menu drawer on mobile/tablet, persistent column on
+  // desktop — see .sidebar in index.css). Only meaningful below
+  // layout.sidebarBreakpoint; CSS forces the sidebar visible above it
+  // regardless of this value, so no need to reset it on resize.
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Push notification subscribe state — not a popover, a direct action
   // button. Re-checked on mount since subscriptions are per-origin: a
@@ -1096,7 +1103,138 @@ export default function App() {
 
   return (
     <div style={{ width: "100vw", height: "100vh", position: "relative", overflow: "hidden", background: "#06050a" }}>
+      {/* Sidebar backdrop — mobile/tablet drawer only, see .sidebar-backdrop
+          in index.css (auto-hidden at the persistent-sidebar breakpoint). */}
+      {sidebarOpen && (
+        <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} />
+      )}
+
+      {/* Sidebar — see .sidebar in index.css for the drawer/persistent
+          responsive behavior. Two stacked sections: Menu (existing
+          conversation/routing/usage/notification actions, relocated
+          from the old bottom toolbar row) and Activity (the browsable
+          tool/output record — placeholder for now, built next). */}
+      <div className={`sidebar${sidebarOpen ? " open" : ""}`} style={{
+        display: "flex", flexDirection: "column",
+        background: "rgba(6, 8, 14, 0.92)",
+        borderRight: `1px solid ${theme.bubbleBorder}`,
+        backdropFilter: `blur(${blur.md}px)`,
+        fontFamily,
+      }}>
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: spacing.lg,
+        }}>
+          <span style={{ fontSize: fontSize.xs, fontWeight: fontWeight.medium, color: neutral.textPrimary, letterSpacing: "0.04em" }}>
+            MENU
+          </span>
+          {/* Close button — mobile/tablet only, nothing to close on desktop
+              (sidebar-toggle itself is hidden there, see index.css). */}
+          <button
+            className="sidebar-toggle"
+            aria-label="Close menu"
+            onClick={() => setSidebarOpen(false)}
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "center",
+              width: controlSize.sm, height: controlSize.sm,
+              borderRadius: radius.xs, border: "none", background: "transparent",
+              color: neutral.textMuted, cursor: "pointer",
+            }}
+          >
+            <XIcon size={iconSize.sm} />
+          </button>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: spacing.xxs, padding: `0 ${spacing.sm}px` }}>
+          {([
+            { key: "newConvo", icon: <PlusIcon size={iconSize.sm} />, label: "New conversation" },
+            { key: "history", icon: <HistoryIcon size={iconSize.sm} />, label: "Past conversations" },
+            { key: "routing", icon: <GitBranchIcon size={iconSize.sm} />, label: "Routing & fallbacks" },
+            { key: "usage", icon: <GraphIcon size={iconSize.sm} />, label: "Usage counters" },
+          ] as const).map(({ key, icon, label }) => (
+            <button
+              key={key}
+              onClick={e => togglePanel(key, e.currentTarget)}
+              style={{
+                display: "flex", alignItems: "center", gap: spacing.sm,
+                padding: `${spacing.sm}px ${spacing.sm}px`,
+                borderRadius: radius.sm, border: "none",
+                background: openPanel === key ? "rgba(255,255,255,0.06)" : "transparent",
+                color: neutral.textPrimary, cursor: "pointer", textAlign: "left",
+                fontSize: fontSize.xs, fontFamily, fontWeight: fontWeight.medium,
+              }}
+            >
+              {icon}
+              {label}
+            </button>
+          ))}
+          {pushStatus !== "unsupported" && (
+            <button
+              onClick={handleEnablePush}
+              disabled={pushStatus === "subscribed" || pushStatus === "loading" || pushStatus === "denied"}
+              style={{
+                display: "flex", alignItems: "center", gap: spacing.sm,
+                padding: `${spacing.sm}px ${spacing.sm}px`,
+                borderRadius: radius.sm, border: "none", background: "transparent",
+                color: neutral.textPrimary,
+                cursor: pushStatus === "subscribed" || pushStatus === "denied" ? "default" : "pointer",
+                opacity: pushStatus === "denied" ? 0.5 : 1,
+                fontSize: fontSize.xs, fontFamily, fontWeight: fontWeight.medium,
+                textAlign: "left",
+              }}
+            >
+              {pushStatus === "subscribed" ? <BellFillIcon size={iconSize.sm} /> : <BellIcon size={iconSize.sm} />}
+              {pushStatus === "loading" ? "Enabling…"
+                : pushStatus === "subscribed" ? "Notifications on"
+                : pushStatus === "denied" ? "Notifications blocked"
+                : "Enable notifications"}
+            </button>
+          )}
+        </div>
+
+        {/* Activity — the browsable tool/output record (which command
+            ran, which mode, which files it produced). Placeholder for
+            this pass, which is just the sidebar shell — real content is
+            the next piece. */}
+        <div style={{
+          marginTop: spacing.xl, paddingTop: spacing.lg,
+          borderTop: `1px solid ${theme.bubbleBorder}`,
+          padding: `${spacing.lg}px ${spacing.sm}px`,
+          flex: 1, overflowY: "auto",
+        }}>
+          <span style={{ fontSize: fontSize.xs, fontWeight: fontWeight.medium, color: neutral.textPrimary, letterSpacing: "0.04em" }}>
+            ACTIVITY
+          </span>
+          <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted, marginTop: spacing.sm }}>
+            Coming next — a record of what ran in this conversation and the files it produced.
+          </div>
+        </div>
+      </div>
+
       <canvas ref={canvasRef} style={{ position: "absolute", inset: 0 }} />
+
+      {/* Sidebar toggle — top-left, same row as the mode selector.
+          Hidden at the persistent-sidebar breakpoint (see .sidebar-toggle
+          in index.css) since there's nothing to toggle there. */}
+      <button
+        className="sidebar-toggle"
+        aria-label="Open menu"
+        onClick={() => setSidebarOpen(true)}
+        style={{
+          position: "absolute", top: spacing.xl, left: spacing.xl, zIndex: 10,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          width: controlSize.md, height: controlSize.md,
+          borderRadius: radius.sm,
+          border: `1px solid ${theme.bubbleBorder}`,
+          background: theme.bubbleBg,
+          color: neutral.textPrimary,
+          cursor: "pointer",
+          backdropFilter: `blur(${blur.sm}px)`,
+          boxShadow: `0 2px 14px rgba(0,0,0,0.35), 0 0 10px ${theme.glow}`,
+        }}
+      >
+        <ThreeBarsIcon size={iconSize.sm} />
+      </button>
 
       {/* Mode selector — top-center. No shared container anymore: each
           label just sits with even spacing; only the active one gets
@@ -1376,12 +1514,13 @@ export default function App() {
           onScroll={() => setOpenPanel(null)}
           style={{ display: "flex", gap: spacing.sm, marginTop: spacing.lg, overflowX: "auto" }}
         >
+          {/* Just "Today's models" now — New conversation/Past conversations/
+              Routing & fallbacks/Usage counters relocated to the sidebar
+              (see MENU section above); this one stays on the chat screen
+              per JuanJo's call, since it's about the current conversation's
+              model, not app-wide navigation. */}
           {([
-            { key: "newConvo", icon: <PlusIcon size={iconSize.sm} />, label: "New conversation" },
-            { key: "history", icon: <HistoryIcon size={iconSize.sm} />, label: "Past conversations" },
             { key: "models", icon: <CpuIcon size={iconSize.sm} />, label: "Today's models" },
-            { key: "routing", icon: <GitBranchIcon size={iconSize.sm} />, label: "Routing & fallbacks" },
-            { key: "usage", icon: <GraphIcon size={iconSize.sm} />, label: "Usage counters" },
           ] as const).map(({ key, icon, label }) => {
             const panelActive = openPanel === key;
             return (
@@ -1417,57 +1556,17 @@ export default function App() {
               </button>
             );
           })}
-          {pushStatus !== "unsupported" && (
-            <button
-              key="push"
-              className="snap-item"
-              aria-label={pushStatus === "subscribed" ? "Notifications enabled" : "Enable notifications"}
-              title={
-                pushStatus === "denied"
-                  ? "Notifications blocked — re-enable them in your browser's site settings."
-                  : pushStatus === "subscribed"
-                  ? "Notifications enabled"
-                  : "Enable notifications"
-              }
-              onClick={handleEnablePush}
-              disabled={pushStatus === "subscribed" || pushStatus === "loading" || pushStatus === "denied"}
-              style={{
-                display: "flex", alignItems: "center", gap: spacing.xs, flexShrink: 0,
-                padding: `${spacing.sm}px ${spacing.md}px`,
-                borderRadius: radius.sm,
-                border: `1px solid ${theme.bubbleBorder}`,
-                background: theme.bubbleBg,
-                color: neutral.textPrimary,
-                cursor: pushStatus === "subscribed" || pushStatus === "denied" ? "default" : "pointer",
-                opacity: pushStatus === "denied" ? 0.5 : 1,
-                fontSize: fontSize.xs,
-                fontFamily,
-                fontWeight: fontWeight.medium,
-                whiteSpace: "nowrap",
-                backdropFilter: `blur(${blur.sm}px)`,
-                boxShadow: `0 2px 20px rgba(0,0,0,0.45), 0 0 10px ${theme.glow}, inset 0 0 8px ${theme.glow}`,
-                transition: "all 0.35s ease",
-              }}
-            >
-              {pushStatus === "subscribed"
-                ? <BellFillIcon size={iconSize.sm} />
-                : <BellIcon size={iconSize.sm} />}
-              {pushStatus === "loading"
-                ? "Enabling…"
-                : pushStatus === "subscribed"
-                ? "Notifications on"
-                : pushStatus === "denied"
-                ? "Notifications blocked"
-                : "Enable notifications"}
-            </button>
-          )}
         </div>
 
         {openPanel && anchorRect && (
           <>
             {/* Click-outside-to-close overlay — fixed and beneath the
                 popover, transparent, just here to catch the click. */}
-            <div onClick={() => setOpenPanel(null)} style={{ position: "fixed", inset: 0, zIndex: 20 }} />
+            {/* zIndex above the sidebar's (30, see .sidebar in index.css) —
+                these popovers can now be triggered from menu buttons that
+                live inside the sidebar itself, and need to render above it
+                rather than getting clipped behind it. */}
+            <div onClick={() => setOpenPanel(null)} style={{ position: "fixed", inset: 0, zIndex: 35 }} />
 
             {/* Popover — position:fixed relative to the viewport (see
                 anchorRect comment above). No connector arm — tried it,
@@ -1482,7 +1581,7 @@ export default function App() {
               ...(anchorRect.top !== undefined ? { top: anchorRect.top } : { bottom: anchorRect.bottom }),
               width: Math.min(POPOVER_WIDTH, window.innerWidth - POPOVER_MARGIN * 2), // same width for all five panels
               maxHeight: "70vh", overflowY: "auto",
-              zIndex: 21,
+              zIndex: 36, // above the sidebar (30) and its own overlay (35) above
               background: theme.bubbleBg,
               border: `1px solid ${theme.bubbleBorder}`,
               borderRadius: radius.lg,
