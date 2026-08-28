@@ -174,6 +174,45 @@ body {
   .sidebar-toggle {
     display: none; /* nothing to toggle — sidebar's always visible */
   }
+  /* Menu button list becomes a fixed-width left column once the
+     detail panel exists to its right (see .sidebar-detail-panel) —
+     below this breakpoint it's full sidebar width, no detail column,
+     same as before. */
+  .sidebar-menu-list {
+    width: 200px;
+    flex-shrink: 0;
+  }
+}
+
+/* Docked master-detail panel (Past conversations/Routing & fallbacks/
+   Usage counters, desktop only — see isDockedDetail in App.tsx; tablet
+   keeps the floating popover, JuanJo's explicit call, 2026-08-29). Same
+   popover element as the floating one, just positioned to sit flush
+   against .sidebar-menu-list's right edge instead of floating near the
+   clicked button. left:200px matches .sidebar-menu-list's width above.
+   width has to track .sidebar's own fluid clamp() formula (sidebar
+   width minus the 200px list column) — a CSS class rather than inline
+   math specifically because that clamp() result can't be read back out
+   into JS/inline styles. Only ever rendered while isDesktopSidebar is
+   true (React-side), so no media query needed here — it exists in the
+   DOM exclusively at/above the breakpoint already. */
+.sidebar-detail-panel {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 200px;
+  overflow-y: auto;
+  z-index: 30;
+  width: calc(clamp(280px, calc((100vw - 1000px) / 2 - 24px), 480px) - 200px);
+}
+
+/* Hover feedback for the sidebar menu buttons — separate from the
+   "active" (openPanel === key) background already handled inline,
+   since :hover can't be expressed as an inline style at all. Slightly
+   lower alpha than the active state's 0.06 so the two stay visually
+   distinguishable when hovering a non-active button. */
+.sidebar-menu-btn:hover {
+  background: rgba(255, 255, 255, 0.04);
 }
 
 /* "Working" step indicator, shown while a reply is being generated —

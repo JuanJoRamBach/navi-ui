@@ -18,6 +18,7 @@ import {
   BellFillIcon,
   ThreeBarsIcon,
   XIcon,
+  GearIcon,
   // Reserved for the future step-log UI (not built yet — no host for
   // these until the fairy-animation research mode exists to pair with):
   // SearchIcon, SyncIcon
@@ -858,12 +859,34 @@ export default function App() {
 
   const [draft, setDraft] = useState("");
   // Which toolbar popover is open, if any — only one at a time.
-  const [openPanel, setOpenPanel] = useState<"newConvo" | "history" | "models" | "routing" | "usage" | "commands" | null>(null);
+  const [openPanel, setOpenPanel] = useState<"newConvo" | "history" | "models" | "routing" | "usage" | "settings" | "commands" | null>(null);
   // V3 sidebar (menu drawer on mobile/tablet, persistent column on
   // desktop — see .sidebar in index.css). Only meaningful below
   // layout.sidebarBreakpoint; CSS forces the sidebar visible above it
   // regardless of this value, so no need to reset it on resize.
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Mirrors the same breakpoint CSS uses (layout.sidebarBreakpoint) —
+  // needed in JS because Past conversations/Routing & fallbacks/Usage
+  // counters render as an inline master-detail panel within the sidebar
+  // at this width and up, but stay the old floating popover below it
+  // (tablet keeps the popover — JuanJo's explicit call, 2026-08-29).
+  // matchMedia + a change listener rather than a resize listener, since
+  // it only needs to know when the true/false answer flips, not every
+  // pixel of resize.
+  const [isDesktopSidebar, setIsDesktopSidebar] = useState(
+    () => window.matchMedia(`(min-width: ${layout.sidebarBreakpoint}px)`).matches
+  );
+  useEffect(() => {
+    const mql = window.matchMedia(`(min-width: ${layout.sidebarBreakpoint}px)`);
+    const onChange = () => setIsDesktopSidebar(mql.matches);
+    mql.addEventListener("change", onChange);
+    return () => mql.removeEventListener("change", onChange);
+  }, []);
+  // Which of the master-detail items (history/routing/usage) is
+  // "selected" for the desktop inline panel — separate from openPanel
+  // since that also drives newConvo/models/commands' popovers, which
+  // stay popovers regardless of width.
+  const MASTER_DETAIL_KEYS = ["history", "routing", "usage", "settings"] as const;
 
   // Push notification subscribe state — not a popover, a direct action
   // button. Re-checked on mount since subscriptions are per-origin: a
@@ -1101,6 +1124,9 @@ export default function App() {
       });
   }, [draft, stopResearchPoll]);
 
+  const isDockedDetail = isDesktopSidebar && openPanel !== null
+    && (MASTER_DETAIL_KEYS as readonly string[]).includes(openPanel);
+
   return (
     <div style={{ width: "100vw", height: "100vh", position: "relative", overflow: "hidden", background: "#06050a" }}>
       {/* Sidebar backdrop — mobile/tablet drawer only, see .sidebar-backdrop
@@ -1149,15 +1175,46 @@ export default function App() {
           </button>
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: spacing.xxs, padding: `0 ${spacing.sm}px` }}>
+        <div className="sidebar-menu-list" style={{ display: "flex", flexDirection: "column", gap: spacing.xxs, padding: `0 ${spacing.sm}px` }}>
+          {/* Chats cluster — the conversation itself: starting one,
+              finding a past one. */}
           {([
             { key: "newConvo", icon: <PlusIcon size={iconSize.sm} />, label: "New conversation" },
             { key: "history", icon: <HistoryIcon size={iconSize.sm} />, label: "Past conversations" },
-            { key: "routing", icon: <GitBranchIcon size={iconSize.sm} />, label: "Routing & fallbacks" },
-            { key: "usage", icon: <GraphIcon size={iconSize.sm} />, label: "Usage counters" },
           ] as const).map(({ key, icon, label }) => (
             <button
               key={key}
+              className="sidebar-menu-btn"
+              onClick={e => togglePanel(key, e.currentTarget)}
+              style={{
+                display: "flex", alignItems: "center", gap: spacing.sm,
+                padding: `${spacing.sm}px ${spacing.sm}px`,
+                borderRadius: radius.sm, border: "none",
+                background: openPanel === key ? "rgba(255,255,255,0.06)" : "transparent",
+                color: neutral.textPrimary, cursor: "pointer", textAlign: "left",
+                fontSize: fontSize.xs, fontFamily, fontWeight: fontWeight.medium,
+              }}
+            >
+              {icon}
+              {label}
+            </button>
+          ))}
+
+          {/* Subtle cluster divider — not a hard rule, just enough to
+              separate "about this chat" from "about the LLMs and you"
+              without a heavy visual break. JuanJo's spec, 2026-08-29. */}
+          <div style={{ height: 1, background: theme.bubbleBorder, opacity: 0.5, margin: `${spacing.sm}px ${spacing.xs}px` }} />
+
+          {/* LLMs & user cluster — provider/model config, usage, app
+              settings, notifications. */}
+          {([
+            { key: "routing", icon: <GitBranchIcon size={iconSize.sm} />, label: "Routing & fallbacks" },
+            { key: "usage", icon: <GraphIcon size={iconSize.sm} />, label: "Usage counters" },
+            { key: "settings", icon: <GearIcon size={iconSize.sm} />, label: "Settings" },
+          ] as const).map(({ key, icon, label }) => (
+            <button
+              key={key}
+              className="sidebar-menu-btn"
               onClick={e => togglePanel(key, e.currentTarget)}
               style={{
                 display: "flex", alignItems: "center", gap: spacing.sm,
@@ -1174,6 +1231,7 @@ export default function App() {
           ))}
           {pushStatus !== "unsupported" && (
             <button
+              className="sidebar-menu-btn"
               onClick={handleEnablePush}
               disabled={pushStatus === "subscribed" || pushStatus === "loading" || pushStatus === "denied"}
               style={{
@@ -1567,27 +1625,42 @@ export default function App() {
           })}
         </div>
 
-        {openPanel && anchorRect && (
+        {openPanel && (isDockedDetail || anchorRect) && (
           <>
-            {/* Click-outside-to-close overlay — fixed and beneath the
-                popover, transparent, just here to catch the click. */}
-            {/* zIndex above the sidebar's (30, see .sidebar in index.css) —
-                these popovers can now be triggered from menu buttons that
-                live inside the sidebar itself, and need to render above it
-                rather than getting clipped behind it. */}
-            <div onClick={() => setOpenPanel(null)} style={{ position: "fixed", inset: 0, zIndex: 35 }} />
+            {/* Click-outside-to-close overlay — skipped entirely for the
+                docked desktop panel, which behaves like a selected list
+                item showing its detail (stays open until another item's
+                clicked or the same one toggled again), not a dismiss-on-
+                outside-click popover. zIndex above the sidebar's (30, see
+                .sidebar in index.css) — these popovers can be triggered
+                from menu buttons that live inside the sidebar itself. */}
+            {!isDockedDetail && (
+              <div onClick={() => setOpenPanel(null)} style={{ position: "fixed", inset: 0, zIndex: 35 }} />
+            )}
 
-            {/* Popover — position:fixed relative to the viewport (see
-                anchorRect comment above). No connector arm — tried it,
-                looked bad, dropped it; just a floating panel with a
-                small gap above (or below, if flipped) the button now.
-                maxHeight+scroll is a safety net: the flip heuristic
-                picks whichever side has more room, but doesn't
-                guarantee the content actually fits — an expanded
-                provider list could still be taller than that. */}
-            <div className="hide-scrollbar" style={{
-              position: "fixed", left: anchorRect.popoverLeft,
-              ...(anchorRect.top !== undefined ? { top: anchorRect.top } : { bottom: anchorRect.bottom }),
+            {/* Popover (mobile/tablet, or newConvo/models/commands
+                regardless of width) — position:fixed relative to the
+                viewport, floating near the clicked button. No connector
+                arm — tried it, looked bad, dropped it. maxHeight+scroll
+                is a safety net: the flip heuristic picks whichever side
+                has more room, but doesn't guarantee the content actually
+                fits. Docked mode (desktop, history/routing/usage) is the
+                exact same element, just positioned to sit flush against
+                the sidebar's menu-list column instead — see
+                .sidebar-detail-panel in index.css for why that's a CSS
+                class rather than inline math: its width has to track the
+                sidebar's own fluid clamp() formula, which inline styles
+                can't read back out. */}
+            <div className={isDockedDetail ? "hide-scrollbar sidebar-detail-panel" : "hide-scrollbar"} style={isDockedDetail ? {
+              background: theme.bubbleBg,
+              borderLeft: `1px solid ${theme.bubbleBorder}`,
+              boxShadow: `0 8px 30px rgba(0,0,0,0.5), 0 0 16px ${theme.glow}`,
+              padding: spacing.lg,
+              color: neutral.textPrimary,
+              fontFamily,
+            } : {
+              position: "fixed", left: anchorRect?.popoverLeft,
+              ...(anchorRect?.top !== undefined ? { top: anchorRect.top } : { bottom: anchorRect?.bottom }),
               width: Math.min(POPOVER_WIDTH, window.innerWidth - POPOVER_MARGIN * 2), // same width for all five panels
               maxHeight: "70vh", overflowY: "auto",
               zIndex: 36, // above the sidebar (30) and its own overlay (35) above
@@ -1842,6 +1915,17 @@ export default function App() {
                         </div>
                       );
                     })}
+                  </div>
+                </div>
+              )}
+
+              {openPanel === "settings" && (
+                <div>
+                  <div style={{ fontSize: fontSize.xs, color: neutral.textMuted, marginBottom: spacing.sm }}>
+                    Settings
+                  </div>
+                  <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted }}>
+                    Coming soon.
                   </div>
                 </div>
               )}
