@@ -1338,9 +1338,9 @@ export default function App() {
           explicit stacking order its invisible hit-box (padding doesn't
           exempt it from capturing clicks) sits on top and swallows
           clicks on Research/Brainstorm before they reach these buttons. */}
-      <div className="centered-col" style={{
+      <div className="centered-col mode-tabs-row" style={{
         position: "absolute", top: spacing.xl,
-        display: "flex", gap: spacing.xxl - spacing.xxs, alignItems: "center",
+        display: "flex", alignItems: "center",
         zIndex: 10,
       }}>
         {(Object.keys(MODE_THEME) as ChatMode[]).map(m => {
@@ -1351,7 +1351,12 @@ export default function App() {
               key={m}
               onClick={() => selectChatMode(m)}
               style={{
-                padding: active ? `${spacing.sm}px ${spacing.xl}px` : `${spacing.sm}px ${spacing.xxs}px`,
+                // Active tab's horizontal padding is a CSS var, not a
+                // plain spacing token — narrow phones need it smaller
+                // (see --mode-tab-active-padding-h in index.css) to
+                // keep the whole row from extending under the
+                // hamburger/status icons at the edges.
+                padding: active ? `${spacing.sm}px var(--mode-tab-active-padding-h)` : `${spacing.sm}px ${spacing.xxs}px`,
                 borderRadius: radius.sm,
                 border: active ? `1px solid ${t.bubbleBorder}` : "none",
                 cursor: "pointer",
@@ -1396,7 +1401,11 @@ export default function App() {
             : neutral.dotNeutral,
           transition: "background 0.3s ease",
         }} />
-        <span style={{ fontSize: fontSize.xxs, color: neutral.textMuted }}>
+        {/* Hidden below 600px (see .status-label in index.css) — the
+            dot alone still answers "is NAVI awake" at a glance, and
+            freeing this text's width was necessary to stop the mode-
+            tabs row rendering underneath it on narrow phones. */}
+        <span className="status-label" style={{ fontSize: fontSize.xxs, color: neutral.textMuted }}>
           {serverStatus === "awake" ? "Online"
             : serverStatus === "waking" ? "Waking up…"
             : serverStatus === "unreachable" ? "Unreachable"
@@ -1959,11 +1968,15 @@ export default function App() {
                       const barColor = pct > 90 ? "rgba(230,90,90,0.85)" : pct > 70 ? "rgba(230,180,80,0.85)" : "rgba(120,200,150,0.85)";
                       return (
                         <div key={u.provider}>
-                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: fontSize.xs, marginBottom: spacing.xs }}>
-                            <span>{u.provider}</span>
-                            <span style={{ color: neutral.textMuted, fontSize: fontSize.xxs }}>
-                              {u.quota > 0 ? `${u.used.toLocaleString()} / ${u.quota.toLocaleString()} ${u.unit} · ${u.period}` : "no quota tracked"}
-                            </span>
+                          {/* Stacked (provider / stats / bar), not side-by-side
+                              — the docked desktop panel is narrow enough that
+                              "Provider" and its stats line were wrapping and
+                              crowding each other. Stats line stays fontSize.xxs
+                              (smaller is fine here, JuanJo's call) even though
+                              it's no longer competing for horizontal space. */}
+                          <div style={{ fontSize: fontSize.sm, marginBottom: 2 }}>{u.provider}</div>
+                          <div style={{ color: neutral.textMuted, fontSize: fontSize.xxs, marginBottom: spacing.xs }}>
+                            {u.quota > 0 ? `${u.used.toLocaleString()} / ${u.quota.toLocaleString()} ${u.unit} · ${u.period}` : "no quota tracked"}
                           </div>
                           {u.quota > 0 && (
                             <div style={{ height: 4, borderRadius: 9999, background: "rgba(255,255,255,0.1)", overflow: "hidden" }}>

@@ -24,6 +24,35 @@
   }
 }
 
+/* Top bar overlap fix (found live on a real narrow phone width) — the
+   hamburger toggle (top-left), mode-tabs row (top-center), and server
+   status (top-right) are three independently absolutely-positioned
+   elements with no collision avoidance between them. At normal widths
+   there's enough natural margin that this never matters; on a narrow
+   phone the mode-tabs row's natural content width extends far enough
+   to render underneath the other two. gap lives here (not inline)
+   specifically so the narrow-width override below can shrink it —
+   inline always wins over an external rule regardless of media query. */
+.mode-tabs-row {
+  gap: 20px; /* spacing.xxl(24) - spacing.xxs(4), matches the old inline value */
+}
+:root {
+  --mode-tab-active-padding-h: 20px; /* matches the old inline spacing.xl */
+}
+@media (max-width: 600px) {
+  .mode-tabs-row {
+    gap: 4px;
+    padding-left: 52px;  /* clears the hamburger (left:20px + ~38px box + margin) */
+    padding-right: 52px; /* clears the status dot once its text label is hidden */
+  }
+  .status-label {
+    display: none; /* the dot alone still answers "is NAVI awake" */
+  }
+  :root {
+    --mode-tab-active-padding-h: 8px;
+  }
+}
+
 body {
   background: #080608;
   overflow: hidden;
