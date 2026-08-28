@@ -12,13 +12,11 @@ export default defineConfig(({ mode }) => {
   const emitSourcemaps = mode === 'development'
 
   return {
-    // GitHub Pages serves this as a project page at /navi-ui/, not the
-    // domain root — every asset URL needs that prefix or they 404 once
-    // deployed. GITHUB_PAGES is set by the deploy workflow below; local
-    // dev/preview still gets '/' via the FIGMA_PUBLIC_URL branch.
-    base: process.env.GITHUB_PAGES
-      ? '/navi-ui/'
-      : process.env.FIGMA_PUBLIC_URL ? `${process.env.FIGMA_PUBLIC_URL}/` : '/',
+    // Custom domain (getnavi.online) serves this at the domain root, not
+    // a /navi-ui/ project-page path — asset URLs must be root-relative.
+    // GITHUB_PAGES is set by the deploy workflow below; local dev/preview
+    // still gets '/' via the FIGMA_PUBLIC_URL branch.
+    base: process.env.FIGMA_PUBLIC_URL ? `${process.env.FIGMA_PUBLIC_URL}/` : '/',
     build: {
       sourcemap: emitSourcemaps ? 'inline' : false,
       minify: !emitSourcemaps,
