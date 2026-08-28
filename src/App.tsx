@@ -1245,8 +1245,8 @@ export default function App() {
           explicit stacking order its invisible hit-box (padding doesn't
           exempt it from capturing clicks) sits on top and swallows
           clicks on Research/Brainstorm before they reach these buttons. */}
-      <div style={{
-        position: "absolute", top: spacing.xl, left: "50%", transform: "translateX(-50%)",
+      <div className="centered-col" style={{
+        position: "absolute", top: spacing.xl,
         display: "flex", gap: spacing.xxl - spacing.xxs, alignItems: "center",
         zIndex: 10,
       }}>
@@ -1316,7 +1316,7 @@ export default function App() {
           the same "Today's models" popover but with rows made
           selectable. Same zIndex-over-chat-column reasoning as the mode
           selector above. */}
-      <div style={{ position: "absolute", top: 64, left: "50%", transform: "translateX(-50%)", zIndex: 10 }}>
+      <div className="centered-col" style={{ position: "absolute", top: 64, zIndex: 10 }}>
         <button
           onClick={e => togglePanel("models", e.currentTarget)}
           style={{

@@ -11,6 +11,15 @@ body {
    picker pill just below it — the toolbar row moved down next to the
    input bar it actually relates to. Above 900px the column caps its
    width and centers instead of stretching edge to edge. */
+/* Shared by the mode-selector row and the model-picker pill — both were
+   plain inline left:50%/transform:translateX(-50%) until the
+   persistent-sidebar breakpoint needed a media query to shift them in
+   sync with .chat-column (inline styles can't express that). */
+.centered-col {
+  left: 50%;
+  transform: translateX(-50%);
+}
+
 .chat-column {
   position: absolute;
   inset: 0;
@@ -48,6 +57,15 @@ body {
   .chat-column {
     left: 304px;
     right: 0;
+  }
+  /* Mode selector + model-picker pill follow the same shift so they
+     stay visually aligned with .chat-column below them, instead of
+     centering on the full viewport while the chat centers on the
+     narrower space after the sidebar — found live: the two disagreeing
+     read as "the chat input looks off-center" even though each was
+     individually correct for what it was centered against. */
+  .centered-col {
+    left: calc(304px + (100% - 304px) / 2);
   }
 }
 
