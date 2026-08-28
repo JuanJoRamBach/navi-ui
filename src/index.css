@@ -264,7 +264,30 @@ body {
   .sidebar-menu-list {
     width: 200px;
     flex-shrink: 0;
+    transition: width 0.2s ease;
   }
+  /* Collapses to icon-only whenever a detail panel is docked open
+     (isDockedDetail in App.tsx sets this class) — JuanJo's call,
+     2026-08-29: the fixed 200px list was eating too much of an already
+     narrow sidebar, leaving the detail content "caged." 56px is just
+     the icon + its padding; labels hidden via .sidebar-menu-btn-label
+     below. Always exactly matches .sidebar-detail-panel's left/width
+     math (56px), since the two only ever exist together. */
+  .sidebar-menu-list.collapsed {
+    width: 56px;
+  }
+  .sidebar-menu-list.collapsed .sidebar-menu-btn {
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+}
+.sidebar-menu-btn-label {
+  overflow: hidden;
+  white-space: nowrap;
+}
+.sidebar-menu-list.collapsed .sidebar-menu-btn-label {
+  display: none;
 }
 
 /* Docked master-detail panel (Past conversations/Routing & fallbacks/
@@ -272,24 +295,37 @@ body {
    keeps the floating popover, JuanJo's explicit call, 2026-08-29). Same
    popover element as the floating one, just positioned to sit flush
    against .sidebar-menu-list's right edge instead of floating near the
-   clicked button. left:200px matches .sidebar-menu-list's width above.
-   width has to track .sidebar's own fluid clamp() formula (sidebar
-   width minus the 200px list column) — a CSS class rather than inline
-   math specifically because that clamp() result can't be read back out
-   into JS/inline styles. Only ever rendered while isDesktopSidebar is
-   true (React-side), so no media query needed here — it exists in the
-   DOM exclusively at/above the breakpoint already. */
+   clicked button. left:56px matches .sidebar-menu-list.collapsed's
+   width above — the two always coexist (the list only ever collapses
+   because a detail panel is open), so this doesn't need its own
+   conditional. width has to track .sidebar's own fluid clamp() formula
+   (sidebar width minus the 56px list column) — a CSS class rather than
+   inline math specifically because that clamp() result can't be read
+   back out into JS/inline styles. Only ever rendered while
+   isDesktopSidebar is true (React-side), so no media query needed here
+   — it exists in the DOM exclusively at/above the breakpoint already. */
 .sidebar-detail-panel {
   position: fixed;
   top: 0;
-  left: 200px;
+  left: 56px;
   z-index: 30;
-  width: calc(clamp(280px, calc((100vw - 1000px) / 2 - 24px), 480px) - 200px);
+  width: calc(clamp(280px, calc((100vw - 1000px) / 2 - 24px), 480px) - 56px);
   /* height set inline (App.tsx) from the measured Menu section height,
      not fixed here — see the comment at that inline style. Static
      chrome only (background/border/shadow/height) — scrolling and the
      fade mask live on .sidebar-detail-content (the inner div) instead,
      so the border doesn't fade along with the content. */
+}
+/* Close button (X, top-right of the docked panel) — collapsing the
+   list to icon-only removed the obvious "click the same menu item
+   again" affordance at a glance, so JuanJo asked for an explicit close
+   action instead. Returns the list to its full icon+label state too,
+   since that's driven by the same isDockedDetail condition. */
+.sidebar-detail-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 31;
 }
 .sidebar-detail-content {
   height: 100%;

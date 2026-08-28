@@ -1172,9 +1172,17 @@ export default function App() {
           display: "flex", alignItems: "center", justifyContent: "space-between",
           padding: spacing.lg,
         }}>
-          <span style={{ fontSize: fontSize.xs, fontWeight: fontWeight.medium, color: neutral.textPrimary, letterSpacing: "0.04em" }}>
-            MENU
-          </span>
+          {/* Hidden when the list collapses to icon-only (isDockedDetail)
+              — found live: "MENU" doesn't fit in the 56px collapsed
+              column (it needs ~46px including its own padding, but was
+              never part of .sidebar-menu-list so never actually
+              shrunk), and spilled over into the docked panel's left
+              edge. */}
+          {!isDockedDetail && (
+            <span style={{ fontSize: fontSize.xs, fontWeight: fontWeight.medium, color: neutral.textPrimary, letterSpacing: "0.04em" }}>
+              MENU
+            </span>
+          )}
           {/* Close button — mobile/tablet only, nothing to close on desktop
               (sidebar-toggle itself is hidden there, see index.css). */}
           <button
@@ -1196,7 +1204,7 @@ export default function App() {
           </button>
         </div>
 
-        <div className="sidebar-menu-list" style={{ display: "flex", flexDirection: "column", gap: spacing.xxs, padding: `0 ${spacing.sm}px` }}>
+        <div className={`sidebar-menu-list${isDockedDetail ? " collapsed" : ""}`} style={{ display: "flex", flexDirection: "column", gap: spacing.xxs, padding: `0 ${spacing.sm}px` }}>
           {/* Chats cluster — the conversation itself: starting one,
               finding a past one. */}
           {([
@@ -1206,6 +1214,7 @@ export default function App() {
             <button
               key={key}
               className="sidebar-menu-btn"
+              title={label}
               onClick={e => togglePanel(key, e.currentTarget)}
               style={{
                 display: "flex", alignItems: "center", gap: spacing.sm,
@@ -1217,7 +1226,7 @@ export default function App() {
               }}
             >
               {icon}
-              {label}
+              <span className="sidebar-menu-btn-label">{label}</span>
             </button>
           ))}
 
@@ -1236,6 +1245,7 @@ export default function App() {
             <button
               key={key}
               className="sidebar-menu-btn"
+              title={label}
               onClick={e => togglePanel(key, e.currentTarget)}
               style={{
                 display: "flex", alignItems: "center", gap: spacing.sm,
@@ -1247,12 +1257,17 @@ export default function App() {
               }}
             >
               {icon}
-              {label}
+              <span className="sidebar-menu-btn-label">{label}</span>
             </button>
           ))}
           {pushStatus !== "unsupported" && (
             <button
               className="sidebar-menu-btn"
+              title={
+                pushStatus === "subscribed" ? "Notifications on"
+                : pushStatus === "denied" ? "Notifications blocked"
+                : "Enable notifications"
+              }
               onClick={handleEnablePush}
               disabled={pushStatus === "subscribed" || pushStatus === "loading" || pushStatus === "denied"}
               style={{
@@ -1267,10 +1282,12 @@ export default function App() {
               }}
             >
               {pushStatus === "subscribed" ? <BellFillIcon size={iconSize.sm} /> : <BellIcon size={iconSize.sm} />}
-              {pushStatus === "loading" ? "Enabling…"
-                : pushStatus === "subscribed" ? "Notifications on"
-                : pushStatus === "denied" ? "Notifications blocked"
-                : "Enable notifications"}
+              <span className="sidebar-menu-btn-label">
+                {pushStatus === "loading" ? "Enabling…"
+                  : pushStatus === "subscribed" ? "Notifications on"
+                  : pushStatus === "denied" ? "Notifications blocked"
+                  : "Enable notifications"}
+              </span>
             </button>
           )}
         </div>
@@ -1724,6 +1741,22 @@ export default function App() {
               color: neutral.textPrimary,
               fontFamily,
             }}>
+              {isDockedDetail && (
+                <button
+                  className="sidebar-detail-close"
+                  aria-label="Close"
+                  title="Close"
+                  onClick={() => setOpenPanel(null)}
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    width: controlSize.sm, height: controlSize.sm,
+                    borderRadius: radius.xs, border: "none", background: "transparent",
+                    color: neutral.textMuted, cursor: "pointer",
+                  }}
+                >
+                  <XIcon size={iconSize.sm} />
+                </button>
+              )}
               {/* Separate from the outer panel div specifically so the
                   bottom fade mask (docked mode only) only affects the
                   scrollable content, not the panel's own background/
