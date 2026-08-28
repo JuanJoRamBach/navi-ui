@@ -1305,7 +1305,14 @@ export default function App() {
         aria-label="Open menu"
         onClick={() => setSidebarOpen(true)}
         style={{
-          position: "absolute", top: spacing.xl, left: spacing.xl, zIndex: 10,
+          // zIndex 11, not 10 — the mode-selector row below renders
+          // later in the DOM at zIndex 10 too, and its .centered-col
+          // div spans the FULL width (needed for the centering math),
+          // not just the visible buttons. Same z-index + later DOM
+          // order meant it won the stacking tie and sat on top,
+          // swallowing almost all of the hamburger's clickable area —
+          // found live, "only clickable in the bottom ~4px."
+          position: "absolute", top: spacing.xl, left: spacing.xl, zIndex: 11,
           // display intentionally NOT set here — same reasoning as the
           // close button above.
           alignItems: "center", justifyContent: "center",
