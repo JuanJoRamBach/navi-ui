@@ -78,6 +78,16 @@ body {
        off-center relative to the true page center instead of just
        narrower-but-still-centered in that transition zone. */
     right: calc((100% - 1000px) / 2);
+    /* .chat-column inherits margin:0 auto from the 860px tier below —
+       combined with explicit left+right+an implied width (max-width)
+       here, that's 4 positioning constraints active at once, a
+       genuinely over-constrained case CSS engines can legitimately
+       resolve differently (Chromium vs Firefox have real history of
+       diverging on exactly this). Reset to margin:0 so there's nothing
+       left for any engine to auto-resolve — left/right alone fully
+       determine the box now. .centered-col never had margin set, so
+       this is a no-op there, just explicit for the same safety. */
+    margin: 0;
   }
 }
 
