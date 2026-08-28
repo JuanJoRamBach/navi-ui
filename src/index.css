@@ -14,11 +14,18 @@ body {
 /* Shared by .chat-column, the mode-selector row, and the model-picker
    pill — all three need the exact same left/right positioning so they
    stay visually aligned as one block (see the max()-based rule below).
-   display:flex + justify-content:center is what actually centers each
-   one's own (differently-sized) content within that shared span — the
-   mode-selector/model-picker already set display:flex inline for their
-   own row layout (gap/alignItems), this just adds centering on top. */
+   display:flex is set HERE, not left to each usage's own inline style —
+   justify-content:center is meaningless without it, and this was a
+   real bug: the model-picker pill's div never had display:flex set
+   inline (only the mode-selector row did), so justify-content:center
+   silently did nothing and its button rendered at the div's left edge
+   via default block flow instead of centered — invisible to a
+   getBoundingClientRect() check on the div itself (always correctly
+   positioned), only visible by checking where the actual button
+   rendered inside it. Owning display:flex here means no future usage
+   of this class can accidentally omit it again. */
 .centered-col {
+  display: flex;
   left: 0;
   right: 0;
   justify-content: center;
