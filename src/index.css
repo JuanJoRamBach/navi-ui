@@ -11,13 +11,17 @@ body {
    picker pill just below it — the toolbar row moved down next to the
    input bar it actually relates to. Above 900px the column caps its
    width and centers instead of stretching edge to edge. */
-/* Shared by the mode-selector row and the model-picker pill — both were
-   plain inline left:50%/transform:translateX(-50%) until the
-   persistent-sidebar breakpoint needed a media query to shift them in
-   sync with .chat-column (inline styles can't express that). */
+/* Shared by .chat-column, the mode-selector row, and the model-picker
+   pill — all three need the exact same left/right positioning so they
+   stay visually aligned as one block (see the max()-based rule below).
+   display:flex + justify-content:center is what actually centers each
+   one's own (differently-sized) content within that shared span — the
+   mode-selector/model-picker already set display:flex inline for their
+   own row layout (gap/alignItems), this just adds centering on top. */
 .centered-col {
-  left: 50%;
-  transform: translateX(-50%);
+  left: 0;
+  right: 0;
+  justify-content: center;
 }
 
 .chat-column {
@@ -42,30 +46,30 @@ body {
   }
 }
 
-/* At the persistent-sidebar breakpoint (mirrors tokens.layout in
-   tokens.ts — sidebarWidth 280 + sidebarChatGap 24 = 304), .chat-column
-   shifts right to leave that gap instead of centering on the full
-   viewport — JuanJo's explicit call, not the earlier "let the sidebar
-   sit in pre-existing empty margin, don't touch the chat" approach.
-   left+right insets (rather than margin-left) is what lets max-width
-   + margin:auto above still center the 1000px-capped box within the
-   [304px, viewport-right-edge] range, instead of just left-anchoring
-   it. Deliberately scoped to .chat-column only, not the mode-selector/
-   model-picker pill above it (still viewport-centered, independent) —
-   JuanJo's own framing was specifically "adjust the chat box." */
+/* Persistent-sidebar breakpoint (mirrors tokens.layout in tokens.ts —
+   sidebarWidth 280 + sidebarChatGap 24 = 304). JuanJo's explicit call
+   (2026-08-29), refined after seeing it live: the chat should stay
+   centered on the *page*, same as always — it should only ever shift
+   right by the minimum needed to keep 24px clear of the sidebar, never
+   more than that. A flat "always shift by 304px past this breakpoint"
+   was wrong two ways: (1) it stayed shifted even at very wide viewports
+   where full-page centering already clears the sidebar by hundreds of
+   pixels, reading as permanently off-center for no reason; (2) it was a
+   hard on/off jump exactly at 1024px instead of a smooth transition,
+   visible as a sudden snap right at the boundary.
+   max(natural-centered-position, 304px) fixes both: at wide viewports
+   the natural centered value already exceeds 304px, so max() picks
+   that and the chat is genuinely full-page-centered, sidebar or not;
+   only near the boundary — where centering naturally would land closer
+   than 304px to the sidebar — does the 304px floor take over instead,
+   and it does so continuously as the viewport shrinks, not as a jump.
+   Applied identically to .chat-column and .centered-col so the whole
+   vertical stack (mode tabs, model picker, chat) moves together. */
 @media (min-width: 1024px) {
-  .chat-column {
-    left: 304px;
-    right: 0;
-  }
-  /* Mode selector + model-picker pill follow the same shift so they
-     stay visually aligned with .chat-column below them, instead of
-     centering on the full viewport while the chat centers on the
-     narrower space after the sidebar — found live: the two disagreeing
-     read as "the chat input looks off-center" even though each was
-     individually correct for what it was centered against. */
+  .chat-column,
   .centered-col {
-    left: calc(304px + (100% - 304px) / 2);
+    left: max(calc((100% - 1000px) / 2), 304px);
+    right: max(calc((100% - 1000px) / 2), 0px);
   }
 }
 
