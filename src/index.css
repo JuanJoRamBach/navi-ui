@@ -229,7 +229,13 @@ body {
   z-index: 30;
   width: calc(clamp(280px, calc((100vw - 1000px) / 2 - 24px), 480px) - 200px);
   /* height set inline (App.tsx) from the measured Menu section height,
-     not fixed here — see the comment at that inline style. */
+     not fixed here — see the comment at that inline style. That height
+     is often shorter than real content (a long conversation list, many
+     routing chains) — same bottom-fade technique as .message-fade-top,
+     so a scrollable cutoff reads as "more below" instead of looking
+     like a rendering bug. */
+  mask-image: linear-gradient(to bottom, black calc(100% - 24px), transparent);
+  -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 24px), transparent);
 }
 
 /* Hover feedback for the sidebar menu buttons — separate from the

@@ -1684,8 +1684,13 @@ export default function App() {
               height: menuSectionHeight ?? 280,
               background: theme.bubbleBg,
               borderLeft: `1px solid ${theme.bubbleBorder}`,
-              boxShadow: `0 8px 30px rgba(0,0,0,0.5), 0 0 16px ${theme.glow}`,
-              padding: spacing.lg,
+              // No glow here — that's the right call for a floating
+              // popover drawing attention to itself, but this is
+              // structural sidebar furniture now, not a transient
+              // overlay. A plain shadow (no color) reads calmer.
+              boxShadow: "0 8px 30px rgba(0,0,0,0.5)",
+              paddingTop: spacing.lg, paddingBottom: spacing.lg,
+              paddingLeft: spacing.lg, paddingRight: spacing.lg,
               color: neutral.textPrimary,
               fontFamily,
             } : {
