@@ -38,9 +38,9 @@ export const radius = {
 // 14.5 body size wasn't much better. 14px is a deliberate floor, not
 // just a bump — JuanJo's explicit call, "at least 14px" anywhere in
 // the UI, holds on mobile too (smaller screens don't mean better
-// eyesight). Desktop's sm=17 felt right live; JuanJo found the same
-// size too big on mobile/tablet, so these are now CSS custom
-// properties (--font-size-*, defined in index.css) instead of plain
+// eyesight). Desktop's sm started at 17, came down to 15.5 after
+// living with it. Actual values live in index.css now, not here — this
+// scale is CSS custom properties (--font-size-*) instead of plain
 // numbers — a media query redefines them below the persistent-sidebar
 // breakpoint, and since every usage here is `fontSize: fontSize.xs`
 // inline, referencing a CSS var string means the actual rendered size

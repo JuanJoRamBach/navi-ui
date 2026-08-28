@@ -20,7 +20,8 @@
   :root {
     --font-size-xxs: 14px;
     --font-size-xs: 15px;
-    --font-size-sm: 17px;
+    /* 17px felt too big live — JuanJo's follow-up, 2026-08-29. */
+    --font-size-sm: 15.5px;
   }
 }
 
@@ -90,12 +91,16 @@ body {
   padding: 100px 20px 16px; /* 20/16 mirror tokens.spacing.xl/lg; 100 is a derived clearance value, not a scale step */
 }
 
-/* 860px is where the column stops stretching edge-to-edge and starts
-   capping/centering itself. 1000px max-width is JuanJo's explicit call
-   (2026-08-29) for how wide the chat itself should read on desktop —
-   wider than the original 860px, which was sized against the old
-   5-button toolbar row that's since moved into the sidebar. */
-@media (min-width: 860px) {
+/* 1024px (not the old 860px) is where the column stops stretching
+   edge-to-edge and starts capping/centering itself — aligned with the
+   font-size and persistent-sidebar breakpoints elsewhere in this file,
+   deliberately. JuanJo's call (2026-08-29): tablet should keep the
+   full mobile treatment throughout, not just smaller fonts — the old
+   860px meant a tablet in the 860-1024px range got "desktop-width"
+   chat layout with "mobile-size" fonts, a real mismatch. 1000px
+   max-width is JuanJo's separate explicit call for how wide the chat
+   itself should read once it IS in desktop mode. */
+@media (min-width: 1024px) {
   .chat-column {
     max-width: 1000px;
     margin: 0 auto;
@@ -136,11 +141,13 @@ body {
        off-center relative to the true page center instead of just
        narrower-but-still-centered in that transition zone. */
     right: calc((100% - 1000px) / 2);
-    /* .chat-column inherits margin:0 auto from the 860px tier below —
-       combined with explicit left+right+an implied width (max-width)
-       here, that's 4 positioning constraints active at once, a
-       genuinely over-constrained case CSS engines can legitimately
-       resolve differently (Chromium vs Firefox have real history of
+    /* .chat-column inherits margin:0 auto from the max-width tier
+       below (same 1024px breakpoint now, previously a separate 860px
+       one) — combined with explicit left+right+an implied width
+       (max-width) here, that's 4 positioning constraints active at
+       once, a genuinely over-constrained case CSS engines can
+       legitimately resolve differently (Chromium vs Firefox have real
+       history of
        diverging on exactly this). Reset to margin:0 so there's nothing
        left for any engine to auto-resolve — left/right alone fully
        determine the box now. .centered-col never had margin set, so
