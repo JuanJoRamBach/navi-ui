@@ -1696,8 +1696,8 @@ export default function App() {
               // structural sidebar furniture now, not a transient
               // overlay. A plain shadow (no color) reads calmer.
               boxShadow: "0 8px 30px rgba(0,0,0,0.5)",
-              paddingTop: spacing.lg, paddingBottom: spacing.lg,
-              paddingLeft: spacing.lg, paddingRight: spacing.lg,
+              // padding lives on .sidebar-detail-content (the inner
+              // scrollable div) now, not here — see that class.
               color: neutral.textPrimary,
               fontFamily,
             } : {
@@ -1715,6 +1715,18 @@ export default function App() {
               color: neutral.textPrimary,
               fontFamily,
             }}>
+              {/* Separate from the outer panel div specifically so the
+                  bottom fade mask (docked mode only) only affects the
+                  scrollable content, not the panel's own background/
+                  border — found live: masking the whole outer element
+                  faded the left border out too, which looked wrong
+                  since that border is part of the panel's static chrome,
+                  not something that should fade with the content. A
+                  no-op wrapper (no class/style) in floating-popover mode. */}
+              <div
+                className={isDockedDetail ? "hide-scrollbar sidebar-detail-content" : undefined}
+                style={isDockedDetail ? { height: "100%" } : undefined}
+              >
               {openPanel === "newConvo" && (
                 <div>
                   <div style={{ fontSize: fontSize.sm, marginBottom: spacing.sm }}>
@@ -1971,6 +1983,7 @@ export default function App() {
                   </div>
                 </div>
               )}
+              </div>
             </div>
           </>
         )}
