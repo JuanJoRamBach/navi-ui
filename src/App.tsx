@@ -1135,7 +1135,11 @@ export default function App() {
             aria-label="Close menu"
             onClick={() => setSidebarOpen(false)}
             style={{
-              display: "flex", alignItems: "center", justifyContent: "center",
+              // display intentionally NOT set here — .sidebar-toggle in
+              // index.css owns it (flex by default, none at the
+              // persistent breakpoint); an inline value here would
+              // always win over that media query regardless of width.
+              alignItems: "center", justifyContent: "center",
               width: controlSize.sm, height: controlSize.sm,
               borderRadius: radius.xs, border: "none", background: "transparent",
               color: neutral.textMuted, cursor: "pointer",
@@ -1222,7 +1226,9 @@ export default function App() {
         onClick={() => setSidebarOpen(true)}
         style={{
           position: "absolute", top: spacing.xl, left: spacing.xl, zIndex: 10,
-          display: "flex", alignItems: "center", justifyContent: "center",
+          // display intentionally NOT set here — same reasoning as the
+          // close button above.
+          alignItems: "center", justifyContent: "center",
           width: controlSize.md, height: controlSize.md,
           borderRadius: radius.sm,
           border: `1px solid ${theme.bubbleBorder}`,

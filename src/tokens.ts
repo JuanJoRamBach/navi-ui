@@ -76,7 +76,17 @@ export const blur = {
 // into index.css's media queries — inline styles can't express a
 // breakpoint, same reasoning as .chat-column there.
 export const layout = {
+  // The sidebar's minimum width, not a fixed one — at/above
+  // sidebarBreakpoint it's actually fluid (see .sidebar in index.css),
+  // growing to fill whatever space .chat-column's own centering leaves
+  // empty, capped at sidebarMaxWidth. This is its floor at the tight
+  // end (right at the breakpoint) and also what .chat-column's own
+  // shift floor (sidebarWidth + sidebarChatGap) is computed against —
+  // if this changes, that computed value in index.css needs to change
+  // with it, they're not read from the same source today (inline
+  // styles can't read a CSS clamp()/calc() result back out).
   sidebarWidth: 280,
+  sidebarMaxWidth: 480,
   sidebarBreakpoint: 1024,
   // Minimum breathing room between the sidebar and .chat-column at/above
   // the breakpoint — JuanJo's explicit spec, matches spacing.xxl (24).

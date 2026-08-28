@@ -114,20 +114,29 @@ body {
 }
 
 /* V3 sidebar shell — mirrors tokens.layout in tokens.ts (sidebarWidth:
-   280, sidebarBreakpoint: 1440); duplicated here since inline styles
+   280, sidebarBreakpoint: 1024); duplicated here since inline styles
    can't express a media query, same reasoning as .chat-column above.
 
    .sidebar defaults to an off-canvas drawer (translated fully off-
-   screen, slides in via .sidebar.open) — that's the mobile/tablet/
-   narrower-desktop behavior. At/above the breakpoint it's forced
-   persistently visible regardless of the .open class. Deliberately NOT
-   shifting/shrinking .app-shell here (see tokens.ts's layout comment) —
-   .chat-column's own centering already leaves enough empty margin at
-   this width for the sidebar to occupy without touching the chat at
-   all. .sidebar-backdrop only ever matters below the breakpoint
+   screen, slides in via .sidebar.open) — that's the mobile/tablet
+   behavior. At/above the breakpoint it's forced persistently visible
+   regardless of the .open class, AND its width becomes fluid instead
+   of a fixed 280px (JuanJo, 2026-08-29: "sidebar is too narrow, should
+   go right until the 24px separation starts") — it grows to fill the
+   gap left by .chat-column's own centering, capped at 480px so it
+   doesn't get silly-wide on an ultrawide monitor, never shrinking below
+   the 280px it needs to stay at right at the breakpoint edge (where
+   .chat-column's max()-floor in the media query below is pinned to
+   exactly sidebarWidth(280)+gap(24)=304 — if the sidebar's own min
+   here ever changes, that 304 needs to change with it). clamp(min,
+   preferred, max): preferred is "however far .chat-column's natural
+   full-page-centered edge sits, minus the 24px gap" — the same
+   (100vw-1000px)/2 formula .chat-column uses for its own floor
+   comparison, just solved for the sidebar's side of that boundary
+   instead. .sidebar-backdrop only ever matters below the breakpoint
    (click-outside-to-close for the drawer) — auto-hidden above it even
-   if React still thinks the drawer is "open", so wide desktop never
-   shows a stray dimming overlay. */
+   if React still thinks the drawer is "open", so desktop never shows a
+   stray dimming overlay. */
 .sidebar {
   position: fixed;
   top: 0; left: 0; bottom: 0;
@@ -145,9 +154,19 @@ body {
   background: rgba(0, 0, 0, 0.5);
   z-index: 29;
 }
-@media (min-width: 1440px) {
+/* Both toggle buttons (open hamburger, close X) — display lives here,
+   not inline, specifically so the >=1024px override below can actually
+   hide them (an inline display value always wins over an external
+   stylesheet rule regardless of media query — this was a real bug,
+   found live: both stayed visible past the breakpoint since their
+   inline style set display:"flex" directly). */
+.sidebar-toggle {
+  display: flex;
+}
+@media (min-width: 1024px) {
   .sidebar {
     transform: translateX(0) !important;
+    width: clamp(280px, calc((100vw - 1000px) / 2 - 24px), 480px);
   }
   .sidebar-backdrop {
     display: none;
