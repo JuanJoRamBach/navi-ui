@@ -1344,11 +1344,14 @@ export default function App() {
       </div>
 
       {/* Chat surface — glassy bubbles over the animated background.
-          Top padding clears the mode selector above; the max-width/
-          centering for wider screens lives in index.css (.chat-column)
-          since inline styles can't do media queries. */}
+          Top padding clears the mode selector above; position/inset,
+          max-width/centering, and the sidebar-gap shift for wider
+          screens all live in index.css (.chat-column) — position/inset
+          moved there too (not just the media-query parts) so the
+          persistent-sidebar breakpoint's left/right override actually
+          takes effect; an inline style here would always win over any
+          external stylesheet rule regardless of media query. */}
       <div className="chat-column" style={{
-        position: "absolute", inset: 0,
         fontFamily,
       }}>
         {/* Bottom-anchored like this chat — flex column-reverse means

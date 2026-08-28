@@ -12,22 +12,42 @@ body {
    input bar it actually relates to. Above 900px the column caps its
    width and centers instead of stretching edge to edge. */
 .chat-column {
+  position: absolute;
+  inset: 0;
   display: flex;
   flex-direction: column;
   padding: 100px 20px 16px; /* 20/16 mirror tokens.spacing.xl/lg; 100 is a derived clearance value, not a scale step */
 }
 
-/* 860px comfortably fits the 5-button toolbar row (~770px of content +
-   48px padding) without it ever needing to scroll — a narrower cap
-   here made the column snap noticeably thinner right as this
-   breakpoint kicked in, since the toolbar no longer fit and fell back
-   to its horizontal-scroll state. */
+/* 860px is where the column stops stretching edge-to-edge and starts
+   capping/centering itself. 1000px max-width is JuanJo's explicit call
+   (2026-08-29) for how wide the chat itself should read on desktop —
+   wider than the original 860px, which was sized against the old
+   5-button toolbar row that's since moved into the sidebar. */
 @media (min-width: 860px) {
   .chat-column {
-    max-width: 860px;
+    max-width: 1000px;
     margin: 0 auto;
     padding-left: 24px;
     padding-right: 24px;
+  }
+}
+
+/* At the persistent-sidebar breakpoint (mirrors tokens.layout in
+   tokens.ts — sidebarWidth 280 + sidebarChatGap 24 = 304), .chat-column
+   shifts right to leave that gap instead of centering on the full
+   viewport — JuanJo's explicit call, not the earlier "let the sidebar
+   sit in pre-existing empty margin, don't touch the chat" approach.
+   left+right insets (rather than margin-left) is what lets max-width
+   + margin:auto above still center the 1000px-capped box within the
+   [304px, viewport-right-edge] range, instead of just left-anchoring
+   it. Deliberately scoped to .chat-column only, not the mode-selector/
+   model-picker pill above it (still viewport-centered, independent) —
+   JuanJo's own framing was specifically "adjust the chat box." */
+@media (min-width: 1024px) {
+  .chat-column {
+    left: 304px;
+    right: 0;
   }
 }
 
