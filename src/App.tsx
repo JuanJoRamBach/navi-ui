@@ -29,9 +29,10 @@ import {
   fontFamily, neutral, layout,
 } from "./tokens";
 import {
-  type StoredMessage, type Conversation,
+  type StoredMessage, type Conversation, type MessageAttachment,
   getActiveConversationId, loadConversation, saveConversation,
   createConversation, listConversations, switchActiveConversation, deriveTitle,
+  parseAttachments, parseCommand,
 } from "./storage";
 import { Group, Panel, Separator, type LayoutChangedMeta } from "react-resizable-panels";
 import { NAVI_BACKEND_URL } from "./config";
@@ -202,25 +203,14 @@ interface Fairy {
 const DOWNLOAD_LINE_RE = /📎 (.+?): (https?:\/\/\S+)/g;
 const VIEW_LINE_RE = /🌐 (.+?): (https?:\/\/\S+)/g;
 
-interface MessageAttachment {
-  filename: string;
-  downloadUrl: string;
-  viewUrl?: string;
-}
-
+// The list-building half of this (which filenames/URLs exist) now lives
+// in storage.ts as parseAttachments — shared with sw.ts's push handler
+// and the Activity panel, neither of which render anything. Only the
+// body-stripping (removing the 📎/🌐 lines from displayed text) stays
+// here, since that's genuinely rendering-only.
 function splitMessageAttachments(text: string): { body: string; attachments: MessageAttachment[] } {
-  const byFilename = new Map<string, MessageAttachment>();
-  let body = text.replace(DOWNLOAD_LINE_RE, (_match, filename: string, url: string) => {
-    byFilename.set(filename, { filename, downloadUrl: url });
-    return "";
-  });
-  body = body.replace(VIEW_LINE_RE, (_match, filename: string, url: string) => {
-    const existing = byFilename.get(filename);
-    if (existing) existing.viewUrl = url;
-    else byFilename.set(filename, { filename, downloadUrl: url, viewUrl: url });
-    return "";
-  }).trim();
-  const attachments = Array.from(byFilename.values());
+  const attachments = parseAttachments(text);
+  const body = text.replace(DOWNLOAD_LINE_RE, "").replace(VIEW_LINE_RE, "").trim();
   return { body, attachments };
 }
 
@@ -648,6 +638,28 @@ export default function App() {
   // until the load effect below hydrates it (real conversation, or a
   // freshly created one on a genuinely first-ever launch).
   const [messages, setMessages] = useState<StoredMessage[]>([]);
+  // Activity panel's data — derived from `messages`, not its own stored
+  // list, since command/attachments already live on the messages
+  // themselves (parseCommand/parseAttachments in sendMessage and sw.ts).
+  // Pairs each command-bearing user message with whatever files the very
+  // next message (the navi reply to it) produced — correct for the
+  // synchronous case; for /research's async push delivery, the "next"
+  // message chronologically. is that same reply once it lands, so this
+  // still holds. Newest first, matching Past conversations' ordering.
+  const activityItems = useMemo(() => {
+    const items: { command: string; timestamp: number; attachments: MessageAttachment[] }[] = [];
+    for (let i = 0; i < messages.length; i++) {
+      const m = messages[i];
+      if (m.role !== "user" || !m.command) continue;
+      const next = messages[i + 1];
+      items.push({
+        command: m.command,
+        timestamp: m.timestamp,
+        attachments: (next?.role === "navi" && next.attachments) || [],
+      });
+    }
+    return items.reverse();
+  }, [messages]);
   // Which conversation `messages` belongs to — a ref, not state, since
   // writing it should never itself trigger a re-render (only `messages`
   // changing should). Read by the save effect and by loadConversation
@@ -1135,7 +1147,7 @@ export default function App() {
   const sendMessage = useCallback(() => {
     const text = draft.trim();
     if (!text) return;
-    setMessages(m => [...m, { role: "user", text, timestamp: Date.now() }]);
+    setMessages(m => [...m, { role: "user", text, timestamp: Date.now(), command: parseCommand(text) }]);
     setDraft("");
 
     // A research poll already tracking an in-flight async job takes
@@ -1154,10 +1166,13 @@ export default function App() {
     if (!asyncJobActive()) setPendingStep(firstStep);
 
     const handleResponse = (data: { reply?: string; error?: string; async?: boolean }) => {
+      const replyText = data.reply ?? data.error ?? "(empty reply)";
+      const attachments = parseAttachments(replyText);
       setMessages(m => [...m, {
         role: "navi",
-        text: data.reply ?? data.error ?? "(empty reply)",
+        text: replyText,
         timestamp: Date.now(),
+        ...(attachments.length > 0 ? { attachments } : {}),
       }]);
 
       if (data.async) {
@@ -1408,9 +1423,66 @@ export default function App() {
           <span style={{ fontSize: fontSize.xs, fontWeight: fontWeight.medium, color: neutral.textPrimary, letterSpacing: "0.04em" }}>
             ACTIVITY
           </span>
-          <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted, marginTop: spacing.sm }}>
-            Coming next — a record of what ran in this conversation and the files it produced.
-          </div>
+          {activityItems.length === 0 ? (
+            <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted, marginTop: spacing.sm }}>
+              No commands run yet in this conversation.
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: spacing.md, marginTop: spacing.sm }}>
+              {activityItems.map((item, i) => (
+                <div key={i}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.xs }}>
+                    <span style={{ fontSize: fontSize.sm, color: neutral.textPrimary, fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" }}>
+                      /{item.command}
+                    </span>
+                    <span style={{ fontSize: fontSize.xxs, color: neutral.textMuted, flexShrink: 0 }}>
+                      {formatDayLabel(item.timestamp)}, {formatTime(item.timestamp)}
+                    </span>
+                  </div>
+                  {item.attachments.length > 0 && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: spacing.xs, marginTop: spacing.xs }}>
+                      {item.attachments.map(a => (
+                        <div
+                          key={a.filename}
+                          style={{
+                            display: "flex", alignItems: "center", gap: spacing.xs,
+                            padding: `${spacing.xs}px ${spacing.sm}px`, borderRadius: radius.sm,
+                            background: "rgba(255,255,255,0.06)",
+                            border: "1px solid rgba(255,255,255,0.12)",
+                            fontSize: fontSize.xs,
+                          }}
+                        >
+                          <FileIcon size={iconSize.sm} />
+                          <span style={{
+                            flex: 1, overflow: "hidden", textOverflow: "ellipsis",
+                            whiteSpace: "nowrap", color: neutral.textPrimary,
+                          }}>
+                            {a.filename}
+                          </span>
+                          {a.viewUrl && (
+                            <a
+                              href={a.viewUrl} target="_blank" rel="noopener noreferrer"
+                              title="View" aria-label="View in browser"
+                              style={{ display: "flex", flexShrink: 0, color: neutral.textMuted }}
+                            >
+                              <GlobeIcon size={iconSize.sm} />
+                            </a>
+                          )}
+                          <a
+                            href={a.downloadUrl} target="_blank" rel="noopener noreferrer"
+                            title="Download" aria-label="Download"
+                            style={{ display: "flex", flexShrink: 0, color: neutral.textMuted }}
+                          >
+                            <DownloadIcon size={iconSize.sm} />
+                          </a>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
         </Panel>
         </Group>

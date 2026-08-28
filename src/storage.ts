@@ -11,10 +11,53 @@
 import { openDB, type DBSchema, type IDBPTransaction, type StoreNames } from "idb";
 import type { ChatMode } from "./tokens";
 
+export interface MessageAttachment {
+  filename: string;
+  downloadUrl: string;
+  viewUrl?: string;
+}
+
+// Canonical home for this regex/parse (moved from App.tsx, 2026-08-29) —
+// needed here too now, not just for rendering: the Activity panel reads
+// StoredMessage.attachments directly instead of re-parsing raw text on
+// every render, and sw.ts's push handler (which has no access to
+// App.tsx's rendering code) needs the same parsing to flag an incoming
+// push-delivered /research result at write time.
+const DOWNLOAD_LINE_RE = /📎 (.+?): (https?:\/\/\S+)/g;
+const VIEW_LINE_RE = /🌐 (.+?): (https?:\/\/\S+)/g;
+
+export function parseAttachments(text: string): MessageAttachment[] {
+  const byFilename = new Map<string, MessageAttachment>();
+  for (const m of text.matchAll(DOWNLOAD_LINE_RE)) {
+    byFilename.set(m[1], { filename: m[1], downloadUrl: m[2] });
+  }
+  for (const m of text.matchAll(VIEW_LINE_RE)) {
+    const existing = byFilename.get(m[1]);
+    if (existing) existing.viewUrl = m[2];
+    else byFilename.set(m[1], { filename: m[1], downloadUrl: m[2], viewUrl: m[2] });
+  }
+  return Array.from(byFilename.values());
+}
+
+// The slash-command that triggered this exchange, if any — parsed once
+// at write time (see command below) rather than re-derived from text
+// later, so the Activity panel doesn't need its own copy of "what does
+// a command look like" parsing logic. Undefined for plain chat.
+export function parseCommand(text: string): string | undefined {
+  const match = text.trim().match(/^\/(\w[\w-]*)/);
+  return match?.[1];
+}
+
 export interface StoredMessage {
   role: "user" | "navi";
   text: string;
   timestamp: number; // ms since epoch — drives the per-message time label and day dividers
+  // Both optional and only ever set at write time (sendMessage in
+  // App.tsx, the push handler in sw.ts) — never re-derived from `text`
+  // later. Older stored messages simply won't have these fields; every
+  // reader treats their absence as "plain chat, no command, no files."
+  command?: string; // set on the user message that triggered a command
+  attachments?: MessageAttachment[]; // set on the navi reply that produced file(s)
 }
 
 export interface Conversation {
