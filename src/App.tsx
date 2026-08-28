@@ -1397,7 +1397,12 @@ export default function App() {
             the next piece. */}
         <Panel id="activity" minSize={60}>
         <div style={{
-          padding: `${spacing.lg}px ${spacing.sm}px`,
+          // Left/right padding matches spacing.lg — same as the MENU
+          // header row and the effective text-start of the menu
+          // buttons (8px list padding + 8px button padding = 16px) —
+          // was spacing.sm (8px), reading as noticeably less inset
+          // than Menu's content. JuanJo's call, 2026-08-29.
+          padding: `${spacing.lg}px`,
           height: "100%", overflowY: "auto",
         }}>
           <span style={{ fontSize: fontSize.xs, fontWeight: fontWeight.medium, color: neutral.textPrimary, letterSpacing: "0.04em" }}>
