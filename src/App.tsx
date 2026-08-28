@@ -888,6 +888,26 @@ export default function App() {
   // stay popovers regardless of width.
   const MASTER_DETAIL_KEYS = ["history", "routing", "usage", "settings"] as const;
 
+  // The docked detail panel (see isDockedDetail below) should match the
+  // Menu section's own height, not the full sidebar/viewport — JuanJo's
+  // call, 2026-08-29, also setting up for Menu/Activity becoming
+  // independently resizable later (once that exists, this measured
+  // height just tracks whatever the resize state says instead). Measured
+  // via ResizeObserver rather than assumed, since the Menu section's
+  // real height depends on runtime content (e.g. the notifications
+  // button only renders when push is supported).
+  const menuSectionRef = useRef<HTMLDivElement>(null);
+  const [menuSectionHeight, setMenuSectionHeight] = useState<number | null>(null);
+  useEffect(() => {
+    const el = menuSectionRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(entries => {
+      setMenuSectionHeight(entries[0].contentRect.height);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   // Push notification subscribe state — not a popover, a direct action
   // button. Re-checked on mount since subscriptions are per-origin: a
   // browser that was subscribed under a previous domain (e.g. GitHub
@@ -1147,6 +1167,7 @@ export default function App() {
         backdropFilter: `blur(${blur.md}px)`,
         fontFamily,
       }}>
+        <div ref={menuSectionRef}>
         <div style={{
           display: "flex", alignItems: "center", justifyContent: "space-between",
           padding: spacing.lg,
@@ -1252,6 +1273,7 @@ export default function App() {
                 : "Enable notifications"}
             </button>
           )}
+        </div>
         </div>
 
         {/* Activity — the browsable tool/output record (which command
@@ -1652,6 +1674,14 @@ export default function App() {
                 sidebar's own fluid clamp() formula, which inline styles
                 can't read back out. */}
             <div className={isDockedDetail ? "hide-scrollbar sidebar-detail-panel" : "hide-scrollbar"} style={isDockedDetail ? {
+              // height mirrors the Menu section's own measured height
+              // (menuSectionRef/menuSectionHeight) instead of spanning
+              // the full sidebar — matches "inherit the height of the
+              // menu" and sets up correctly for Menu/Activity becoming
+              // independently resizable later. Falls back to a fixed
+              // guess only for the one frame before ResizeObserver's
+              // first measurement lands.
+              height: menuSectionHeight ?? 280,
               background: theme.bubbleBg,
               borderLeft: `1px solid ${theme.bubbleBorder}`,
               boxShadow: `0 8px 30px rgba(0,0,0,0.5), 0 0 16px ${theme.glow}`,

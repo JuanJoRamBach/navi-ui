@@ -69,7 +69,15 @@ body {
   .chat-column,
   .centered-col {
     left: max(calc((100% - 1000px) / 2), 304px);
-    right: max(calc((100% - 1000px) / 2), 0px);
+    /* right deliberately mirrors the SAME natural-centering value as
+       left, not its own independent max(...,0px) floor — found live:
+       flooring each side separately makes the box asymmetric whenever
+       the natural value sits between 0 and 304 (e.g. at 1024px viewport,
+       left floors to 304 but right's own floor only kicks in below 0,
+       so right stays at its small natural ~12px) — the box ends up
+       off-center relative to the true page center instead of just
+       narrower-but-still-centered in that transition zone. */
+    right: calc((100% - 1000px) / 2);
   }
 }
 
@@ -199,11 +207,12 @@ body {
 .sidebar-detail-panel {
   position: fixed;
   top: 0;
-  bottom: 0;
   left: 200px;
   overflow-y: auto;
   z-index: 30;
   width: calc(clamp(280px, calc((100vw - 1000px) / 2 - 24px), 480px) - 200px);
+  /* height set inline (App.tsx) from the measured Menu section height,
+     not fixed here — see the comment at that inline style. */
 }
 
 /* Hover feedback for the sidebar menu buttons — separate from the
