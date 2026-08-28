@@ -1760,11 +1760,15 @@ export default function App() {
 
               {openPanel === "history" && (
                 <div>
-                  <div style={{ fontSize: fontSize.xs, color: neutral.textMuted, marginBottom: spacing.sm }}>
+                  {/* sm/xs here, not the panel-wide default xs/xxs —
+                      JuanJo found this panel's content still read small
+                      even with the accessibility-scale bump, separate
+                      from the mobile/tablet responsive sizing. */}
+                  <div style={{ fontSize: fontSize.sm, color: neutral.textMuted, marginBottom: spacing.sm }}>
                     Past conversations
                   </div>
                   {conversations.length === 0 && (
-                    <div style={{ fontSize: fontSize.xs, color: neutral.textMuted }}>
+                    <div style={{ fontSize: fontSize.sm, color: neutral.textMuted }}>
                       Nothing saved yet.
                     </div>
                   )}
@@ -1792,10 +1796,10 @@ export default function App() {
                           background: MODE_THEME[c.mode].dot,
                         }} />
                         <span style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: fontSize.xs, color: neutral.textPrimary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          <div style={{ fontSize: fontSize.sm, color: neutral.textPrimary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                             {c.title}
                           </div>
-                          <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted }}>
+                          <div style={{ fontSize: fontSize.xs, color: neutral.textMuted }}>
                             {formatDayLabel(c.updatedAt)}, {formatTime(c.updatedAt)}
                           </div>
                         </span>

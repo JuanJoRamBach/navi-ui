@@ -35,16 +35,23 @@ export const radius = {
 // Bumped 2026-08-29 for readability across a wide user age range
 // (25-65) — 12px labels and 11px meta text are genuinely hard to read
 // for anyone with reduced near-vision (common past ~50), and the old
-// 14.5 body size wasn't much better. xxs=14 is a deliberate floor, not
+// 14.5 body size wasn't much better. 14px is a deliberate floor, not
 // just a bump — JuanJo's explicit call, "at least 14px" anywhere in
-// the UI. sm=17 is a first pass on the chat body specifically and may
-// come back down after live testing — flagged by JuanJo as possibly
-// too big, worth checking by feel rather than assuming these numbers
-// are final.
+// the UI, holds on mobile too (smaller screens don't mean better
+// eyesight). Desktop's sm=17 felt right live; JuanJo found the same
+// size too big on mobile/tablet, so these are now CSS custom
+// properties (--font-size-*, defined in index.css) instead of plain
+// numbers — a media query redefines them below the persistent-sidebar
+// breakpoint, and since every usage here is `fontSize: fontSize.xs`
+// inline, referencing a CSS var string means the actual rendered size
+// still updates with viewport width even though it's set inline
+// (inline styles can't read a media query directly, but they CAN read
+// a var() that a media query redefines elsewhere — same trick used for
+// .chat-column's position/inset earlier, applied to typography here).
 export const fontSize = {
-  xxs: 14,   // popover meta text (timestamps, secondary labels) — floor
-  xs: 15,    // button/pill labels, menu/panel content
-  sm: 17,    // body copy — chat text, input
+  xxs: "var(--font-size-xxs)", // popover meta text (timestamps, secondary labels) — floor, doesn't shrink further on mobile
+  xs: "var(--font-size-xs)",   // button/pill labels, menu/panel content
+  sm: "var(--font-size-sm)",   // body copy — chat text, input
 } as const;
 
 export const fontWeight = {

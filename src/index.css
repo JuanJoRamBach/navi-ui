@@ -2,6 +2,28 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* Mirrors tokens.fontSize in tokens.ts — every fontSize.xs/xxs/sm usage
+   there is `var(--font-size-*)`, not a plain number, specifically so
+   this media query can make the whole scale responsive even though
+   every actual usage is an inline style (which can't read a media
+   query directly, but can read a var() that one redefines elsewhere).
+   Desktop values are the accessibility-floor scale (14px minimum,
+   JuanJo's explicit call for a 25-65 user age range); mobile/tablet
+   shrinks xs and sm a step but keeps the 14px floor on xxs — smaller
+   screens don't mean better eyesight, so it never goes below that. */
+:root {
+  --font-size-xxs: 14px;
+  --font-size-xs: 14px;
+  --font-size-sm: 15px;
+}
+@media (min-width: 1024px) {
+  :root {
+    --font-size-xxs: 14px;
+    --font-size-xs: 15px;
+    --font-size-sm: 17px;
+  }
+}
+
 body {
   background: #080608;
   overflow: hidden;
