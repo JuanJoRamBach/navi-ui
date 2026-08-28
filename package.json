@@ -13,7 +13,8 @@
     "@primer/octicons-react": "^19.33.0",
     "idb": "^8.0.3",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "react-resizable-panels": "^4.12.3"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",

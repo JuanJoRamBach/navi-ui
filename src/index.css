@@ -109,29 +109,44 @@ body {
   }
 }
 
-/* Persistent-sidebar breakpoint (mirrors tokens.layout in tokens.ts —
-   sidebarWidth 280 + sidebarChatGap 24 = 304). JuanJo's explicit call
-   (2026-08-29), refined after seeing it live: the chat should stay
-   centered on the *page*, same as always — it should only ever shift
-   right by the minimum needed to keep 24px clear of the sidebar, never
-   more than that. A flat "always shift by 304px past this breakpoint"
-   was wrong two ways: (1) it stayed shifted even at very wide viewports
-   where full-page centering already clears the sidebar by hundreds of
-   pixels, reading as permanently off-center for no reason; (2) it was a
-   hard on/off jump exactly at 1024px instead of a smooth transition,
-   visible as a sudden snap right at the boundary.
-   max(natural-centered-position, 304px) fixes both: at wide viewports
-   the natural centered value already exceeds 304px, so max() picks
-   that and the chat is genuinely full-page-centered, sidebar or not;
-   only near the boundary — where centering naturally would land closer
-   than 304px to the sidebar — does the 304px floor take over instead,
-   and it does so continuously as the viewport shrinks, not as a jump.
+/* Persistent-sidebar breakpoint. --sidebar-width is the ONE source of
+   truth for how wide the sidebar actually is right now — its default
+   (below) is the fluid clamp() formula, but a manual drag-resize
+   (App.tsx) overrides it via documentElement.style.setProperty, which
+   cleanly beats this rule the same way any inline style beats an
+   external one. Every formula that needs to know the sidebar's width —
+   .sidebar itself, .sidebar-detail-panel, and .chat-column/.centered-
+   col's floor below — reads this ONE variable instead of each
+   independently duplicating "280+24=304"-style arithmetic, which
+   caused a real bug earlier this session (the sidebar's own min and
+   the chat's floor drifted out of sync when one got edited without the
+   other). JuanJo's explicit call (2026-08-29), refined after seeing it
+   live: the chat should stay centered on the *page*, same as always —
+   it should only ever shift right by the minimum needed to keep 24px
+   clear of the sidebar, never more than that. A flat "always shift by
+   304px past this breakpoint" was wrong two ways: (1) it stayed
+   shifted even at very wide viewports where full-page centering
+   already clears the sidebar by hundreds of pixels, reading as
+   permanently off-center for no reason; (2) it was a hard on/off jump
+   exactly at 1024px instead of a smooth transition, visible as a
+   sudden snap right at the boundary. max(natural-centered-position,
+   sidebar-width+gap) fixes both: at wide viewports the natural
+   centered value already exceeds that floor, so max() picks the
+   natural value and the chat is genuinely full-page-centered, sidebar
+   or not; only near the boundary does the floor take over instead, and
+   it does so continuously as the viewport shrinks, not as a jump.
    Applied identically to .chat-column and .centered-col so the whole
    vertical stack (mode tabs, model picker, chat) moves together. */
+:root {
+  --sidebar-width: 280px;
+}
 @media (min-width: 1024px) {
+  :root {
+    --sidebar-width: clamp(280px, calc((100vw - 1000px) / 2 - 24px), 480px);
+  }
   .chat-column,
   .centered-col {
-    left: max(calc((100% - 1000px) / 2), 304px);
+    left: max(calc((100% - 1000px) / 2), calc(var(--sidebar-width) + 24px));
     /* right deliberately mirrors the SAME natural-centering value as
        left, not its own independent max(...,0px) floor — found live:
        flooring each side separately makes the box asymmetric whenever
@@ -249,7 +264,7 @@ body {
 @media (min-width: 1024px) {
   .sidebar {
     transform: translateX(0) !important;
-    width: clamp(280px, calc((100vw - 1000px) / 2 - 24px), 480px);
+    width: var(--sidebar-width);
   }
   .sidebar-backdrop {
     display: none;
@@ -309,7 +324,7 @@ body {
   top: 0;
   left: 56px;
   z-index: 30;
-  width: calc(clamp(280px, calc((100vw - 1000px) / 2 - 24px), 480px) - 56px);
+  width: calc(var(--sidebar-width) - 56px);
   /* height set inline (App.tsx) from the measured Menu section height,
      not fixed here — see the comment at that inline style. Static
      chrome only (background/border/shadow/height) — scrolling and the
@@ -346,6 +361,54 @@ body {
    distinguishable when hovering a non-active button. */
 .sidebar-menu-btn:hover {
   background: rgba(255, 255, 255, 0.04);
+}
+
+/* Sidebar horizontal resize handle — invisible 12px hit area (matches
+   the outer div's inline width), thin line only appears on hover so it
+   doesn't read as a permanent visible seam when the user isn't
+   interacting with it. */
+.sidebar-resize-handle {
+  cursor: ew-resize;
+  display: flex;
+  justify-content: center;
+}
+.sidebar-resize-handle-line {
+  width: 1px;
+  height: 100%;
+  background: transparent;
+  transition: background 0.15s ease;
+}
+.sidebar-resize-handle:hover .sidebar-resize-handle-line {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Vertical Menu/Activity separator (react-resizable-panels' Separator —
+   unstyled by default, per its own docs). 9px hit area for an easy
+   grab, but only a thin 1px line actually visible at rest — same
+   "subtle, not a hard rule" language as the cluster divider inside the
+   Menu list, just draggable this time. Brightens a bit while actively
+   being dragged (the library adds data-resize-handle-active) so
+   there's clear feedback mid-drag, not just on hover. */
+.sidebar-vertical-separator {
+  height: 9px;
+  margin: -4px 0;
+  cursor: row-resize;
+  display: flex;
+  align-items: center;
+  position: relative;
+  z-index: 5;
+}
+.sidebar-vertical-separator::after {
+  content: "";
+  display: block;
+  width: 100%;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.12);
+  transition: background 0.15s ease;
+}
+.sidebar-vertical-separator:hover::after,
+.sidebar-vertical-separator:active::after {
+  background: rgba(255, 255, 255, 0.3);
 }
 
 /* "Working" step indicator, shown while a reply is being generated —

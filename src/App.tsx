@@ -33,6 +33,7 @@ import {
   getActiveConversationId, loadConversation, saveConversation,
   createConversation, listConversations, switchActiveConversation, deriveTitle,
 } from "./storage";
+import { Group, Panel, Separator, type LayoutChangedMeta } from "react-resizable-panels";
 import { NAVI_BACKEND_URL } from "./config";
 import { getPushStatus, subscribeToPush, type PushStatus } from "./push";
 
@@ -888,6 +889,78 @@ export default function App() {
   // stay popovers regardless of width.
   const MASTER_DETAIL_KEYS = ["history", "routing", "usage", "settings"] as const;
 
+  // Horizontal sidebar resize (desktop only) — a manual drag beats the
+  // fluid clamp() default. Deliberately NOT built on react-resizable-
+  // panels like the vertical Menu/Activity split below: the sidebar is
+  // position:fixed overlaying the rest of the app rather than a normal
+  // flex sibling of the main content, so fitting it into the library's
+  // panel-group model would mean restructuring how .chat-column finds
+  // its own position — a much bigger change than a plain drag handle
+  // needs. --sidebar-width (index.css) is the single CSS variable every
+  // formula that cares about the sidebar's width reads; setting it
+  // directly on documentElement here overrides the CSS-authored
+  // default the same way any inline style beats an external rule.
+  const SIDEBAR_WIDTH_STORAGE_KEY = "navi-sidebar-width";
+  const sidebarResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  useEffect(() => {
+    if (!isDesktopSidebar) return;
+    const saved = localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY);
+    if (saved) {
+      document.documentElement.style.setProperty("--sidebar-width", `${saved}px`);
+    }
+  }, [isDesktopSidebar]);
+  const handleSidebarResizeStart = useCallback((e: React.PointerEvent) => {
+    const currentWidth = document.querySelector(".sidebar")?.getBoundingClientRect().width ?? layout.sidebarWidth;
+    sidebarResizeRef.current = { startX: e.clientX, startWidth: currentWidth };
+    const onMove = (moveEvent: PointerEvent) => {
+      if (!sidebarResizeRef.current) return;
+      const delta = moveEvent.clientX - sidebarResizeRef.current.startX;
+      const next = Math.min(
+        layout.sidebarMaxWidth,
+        Math.max(layout.sidebarWidth, sidebarResizeRef.current.startWidth + delta)
+      );
+      document.documentElement.style.setProperty("--sidebar-width", `${next}px`);
+    };
+    const onUp = () => {
+      sidebarResizeRef.current = null;
+      const finalWidth = document.querySelector(".sidebar")?.getBoundingClientRect().width;
+      if (finalWidth) localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(Math.round(finalWidth)));
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }, []);
+
+  // Vertical Menu/Activity split, resizable via react-resizable-panels —
+  // unlike the sidebar's own horizontal resize above, this pair genuinely
+  // are normal stacked flex children (not position:fixed overlaying
+  // anything), so the library's own Group/Panel/Separator model fits
+  // cleanly without needing a custom drag handle. Layout persisted
+  // manually (read once on mount, saved only on real user drags —
+  // meta.isUserInteraction — not on every programmatic/initial layout
+  // event) rather than via the library's storage helpers, to keep the
+  // persistence mechanism identical to the sidebar-width one above.
+  const SIDEBAR_LAYOUT_STORAGE_KEY = "navi-sidebar-vertical-layout";
+  const [initialSidebarLayout] = useState(() => {
+    try {
+      const saved = localStorage.getItem(SIDEBAR_LAYOUT_STORAGE_KEY);
+      return saved ? JSON.parse(saved) : undefined;
+    } catch {
+      return undefined;
+    }
+  });
+  const handleSidebarLayoutChanged = useCallback((panelLayout: Record<string, number>, meta: LayoutChangedMeta) => {
+    // Param deliberately not named `layout` — that'd shadow the
+    // imported tokens.layout used throughout this component.
+    if (!meta.isUserInteraction) return;
+    try {
+      localStorage.setItem(SIDEBAR_LAYOUT_STORAGE_KEY, JSON.stringify(panelLayout));
+    } catch {
+      // best-effort — a failed save just means the layout resets next visit
+    }
+  }, []);
+
   // The docked detail panel (see isDockedDetail below) should match the
   // Menu section's own height, not the full sidebar/viewport — JuanJo's
   // call, 2026-08-29, also setting up for Menu/Activity becoming
@@ -1167,7 +1240,31 @@ export default function App() {
         backdropFilter: `blur(${blur.md}px)`,
         fontFamily,
       }}>
-        <div ref={menuSectionRef}>
+        {/* Horizontal resize handle — desktop only (see .sidebar-toggle-
+            style display-in-CSS reasoning elsewhere; here it's simpler
+            since this element just doesn't need to exist on mobile at
+            all, no hiding trick required). Widened invisible hit area
+            (12px) around a thin 1px visible line, same "small hit
+            target inside a small dead-simple button/handle" pattern as
+            everything else in this sidebar. */}
+        {isDesktopSidebar && (
+          <div
+            className="sidebar-resize-handle"
+            onPointerDown={handleSidebarResizeStart}
+            title="Drag to resize"
+            style={{ position: "absolute", top: 0, bottom: 0, right: -6, width: 12, zIndex: 31 }}
+          >
+            <div className="sidebar-resize-handle-line" />
+          </div>
+        )}
+        <Group
+          orientation="vertical"
+          defaultLayout={initialSidebarLayout}
+          onLayoutChanged={handleSidebarLayoutChanged}
+          style={{ flex: 1, minHeight: 0 }}
+        >
+        <Panel id="menu" defaultSize={300} minSize={140} maxSize={600}>
+        <div ref={menuSectionRef} style={{ height: "100%", overflowY: "auto" }}>
         <div style={{
           display: "flex", alignItems: "center", justifyContent: "space-between",
           padding: spacing.lg,
@@ -1292,16 +1389,16 @@ export default function App() {
           )}
         </div>
         </div>
-
+        </Panel>
+        <Separator className="sidebar-vertical-separator" />
         {/* Activity — the browsable tool/output record (which command
             ran, which mode, which files it produced). Placeholder for
             this pass, which is just the sidebar shell — real content is
             the next piece. */}
+        <Panel id="activity" minSize={60}>
         <div style={{
-          marginTop: spacing.xl, paddingTop: spacing.lg,
-          borderTop: `1px solid ${theme.bubbleBorder}`,
           padding: `${spacing.lg}px ${spacing.sm}px`,
-          flex: 1, overflowY: "auto",
+          height: "100%", overflowY: "auto",
         }}>
           <span style={{ fontSize: fontSize.xs, fontWeight: fontWeight.medium, color: neutral.textPrimary, letterSpacing: "0.04em" }}>
             ACTIVITY
@@ -1310,6 +1407,8 @@ export default function App() {
             Coming next — a record of what ran in this conversation and the files it produced.
           </div>
         </div>
+        </Panel>
+        </Group>
       </div>
 
       <canvas ref={canvasRef} style={{ position: "absolute", inset: 0 }} />
