@@ -20,6 +20,13 @@ export default defineConfig(({ mode }) => {
     build: {
       sourcemap: emitSourcemaps ? 'inline' : false,
       minify: !emitSourcemaps,
+      // Without this, this Rolldown-based Vite build inlines every
+      // dynamic import() into one chunk regardless — found live after
+      // lazy-loading DocumentViewer (pdf.js + docx-preview, heavy) to
+      // keep them out of the bundle every page load pays for: the
+      // lazy() wrapper alone didn't produce a split chunk until this
+      // was set explicitly.
+      rolldownOptions: { output: { codeSplitting: true } },
     },
     plugins: [
       react(),

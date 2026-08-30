@@ -139,6 +139,12 @@ body {
    vertical stack (mode tabs, model picker, chat) moves together. */
 :root {
   --sidebar-width: 280px;
+  /* Set by App.tsx to var(--sidebar-width) while the left sidebar is
+     open, "0px" while the user's closed it — separate from
+     --sidebar-width itself (which still governs .sidebar's own
+     rendered width for whenever it reopens) so the chat-column floor
+     below can collapse independently of that. */
+  --left-panel-width: var(--sidebar-width);
 }
 @media (min-width: 1024px) {
   :root {
@@ -146,7 +152,11 @@ body {
   }
   .chat-column,
   .centered-col {
-    left: max(calc((100% - 1000px) / 2), calc(var(--sidebar-width) + 24px));
+    /* +outer-rail-width: the rail sits further left than .sidebar's own
+       floor accounted for — without adding it here, .sidebar and the
+       outer rail would overlap the chat by the rail's width whenever
+       the rail is at its default/expanded size. */
+    left: max(calc((100% - 1000px) / 2), calc(var(--outer-rail-width) + var(--left-panel-width) + 24px));
     /* right deliberately mirrors the SAME natural-centering value as
        left, not its own independent max(...,0px) floor — found live:
        flooring each side separately makes the box asymmetric whenever
@@ -261,9 +271,35 @@ body {
 .sidebar-toggle {
   display: flex;
 }
+/* Outer rail — app-level canvas switcher, desktop only, sits to
+   .sidebar's left. --outer-rail-width defaults to 0px so nothing here
+   shifts before App.tsx's effect sets a real value on mount (mobile
+   never sets it at all, staying 0 permanently — the rail itself is
+   isDesktopSidebar-gated in JSX). */
+:root {
+  --outer-rail-width: 0px;
+}
+.outer-rail {
+  position: fixed;
+  top: 0; left: 0; bottom: 0;
+  z-index: 32;
+  display: flex;
+  flex-direction: column;
+}
+/* Collapsed (dragged to its minimum width) — icon-only. Just hides the
+   label; deliberately does NOT recenter the icon or change its padding
+   — found live: centering made icons jump to a different x-position
+   than where they sit expanded, since expanded icons are left-padded,
+   not centered in the full button width. Keeping the same padding in
+   both states keeps every icon anchored at the same spot regardless of
+   collapse state. */
+.outer-rail.collapsed .sidebar-menu-btn-label {
+  display: none;
+}
 @media (min-width: 1024px) {
   .sidebar {
     transform: translateX(0) !important;
+    left: var(--outer-rail-width);
     width: var(--sidebar-width);
   }
   .sidebar-backdrop {
@@ -409,6 +445,59 @@ body {
 .sidebar-vertical-separator:hover::after,
 .sidebar-vertical-separator:active::after {
   background: rgba(255, 255, 255, 0.3);
+}
+
+/* Right sidebar — desktop only (isDesktopSidebar in App.tsx), mirrors
+   .sidebar's fixed/full-height structure. Single-purpose (Sources) —
+   Knowledge moved to live alongside Activity in the left sidebar
+   instead. Background/border colors are set inline (App.tsx), same
+   split as .sidebar itself, since they depend on the active mode's
+   theme. Width was hardcoded at 340px and drifted out of sync with the
+   left sidebar's own fluid width — JuanJo's call, 2026-08-29: it needs
+   the same "leave exactly 24px clear of the chat" rule the left
+   sidebar already follows, not an independent fixed number. Mirrors
+   --sidebar-width's own clamp() formula exactly (same floor/ceiling,
+   same leftover-space math, just solved for the right edge). */
+:root {
+  --right-panel-width: 280px;
+}
+@media (min-width: 1024px) {
+  :root {
+    --right-panel-width: clamp(280px, calc((100vw - 1000px) / 2 - 24px), 480px);
+  }
+  /* Only applies while the right panel is actually open (App.tsx toggles
+     this class on <body> based on rightPanelOpen) — otherwise .chat-
+     column/.centered-col would stay permanently shifted left even with
+     the panel closed. Higher specificity than the plain .chat-column/
+     .centered-col rule above wins regardless of source order. */
+  body.right-panel-open .chat-column,
+  body.right-panel-open .centered-col {
+    right: max(calc((100% - 1000px) / 2), calc(var(--right-panel-width) + 24px));
+  }
+}
+.right-panel {
+  position: fixed;
+  top: 0; right: 0; bottom: 0;
+  width: var(--right-panel-width);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Sidebar tools design system (see sidebar-tokens.ts for the color/
+   size values these rules reference in comments — kept in sync by
+   hand since CSS can't import a TS const). Only the :hover states live
+   here; everything state-driven (active tab, current breadcrumb
+   segment) is inline in App.tsx since React already knows that state. */
+.sidebar-row:hover {
+  background: rgba(255,255,255,0.05); /* sidebarRow.hoverBg */
+}
+.sidebar-tab:hover:not(.sidebar-tab-active) {
+  color: rgba(240,244,255,0.75);
+}
+.sidebar-breadcrumb-link:hover {
+  color: rgb(160, 195, 255); /* sidebarBreadcrumb.ancestorHoverColor */
+  text-decoration: underline;
 }
 
 /* "Working" step indicator, shown while a reply is being generated —

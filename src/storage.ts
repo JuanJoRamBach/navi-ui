@@ -66,6 +66,12 @@ export interface Conversation {
   mode: ChatMode; // last-active mode — restored when the conversation is reopened, drives the history list's colored dot
   updatedAt: number; // last message's timestamp, or creation time if still empty — sort key for the history list
   messages: StoredMessage[];
+  // Sub-chats ("branches") — set only on a chat created by branching off
+  // another one. A branch, never a version-control system: no diff/
+  // merge, just "this conversation started from that one, here's its
+  // name, here's the tree." parentId is the trunk/parent chat's own id;
+  // absent on a normal top-level chat.
+  parentId?: string;
 }
 
 interface NaviDB extends DBSchema {
@@ -139,6 +145,17 @@ export async function getActiveConversationId(): Promise<string | null> {
   return (await db.get("meta", "activeId")) ?? null;
 }
 
+// The project's one designated Main Chat — set once, on the very first
+// conversation ever created (see createConversation below), never
+// reassigned. Every conversation after that is a branch off it (or off
+// another branch), never a second independent top-level chat — that's
+// the whole point of the one-main-chat model: "New Chat" as a concept
+// is retired, replaced by "New Branch Chat."
+export async function getMainConversationId(): Promise<string | null> {
+  const db = await dbPromise;
+  return (await db.get("meta", "mainId")) ?? null;
+}
+
 async function setActiveConversationId(id: string): Promise<void> {
   const db = await dbPromise;
   await db.put("meta", id, "activeId");
@@ -161,17 +178,40 @@ export async function listConversations(): Promise<Conversation[]> {
   return all.reverse();
 }
 
-export async function createConversation(mode: ChatMode): Promise<Conversation> {
+export async function createConversation(mode: ChatMode, parentId?: string): Promise<Conversation> {
   const conversation: Conversation = {
     id: crypto.randomUUID(),
     title: "New conversation",
     mode,
     updatedAt: Date.now(),
     messages: [],
+    ...(parentId ? { parentId } : {}),
   };
   await saveConversation(conversation);
   await setActiveConversationId(conversation.id);
+  if (!parentId && !(await getMainConversationId())) {
+    const db = await dbPromise;
+    await db.put("meta", conversation.id, "mainId");
+  }
   return conversation;
+}
+
+// Every branch (any depth — a branch of a branch counts too), flat,
+// most-recently-updated first, each carrying its direct parent's title
+// for context. Flat rather than a nested tree on purpose: with only
+// one Main Chat as the true root, a full indented tree view is more
+// UI than the common case needs — most branches are one hop off Main
+// Chat or off each other, and the direct-parent label already answers
+// "where did this come from" without indentation depth to manage.
+export interface BranchListItem extends Conversation {
+  parentTitle: string;
+}
+export async function listBranches(): Promise<BranchListItem[]> {
+  const all = await listConversations();
+  const byId = new Map(all.map(c => [c.id, c]));
+  return all
+    .filter((c): c is Conversation & { parentId: string } => !!c.parentId)
+    .map(c => ({ ...c, parentTitle: byId.get(c.parentId)?.title ?? "a deleted chat" }));
 }
 
 export async function switchActiveConversation(id: string): Promise<void> {

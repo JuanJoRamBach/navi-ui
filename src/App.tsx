@@ -1,10 +1,9 @@
-import { useRef, useEffect, useState, useCallback, useMemo } from "react";
+import { useRef, useEffect, useState, useCallback, useMemo, lazy, Suspense } from "react";
 import {
   PaperAirplaneIcon,
   CommandPaletteIcon,
   GitBranchIcon,
   PlusIcon,
-  HistoryIcon,
   CpuIcon,
   GraphIcon,
   PinIcon,
@@ -19,6 +18,17 @@ import {
   ThreeBarsIcon,
   XIcon,
   GearIcon,
+  SearchIcon,
+  BookIcon,
+  AlertIcon,
+  FileDirectoryIcon,
+  ChevronLeftIcon,
+  UploadIcon,
+  CommentDiscussionIcon,
+  RocketIcon,
+  CodeIcon,
+  PulseIcon,
+  HomeIcon,
   // Reserved for the future step-log UI (not built yet — no host for
   // these until the fairy-animation research mode exists to pair with):
   // SearchIcon, SyncIcon
@@ -29,12 +39,19 @@ import {
   fontFamily, neutral, layout,
 } from "./tokens";
 import {
-  type StoredMessage, type Conversation, type MessageAttachment,
+  type StoredMessage, type Conversation, type MessageAttachment, type BranchListItem,
   getActiveConversationId, loadConversation, saveConversation,
-  createConversation, listConversations, switchActiveConversation, deriveTitle,
+  createConversation, listBranches, getMainConversationId, switchActiveConversation, deriveTitle,
   parseAttachments, parseCommand,
 } from "./storage";
 import { Group, Panel, Separator, type LayoutChangedMeta } from "react-resizable-panels";
+import { sidebarTab, sidebarBreadcrumb, sidebarRow } from "./sidebar-tokens";
+import { isTextLike } from "./fileFormats";
+// pdf.js/docx-preview are heavy (real PDF/DOCX rendering) — lazy so
+// they only load once someone actually opens a document, not on every
+// app load. isTextLike/extensionOf stay a normal import since they're
+// tiny and needed synchronously (openFile, above).
+const DocumentViewer = lazy(() => import("./DocumentViewer").then(m => ({ default: m.DocumentViewer })));
 import { NAVI_BACKEND_URL } from "./config";
 import { getPushStatus, subscribeToPush, type PushStatus } from "./push";
 
@@ -665,6 +682,16 @@ export default function App() {
   // changing should). Read by the save effect and by loadConversation
   // when switching.
   const activeConversationIdRef = useRef<string | null>(null);
+  // Mirrors the active conversation's own parentId (undefined for a
+  // normal top-level chat) — needed in a ref, not just state, so the
+  // messages-changed save effect below can include it on every save
+  // without the effect depending on it (parentId never changes for a
+  // conversation's lifetime once created, only messages do).
+  const activeConversationParentIdRef = useRef<string | undefined>(undefined);
+  // Drives the in-chat "Branched from X" pill — id kept alongside the
+  // title so clicking it can jump straight to the parent without a
+  // second lookup.
+  const [currentParentChat, setCurrentParentChat] = useState<{ id: string; title: string } | null>(null);
   // Guards the save effect below from firing before the load effect has
   // had a chance to run — without this, mounting would immediately
   // persist an empty array over whatever was actually stored, since both
@@ -692,10 +719,15 @@ export default function App() {
       const activeId = await getActiveConversationId();
       const conversation = (activeId && await loadConversation(activeId)) || await createConversation(chatModeRef.current);
       activeConversationIdRef.current = conversation.id;
+      activeConversationParentIdRef.current = conversation.parentId;
       setMessages(conversation.messages);
       hydratedCountRef.current = conversation.messages.length;
       selectChatMode(conversation.mode);
       loadedFromStorage.current = true;
+      if (conversation.parentId) {
+        const parent = await loadConversation(conversation.parentId);
+        if (parent) setCurrentParentChat({ id: parent.id, title: parent.title });
+      }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -710,6 +742,7 @@ export default function App() {
       mode: chatModeRef.current,
       updatedAt: messages.length ? messages[messages.length - 1].timestamp : Date.now(),
       messages,
+      ...(activeConversationParentIdRef.current ? { parentId: activeConversationParentIdRef.current } : {}),
     });
   }, [messages]);
 
@@ -872,7 +905,7 @@ export default function App() {
 
   const [draft, setDraft] = useState("");
   // Which toolbar popover is open, if any — only one at a time.
-  const [openPanel, setOpenPanel] = useState<"newConvo" | "history" | "models" | "routing" | "usage" | "settings" | "commands" | null>(null);
+  const [openPanel, setOpenPanel] = useState<"branches" | "models" | "routing" | "usage" | "settings" | "commands" | null>(null);
   // V3 sidebar (menu drawer on mobile/tablet, persistent column on
   // desktop — see .sidebar in index.css). Only meaningful below
   // layout.sidebarBreakpoint; CSS forces the sidebar visible above it
@@ -899,7 +932,312 @@ export default function App() {
   // "selected" for the desktop inline panel — separate from openPanel
   // since that also drives newConvo/models/commands' popovers, which
   // stay popovers regardless of width.
-  const MASTER_DETAIL_KEYS = ["history", "routing", "usage", "settings"] as const;
+  const MASTER_DETAIL_KEYS = ["branches", "routing", "usage", "settings"] as const;
+
+  // Outer rail — the app-level canvas switcher (Chat/Agent Work/Codex/
+  // Dashboard), sitting outside .sidebar entirely, to its left. One
+  // resizable panel, same mechanic as the left/right sidebars, that
+  // snaps to icon-only past a minimum rather than a separate fixed
+  // strip — three rounds of research this session (professional dev
+  // tools, general enterprise software, marketing-automation platforms
+  // specifically) converged on this exact pattern over VS Code's actual
+  // two-part fixed-rail-plus-panel system. Only "chat" is real for
+  // now — the other three canvases don't exist yet, shown disabled.
+  type CanvasKey = "chat" | "agentWork" | "codex" | "dashboard";
+  const [activeCanvas, setActiveCanvas] = useState<CanvasKey>("chat");
+  // Compact chat popup, Agent Work canvas only — bottom-right, matches
+  // the near-universal convention for an ambient assistant widget
+  // (researched: "90% of chatbots sit bottom-right"). Deliberately NOT
+  // the same widget as per-node chat, which stays a contextual trigger
+  // on selecting a node instead — canvas tools diverge from the bottom-
+  // right convention specifically for anything object-scoped, so it
+  // doesn't interrupt the canvas work the way a fixed panel would.
+  // Shell/mock content for now — this canvas has no real backend yet.
+  const [agentWorkChatOpen, setAgentWorkChatOpen] = useState(false);
+  // Locked row height for every rail button, icon + label padding —
+  // found live: without an explicit height, a button's rendered height
+  // depends on whether its label <span> is present (its line-height
+  // taller than the icon alone), so collapsing (label -> display:none)
+  // silently shrank each row and shifted every icon below it upward.
+  // Fixed height + border-box makes the row identical either way.
+  const OUTER_RAIL_ROW_HEIGHT = iconSize.sm + spacing.sm * 2;
+  const OUTER_RAIL_MIN_WIDTH = 56;
+  const OUTER_RAIL_MAX_WIDTH = 220;
+  const OUTER_RAIL_WIDTH_STORAGE_KEY = "navi-outer-rail-width";
+  const [outerRailWidth, setOuterRailWidth] = useState(OUTER_RAIL_MIN_WIDTH);
+  const outerRailCollapsed = outerRailWidth <= OUTER_RAIL_MIN_WIDTH + 4;
+  const outerRailResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  useEffect(() => {
+    if (!isDesktopSidebar) return;
+    const saved = localStorage.getItem(OUTER_RAIL_WIDTH_STORAGE_KEY);
+    if (saved) setOuterRailWidth(Math.max(OUTER_RAIL_MIN_WIDTH, Math.min(OUTER_RAIL_MAX_WIDTH, Number(saved))));
+  }, [isDesktopSidebar]);
+  useEffect(() => {
+    document.documentElement.style.setProperty(
+      "--outer-rail-width", isDesktopSidebar ? `${outerRailWidth}px` : "0px"
+    );
+  }, [outerRailWidth, isDesktopSidebar]);
+  const handleOuterRailResizeStart = useCallback((e: React.PointerEvent) => {
+    outerRailResizeRef.current = { startX: e.clientX, startWidth: outerRailWidth };
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.userSelect = "none";
+    const onMove = (moveEvent: PointerEvent) => {
+      if (!outerRailResizeRef.current) return;
+      const delta = moveEvent.clientX - outerRailResizeRef.current.startX;
+      const next = Math.min(
+        OUTER_RAIL_MAX_WIDTH,
+        Math.max(OUTER_RAIL_MIN_WIDTH, outerRailResizeRef.current.startWidth + delta)
+      );
+      setOuterRailWidth(next);
+    };
+    const onUp = () => {
+      setOuterRailWidth(current => {
+        localStorage.setItem(OUTER_RAIL_WIDTH_STORAGE_KEY, String(Math.round(current)));
+        return current;
+      });
+      outerRailResizeRef.current = null;
+      document.body.style.userSelect = previousUserSelect;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }, [outerRailWidth]);
+
+  // Right sidebar — mirrors the left sidebar's structure (fixed panel,
+  // desktop-only per isDesktopSidebar) but tabbed rather than a docked
+  // master-detail list: only one tool (Sources/Knowledge) is visible at
+  // a time, each getting the panel's full height, instead of splitting
+  // height between simultaneously-open sections (the VS Code sidebar's
+  // own accordion-view pain point — panels competing for height,
+  // forcing manual resize — is exactly what tabs avoid here). UI only
+  // for now, no dispatcher wired up yet — chips/ticks/expand are local
+  // mock state.
+  const [rightPanelOpen, setRightPanelOpen] = useState(false);
+  // Left sidebar's own open/closed state, desktop only — mirrors
+  // rightPanelOpen, but defaults to true (the panel starts visible,
+  // same as it always was before this existed) rather than false.
+  // JuanJo, 2026-08-30: sidebars never auto-hide themselves (see the
+  // Agent Work canvas decision, same session), but the user should
+  // still be able to close one by hand when they want the width back.
+  const [leftPanelOpen, setLeftPanelOpen] = useState(true);
+  useEffect(() => {
+    document.documentElement.style.setProperty(
+      "--left-panel-width", isDesktopSidebar && leftPanelOpen ? "var(--sidebar-width)" : "0px"
+    );
+  }, [isDesktopSidebar, leftPanelOpen]);
+  const [rightActiveTab, setRightActiveTab] = useState<"sources" | "files">("sources");
+  // Local file placement (Windows-Explorer-style drag/place, not the
+  // deferred cross-user transfer — see the file-transfer memory).
+  // Vertical drill-in instead of a horizontal column browser or an
+  // indented tree: a narrow sidebar column can't afford either without
+  // squeezing names into a sliver, so clicking a folder swaps the
+  // whole view to that folder's contents at full width instead,
+  // reusing the same drill-in shape as the left sidebar's docked
+  // master-detail panels. Mock tree for now — real file access is
+  // dispatcher/backend work, deferred with everything else backend.
+  // `file` carries the real browser File object for anything actually
+  // dragged/imported in — that's what lets DocumentViewer render real
+  // PDF/DOCX/Markdown instead of a placeholder. Mock entries (the seed
+  // list below) simply don't have one.
+  type FileNode = { name: string; type: "file" | "folder"; children?: FileNode[]; file?: File };
+  const [fileTree, setFileTree] = useState<FileNode[]>([
+    { name: "Sources", type: "folder", children: [
+      { name: "local-first-sync.pdf", type: "file" },
+      { name: "crdts-hard-parts.mp4", type: "file" },
+      { name: "convergent-replicated.pdf", type: "file" },
+    ] },
+    { name: "Research", type: "folder", children: [
+      { name: "competitor-pricing.xlsx", type: "file" },
+      { name: "market-notes.md", type: "file" },
+    ] },
+    { name: "Deliverables", type: "folder", children: [
+      { name: "onboarding-flow-v2.png", type: "file" },
+    ] },
+    { name: "scratch-notes.txt", type: "file" },
+  ]);
+  const [filePath, setFilePath] = useState<string[]>([]);
+  const currentFolder = useMemo(() => {
+    let node: FileNode[] = fileTree;
+    for (const segment of filePath) {
+      const match = node.find(n => n.name === segment && n.type === "folder");
+      node = match?.children ?? [];
+    }
+    return node;
+  }, [fileTree, filePath]);
+  // Adds a new folder into whatever node currentFolder currently points
+  // at, by walking the same path again — client-side only, no
+  // dispatcher yet, but a real state mutation rather than a decorative
+  // button (matches the "build it real, let it be felt" pattern this
+  // session has followed throughout).
+  const addDirectory = useCallback((name: string) => {
+    if (!name.trim()) return;
+    setFileTree(tree => {
+      const next = structuredClone(tree);
+      let node = next;
+      for (const segment of filePath) {
+        const match = node.find(n => n.name === segment && n.type === "folder");
+        if (!match) return tree;
+        if (!match.children) match.children = [];
+        node = match.children;
+      }
+      if (node.some(n => n.name === name)) return tree;
+      node.push({ name: name.trim(), type: "folder", children: [] });
+      return next;
+    });
+  }, [filePath]);
+  const [addingDirectory, setAddingDirectory] = useState(false);
+  const [newDirectoryName, setNewDirectoryName] = useState("");
+  const [fileSearchOpen, setFileSearchOpen] = useState(false);
+  const [fileSearchQuery, setFileSearchQuery] = useState("");
+  const visibleFolderContents = useMemo(() => {
+    if (!fileSearchQuery.trim()) return currentFolder;
+    const q = fileSearchQuery.trim().toLowerCase();
+    return currentFolder.filter(n => n.name.toLowerCase().includes(q));
+  }, [currentFolder, fileSearchQuery]);
+
+  // Document viewer — lives at the right-PANEL level, not inside the
+  // Files tab: it's the one "window" that coexists alongside whatever
+  // tab is active (switch from Files to Sources with a doc open, the
+  // viewer stays put underneath). Split view by default (reuses the
+  // left sidebar's vertical Group/Panel/Separator mechanic); "expand"
+  // reuses the collapse-the-rest-of-the-sidebar idea from the earlier
+  // accordion design of this panel, just applied here instead.
+  const [openDocument, setOpenDocument] = useState<{ name: string; file?: File; content: string } | null>(null);
+  const [viewerExpanded, setViewerExpanded] = useState(false);
+  const openFile = useCallback((node: FileNode) => {
+    setOpenDocument({
+      name: node.name,
+      file: node.file,
+      content: node.file
+        ? "" // real files load their own content inside DocumentViewer (async — pdf.js/docx-preview/file.text())
+        : isTextLike(node.name)
+          ? `Mock content for ${node.name} — this is a seed entry with no real file behind it. Import a real file (drag it into Files) to see actual content. Editable in memory only either way; nothing persists past a reload.`
+          : "",
+    });
+  }, []);
+  // Real file import — drag a file from the OS onto the Files tab, or
+  // click Import. Gives the browser a real File object client-side, no
+  // backend/upload needed at all — that's what lets DocumentViewer
+  // render real PDF/DOCX/Markdown instead of a placeholder.
+  const [fileDragOver, setFileDragOver] = useState(false);
+  const importFileInputRef = useRef<HTMLInputElement>(null);
+  const addRealFiles = useCallback((files: FileList | File[]) => {
+    setFileTree(tree => {
+      const next = structuredClone(tree);
+      let node = next;
+      for (const segment of filePath) {
+        const match = node.find(n => n.name === segment && n.type === "folder");
+        if (!match) return tree;
+        if (!match.children) match.children = [];
+        node = match.children;
+      }
+      for (const file of Array.from(files)) {
+        if (node.some(n => n.name === file.name)) continue;
+        node.push({ name: file.name, type: "file", file });
+      }
+      return next;
+    });
+  }, [filePath]);
+  const [sourceChips, setSourceChips] = useState<string[]>(["offline-first sync", "conflict resolution"]);
+  const [sourceDraft, setSourceDraft] = useState("");
+  const [sourceTerm1Open, setSourceTerm1Open] = useState(true);
+  const [sourceTicks, setSourceTicks] = useState<Record<number, boolean>>({ 0: true, 1: true, 2: false, 3: false });
+  // One-time review warning — pure UI for now, in-memory only (no
+  // persistence layer yet; that's backend work, deliberately deferred
+  // until after V3 UI). The first tick attempt in a session opens the
+  // warning instead of ticking; acknowledging it just dismisses the
+  // overlay — the user then ticks again themselves. Once wired to a
+  // real dispatcher, this same gate is where per-source tick
+  // enforcement will actually connect (see the not-yet-built
+  // enforcement item).
+  const [sourceWarningAcknowledged, setSourceWarningAcknowledged] = useState(false);
+  const [sourceWarningOpen, setSourceWarningOpen] = useState(false);
+  const handleSourceTickAttempt = useCallback((index: number, currentlyChecked: boolean) => {
+    if (!sourceWarningAcknowledged) {
+      setSourceWarningOpen(true);
+      return;
+    }
+    setSourceTicks(t => ({ ...t, [index]: !currentlyChecked }));
+  }, [sourceWarningAcknowledged]);
+  const MOCK_SOURCES = [
+    { title: "Local-first software — Ink & Switch", domain: "inkandswitch.com", tier: "good" as const },
+    { title: "CRDTs: The Hard Parts", domain: "youtube.com", tier: "good" as const },
+    { title: "A comprehensive study of Convergent...", domain: "hal.inria.fr", tier: "good" as const },
+    { title: "Building offline-first apps, a field guide", domain: "medium.com", tier: "less" as const },
+  ];
+  const SOURCE_TIER_META = {
+    good: { label: "Good", color: "rgb(96,210,140)", bg: "rgba(96,210,140,0.12)" },
+    likely: { label: "Likely good", color: "rgb(230,180,80)", bg: "rgba(230,180,80,0.12)" },
+    less: { label: "Less likely", color: "rgb(220,100,100)", bg: "rgba(220,100,100,0.12)" },
+  } as const;
+  // Knowledge lives alongside Activity in the left sidebar (moved out
+  // of the right Sources panel, JuanJo 2026-08-29) — both are records
+  // of past work rather than a live tool. Each entry is tagged with
+  // where it came from, reusing the same /command flag convention
+  // Activity already uses (parseCommand/StoredMessage.command) rather
+  // than inventing a separate labeling scheme.
+  const [leftPanelTab, setLeftPanelTab] = useState<"activity" | "knowledge">("activity");
+  const MOCK_KNOWLEDGE = [
+    { title: "Local-first sync — synthesis", note: "from 3 accepted sources", origin: "search" as const },
+    { title: "CRDT tradeoffs — synthesis", note: "from 2 accepted sources", origin: "search" as const },
+    { title: "Competitor pricing notes", note: "from research summary", origin: "research" as const },
+    { title: "Brainstorm: onboarding flow ideas", note: "saved from chat", origin: "brainstorm" as const },
+  ];
+  // Drives the .chat-column/.centered-col right-floor in index.css —
+  // only shift the chat left of center while the panel is actually
+  // open, not permanently once isDesktopSidebar is true.
+  useEffect(() => {
+    document.body.classList.toggle("right-panel-open", isDesktopSidebar && rightPanelOpen);
+    return () => document.body.classList.remove("right-panel-open");
+  }, [isDesktopSidebar, rightPanelOpen]);
+
+  // Horizontal resize for the right panel — same drag mechanics as the
+  // left sidebar's handleSidebarResizeStart, mirrored: the handle sits
+  // on the panel's LEFT edge (it's anchored to the viewport's right
+  // edge, so dragging left grows it, the opposite sign from the left
+  // sidebar's own handle). Reuses layout.sidebarWidth/sidebarMaxWidth
+  // as the same 280-480 bounds the CSS clamp() already uses, so a drag
+  // can't push the value outside what the fluid default would allow
+  // anyway.
+  const RIGHT_PANEL_WIDTH_STORAGE_KEY = "navi-right-panel-width";
+  const rightPanelResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  useEffect(() => {
+    if (!isDesktopSidebar) return;
+    const saved = localStorage.getItem(RIGHT_PANEL_WIDTH_STORAGE_KEY);
+    if (saved) {
+      document.documentElement.style.setProperty("--right-panel-width", `${saved}px`);
+    }
+  }, [isDesktopSidebar]);
+  const handleRightPanelResizeStart = useCallback((e: React.PointerEvent) => {
+    const currentWidth = document.querySelector(".right-panel")?.getBoundingClientRect().width ?? layout.sidebarWidth;
+    rightPanelResizeRef.current = { startX: e.clientX, startWidth: currentWidth };
+    // Dragging over text content (menu labels, panel content) was
+    // triggering the browser's native text-selection instead of just
+    // resizing — found live. Suppressing selection for the drag's
+    // duration, not permanently, since it's only a drag-time problem.
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.userSelect = "none";
+    const onMove = (moveEvent: PointerEvent) => {
+      if (!rightPanelResizeRef.current) return;
+      const delta = moveEvent.clientX - rightPanelResizeRef.current.startX;
+      const next = Math.min(
+        layout.sidebarMaxWidth,
+        Math.max(layout.sidebarWidth, rightPanelResizeRef.current.startWidth - delta)
+      );
+      document.documentElement.style.setProperty("--right-panel-width", `${next}px`);
+    };
+    const onUp = () => {
+      rightPanelResizeRef.current = null;
+      const finalWidth = document.querySelector(".right-panel")?.getBoundingClientRect().width;
+      if (finalWidth) localStorage.setItem(RIGHT_PANEL_WIDTH_STORAGE_KEY, String(Math.round(finalWidth)));
+      document.body.style.userSelect = previousUserSelect;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }, []);
 
   // Horizontal sidebar resize (desktop only) — a manual drag beats the
   // fluid clamp() default. Deliberately NOT built on react-resizable-
@@ -924,6 +1262,11 @@ export default function App() {
   const handleSidebarResizeStart = useCallback((e: React.PointerEvent) => {
     const currentWidth = document.querySelector(".sidebar")?.getBoundingClientRect().width ?? layout.sidebarWidth;
     sidebarResizeRef.current = { startX: e.clientX, startWidth: currentWidth };
+    // Same drag-time text-selection fix as the right panel's handle —
+    // dragging over the Menu list's labels was selecting their text
+    // instead of just resizing.
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.userSelect = "none";
     const onMove = (moveEvent: PointerEvent) => {
       if (!sidebarResizeRef.current) return;
       const delta = moveEvent.clientX - sidebarResizeRef.current.startX;
@@ -937,6 +1280,7 @@ export default function App() {
       sidebarResizeRef.current = null;
       const finalWidth = document.querySelector(".sidebar")?.getBoundingClientRect().width;
       if (finalWidth) localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(Math.round(finalWidth)));
+      document.body.style.userSelect = previousUserSelect;
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
     };
@@ -993,6 +1337,37 @@ export default function App() {
     return () => observer.disconnect();
   }, []);
 
+  // Master-detail (two-column: collapsed icon list + docked panel)
+  // vs. floating popover — below a width threshold, two columns get
+  // too cramped to be worth it and it should fall back to the popover
+  // instead (flagged a while back, never built). The threshold has to
+  // be a fixed px value, not a percentage of the sidebar or the page:
+  // the actual constraint is whether the detail column (sidebar width
+  // minus the 56px collapsed icon rail) has enough width to render its
+  // real content — conversation titles, routing chains, usage rows —
+  // legibly. That's a fixed-size-content problem, it doesn't scale
+  // with viewport, so a percentage-based threshold wouldn't track the
+  // real failure mode. 340px is the right panel's own original default
+  // width (before it became fluid) — already validated as comfortable
+  // for a similar docked-panel content column, so it's the concrete
+  // reference point rather than an arbitrary guess. Below that, the
+  // detail column would be under ~284px (340-56) — reused as the floor
+  // here too. Tracked via ResizeObserver (not just the drag handlers)
+  // since the sidebar's width also changes from the CSS fluid clamp()
+  // on plain viewport resize, not only a manual drag.
+  const MASTER_DETAIL_MIN_SIDEBAR_WIDTH = 340;
+  const sidebarRef = useRef<HTMLDivElement>(null);
+  const [sidebarWidthPx, setSidebarWidthPx] = useState<number>(layout.sidebarWidth);
+  useEffect(() => {
+    const el = sidebarRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(entries => {
+      setSidebarWidthPx(entries[0].contentRect.width);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   // Push notification subscribe state — not a popover, a direct action
   // button. Re-checked on mount since subscriptions are per-origin: a
   // browser that was subscribed under a previous domain (e.g. GitHub
@@ -1013,11 +1388,14 @@ export default function App() {
   // refreshed each time that panel opens (see the effect below) rather
   // than kept live at all times, since it's the only place this list is
   // shown.
-  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [branches, setBranches] = useState<BranchListItem[]>([]);
   useEffect(() => {
-    if (openPanel !== "history") return;
-    listConversations().then(setConversations);
+    if (openPanel !== "branches") return;
+    listBranches().then(setBranches);
   }, [openPanel]);
+  // The project's one Main Chat — loaded once on mount, never
+  // reassigned (see getMainConversationId in storage.ts).
+  const [mainChatId, setMainChatId] = useState<string | null>(null);
 
   // Loads a saved conversation into view, replacing whatever's currently
   // showing. Switches the active-conversation pointer in storage too, so
@@ -1026,19 +1404,54 @@ export default function App() {
   const openConversation = useCallback(async (conversation: Conversation) => {
     await switchActiveConversation(conversation.id);
     activeConversationIdRef.current = conversation.id;
+    activeConversationParentIdRef.current = conversation.parentId;
     setMessages(conversation.messages);
     hydratedCountRef.current = conversation.messages.length;
     selectChatMode(conversation.mode);
     setOpenPanel(null);
+    if (conversation.parentId) {
+      const parent = await loadConversation(conversation.parentId);
+      setCurrentParentChat(parent ? { id: parent.id, title: parent.title } : null);
+    } else {
+      setCurrentParentChat(null);
+    }
   }, [selectChatMode]);
 
-  const startNewConversation = useCallback(async () => {
-    const conversation = await createConversation(chatModeRef.current);
-    activeConversationIdRef.current = conversation.id;
-    setMessages([]);
-    hydratedCountRef.current = 0;
+  // Branches off the CURRENT chat — the rail's "New Branch Chat" calls
+  // this directly (no separate top-level "New Chat" exists any more —
+  // there is exactly one Main Chat per project, see mainChatId below).
+  // Inherits
+  // the parent's messages at creation (the actual token-economy win —
+  // seeded with what's relevant so far, then diverges independently),
+  // prompts for a meaningful name up front rather than defaulting to
+  // "New conversation," per the naming convention research (name the
+  // choice being tested, not "sub-chat 1").
+  const branchConversation = useCallback(async () => {
+    const parentId = activeConversationIdRef.current;
+    if (!parentId) return;
+    const name = window.prompt("Name this branch (what are you exploring?)");
+    if (!name || !name.trim()) return;
+    const branch = await createConversation(chatModeRef.current, parentId);
+    await saveConversation({ ...branch, title: name.trim(), messages });
+    activeConversationIdRef.current = branch.id;
+    activeConversationParentIdRef.current = parentId;
+    setCurrentParentChat({ id: parentId, title: deriveTitle(messages) });
     setOpenPanel(null);
+  }, [messages]);
+
+  useEffect(() => {
+    getMainConversationId().then(setMainChatId);
   }, []);
+
+  // Jumps straight to the project's one Main Chat from anywhere — the
+  // in-chat "Branched from X" pill only ever shows the immediate
+  // parent, so a branch nested several levels deep has no other one-
+  // click path back to the true root.
+  const jumpToMainChat = useCallback(async () => {
+    if (!mainChatId) return;
+    const conversation = await loadConversation(mainChatId);
+    if (conversation) await openConversation(conversation);
+  }, [mainChatId, openConversation]);
   // Which provider row is expanded in the "Today's models" catalog.
   const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
   // Manual model pick per mode — null means "use the auto-routed
@@ -1232,8 +1645,79 @@ export default function App() {
       });
   }, [draft, stopResearchPoll]);
 
-  const isDockedDetail = isDesktopSidebar && openPanel !== null
-    && (MASTER_DETAIL_KEYS as readonly string[]).includes(openPanel);
+  // Docked master-detail retired for now, not redesigned — it was
+  // positioned relative to the old Menu column (.sidebar-detail-panel's
+  // left:56px fixed offset), which no longer means anything now that
+  // the outer rail sits to .sidebar's left and Menu's buttons live
+  // there instead. Floating popovers (anchorRect-based) work regardless
+  // of where the trigger button physically is, so that's the honest
+  // fallback rather than fixing positioning math for a structure that's
+  // still mid-change. Revisit docking against the new rail later.
+  const isDockedDetail = false;
+  void sidebarWidthPx; void MASTER_DETAIL_MIN_SIDEBAR_WIDTH; void MASTER_DETAIL_KEYS;
+
+  // Document viewer content — persists across right-panel tab switches
+  // (rendered once, at the panel level, not per-tab — see openDocument
+  // above). Text-like formats get a real editable textarea (in-memory
+  // only, no save/persistence yet); everything else is an honest
+  // placeholder rather than faking a preview with nothing real behind
+  // it (the mock file tree has no actual bytes for pdf/docx/pptx).
+  const viewerPane = openDocument && (
+    <div style={{ height: "100%", display: "flex", flexDirection: "column", minHeight: 0 }}>
+      <div style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.xs,
+        padding: `${spacing.xs}px ${spacing.lg}px`, borderTop: "1px solid rgba(255,255,255,0.08)",
+        flexShrink: 0,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, minWidth: 0 }}>
+          <FileIcon size={13} fill={neutral.textMuted} />
+          <span style={{
+            fontSize: fontSize.xs, color: neutral.textPrimary,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          }}>
+            {openDocument.name}
+          </span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
+          <button
+            onClick={() => setViewerExpanded(e => !e)}
+            title={viewerExpanded ? "Restore split view" : "Expand viewer"}
+            style={{
+              border: "none", background: "transparent", cursor: "pointer",
+              fontSize: fontSize.xxs, color: neutral.textMuted, fontFamily, padding: "3px 6px",
+            }}
+          >
+            {viewerExpanded ? "Restore" : "Expand"}
+          </button>
+          <button
+            aria-label="Close viewer"
+            onClick={() => { setOpenDocument(null); setViewerExpanded(false); }}
+            style={{
+              width: 20, height: 20, borderRadius: radius.xs, border: "none", background: "transparent",
+              cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+              color: neutral.textMuted,
+            }}
+          >
+            <XIcon size={13} />
+          </button>
+        </div>
+      </div>
+      <div style={{ flex: 1, minHeight: 0, padding: spacing.sm }}>
+        <Suspense fallback={
+          <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: neutral.textFaint, fontSize: 12 }}>
+            Loading viewer…
+          </div>
+        }>
+          <DocumentViewer
+            name={openDocument.name}
+            file={openDocument.file}
+            content={openDocument.content}
+            onContentChange={text => setOpenDocument(d => d && { ...d, content: text })}
+          />
+        </Suspense>
+      </div>
+    </div>
+  );
 
   return (
     <div style={{ width: "100vw", height: "100vh", position: "relative", overflow: "hidden", background: "#06050a" }}>
@@ -1243,12 +1727,199 @@ export default function App() {
         <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} />
       )}
 
+      {/* Outer rail — app-level canvas switcher, desktop only. Sits
+          outside .sidebar, to its left; everything else shifts right
+          by --outer-rail-width (see index.css). */}
+      {isDesktopSidebar && (
+        <div className={`outer-rail hide-scrollbar${outerRailCollapsed ? " collapsed" : ""}`} style={{
+          background: "rgba(4, 5, 10, 0.95)",
+          borderRight: "1px solid rgba(255,255,255,0.08)",
+          width: outerRailWidth,
+        }}>
+          <div
+            className="sidebar-resize-handle"
+            onPointerDown={handleOuterRailResizeStart}
+            title="Drag to resize"
+            style={{ position: "absolute", top: 0, bottom: 0, right: -6, width: 12, zIndex: 31 }}
+          >
+            <div className="sidebar-resize-handle-line" />
+          </div>
+
+          {/* top zone — canvas switcher, highest-frequency action */}
+          <div style={{ display: "flex", flexDirection: "column", gap: spacing.xxs, padding: spacing.sm, flexShrink: 0 }}>
+            {([
+              { key: "chat", icon: <CommentDiscussionIcon size={iconSize.sm} />, label: "Chat", available: true },
+              { key: "agentWork", icon: <RocketIcon size={iconSize.sm} />, label: "Agent Work", available: true },
+              { key: "codex", icon: <CodeIcon size={iconSize.sm} />, label: "Codex", available: false },
+              { key: "dashboard", icon: <PulseIcon size={iconSize.sm} />, label: "Dashboard", available: false },
+            ] as const).map(({ key, icon, label, available }) => (
+              <button
+                key={key}
+                title={available ? label : `${label} — coming soon`}
+                disabled={!available}
+                onClick={() => available && setActiveCanvas(key)}
+                className="sidebar-menu-btn"
+                style={{
+                  display: "flex", alignItems: "center", gap: spacing.sm,
+                  height: OUTER_RAIL_ROW_HEIGHT, boxSizing: "border-box",
+                  padding: `0 ${spacing.sm}px`,
+                  borderRadius: radius.sm, border: "none",
+                  background: activeCanvas === key ? "rgba(255,255,255,0.06)" : "transparent",
+                  color: available ? neutral.textPrimary : neutral.textFaint,
+                  cursor: available ? "pointer" : "default",
+                  fontSize: fontSize.xs, fontFamily, fontWeight: fontWeight.medium,
+                  textAlign: "left", opacity: available ? 1 : 0.5,
+                }}
+              >
+                {icon}
+                <span className="sidebar-menu-btn-label">{label}</span>
+              </button>
+            ))}
+          </div>
+
+          <div style={{ height: 1, background: "rgba(255,255,255,0.08)", margin: `${spacing.sm}px ${spacing.sm}px ${spacing.md}px` }} />
+
+          {/* middle zone — canvas-dependent contextual actions. Only
+              Chat's are real for now: Main Chat (jump to the project's
+              one true root from anywhere), New Branch Chat (branch off
+              whatever's active), Branches (flat browse list). The other
+              canvases' equivalents don't exist yet. */}
+          <div style={{ display: "flex", flexDirection: "column", gap: spacing.xxs, padding: spacing.sm, flex: 1, minHeight: 0, overflowY: "auto" }}>
+            {activeCanvas === "chat" && (
+              <>
+                <button
+                  className="sidebar-menu-btn"
+                  title="Main Chat"
+                  disabled={!mainChatId}
+                  onClick={jumpToMainChat}
+                  style={{
+                    display: "flex", alignItems: "center", gap: spacing.sm,
+                    height: OUTER_RAIL_ROW_HEIGHT, boxSizing: "border-box",
+                    padding: `0 ${spacing.sm}px`,
+                    borderRadius: radius.sm, border: "none",
+                    background: activeConversationIdRef.current === mainChatId ? "rgba(255,255,255,0.06)" : "transparent",
+                    color: mainChatId ? neutral.textPrimary : neutral.textFaint,
+                    cursor: mainChatId ? "pointer" : "default", textAlign: "left",
+                    fontSize: fontSize.xs, fontFamily, fontWeight: fontWeight.medium,
+                  }}
+                >
+                  <HomeIcon size={iconSize.sm} />
+                  <span className="sidebar-menu-btn-label">Main Chat</span>
+                </button>
+                <button
+                  className="sidebar-menu-btn"
+                  title="New Branch Chat"
+                  onClick={branchConversation}
+                  style={{
+                    display: "flex", alignItems: "center", gap: spacing.sm,
+                    height: OUTER_RAIL_ROW_HEIGHT, boxSizing: "border-box",
+                    padding: `0 ${spacing.sm}px`,
+                    borderRadius: radius.sm, border: "none",
+                    background: "transparent",
+                    color: neutral.textPrimary, cursor: "pointer", textAlign: "left",
+                    fontSize: fontSize.xs, fontFamily, fontWeight: fontWeight.medium,
+                  }}
+                >
+                  <PlusIcon size={iconSize.sm} />
+                  <span className="sidebar-menu-btn-label">New Branch Chat</span>
+                </button>
+                <button
+                  className="sidebar-menu-btn"
+                  title="Branches"
+                  onClick={e => togglePanel("branches", e.currentTarget)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: spacing.sm,
+                    height: OUTER_RAIL_ROW_HEIGHT, boxSizing: "border-box",
+                    padding: `0 ${spacing.sm}px`,
+                    borderRadius: radius.sm, border: "none",
+                    background: openPanel === "branches" ? "rgba(255,255,255,0.06)" : "transparent",
+                    color: neutral.textPrimary, cursor: "pointer", textAlign: "left",
+                    fontSize: fontSize.xs, fontFamily, fontWeight: fontWeight.medium,
+                  }}
+                >
+                  <GitBranchIcon size={iconSize.sm} />
+                  <span className="sidebar-menu-btn-label">Branches</span>
+                </button>
+              </>
+            )}
+          </div>
+
+          {/* bottom zone — "account stuff": genuinely global regardless
+              of canvas, Settings anchored last (universal convention). */}
+          <div style={{
+            display: "flex", flexDirection: "column", gap: spacing.xxs, padding: spacing.sm,
+            borderTop: "1px solid rgba(255,255,255,0.08)", flexShrink: 0,
+          }}>
+            {([
+              { key: "usage", icon: <GraphIcon size={iconSize.sm} />, label: "Usage counters" },
+              { key: "routing", icon: <GitBranchIcon size={iconSize.sm} />, label: "Routing & fallbacks" },
+              { key: "models", icon: <CpuIcon size={iconSize.sm} />, label: "Today's models" },
+              { key: "settings", icon: <GearIcon size={iconSize.sm} />, label: "Settings" },
+            ] as const).map(({ key, icon, label }) => (
+              <button
+                key={key}
+                className="sidebar-menu-btn"
+                title={label}
+                onClick={e => togglePanel(key, e.currentTarget)}
+                style={{
+                  display: "flex", alignItems: "center", gap: spacing.sm,
+                  height: OUTER_RAIL_ROW_HEIGHT, boxSizing: "border-box",
+                  padding: `0 ${spacing.sm}px`,
+                  borderRadius: radius.sm, border: "none",
+                  background: openPanel === key ? "rgba(255,255,255,0.06)" : "transparent",
+                  color: neutral.textPrimary, cursor: "pointer", textAlign: "left",
+                  fontSize: fontSize.xs, fontFamily, fontWeight: fontWeight.medium,
+                }}
+              >
+                {icon}
+                <span className="sidebar-menu-btn-label">{label}</span>
+              </button>
+            ))}
+            {pushStatus !== "unsupported" && (
+              <button
+                className="sidebar-menu-btn"
+                title={
+                  pushStatus === "subscribed" ? "Notifications on"
+                  : pushStatus === "denied" ? "Notifications blocked"
+                  : "Enable notifications"
+                }
+                onClick={handleEnablePush}
+                disabled={pushStatus === "subscribed" || pushStatus === "loading" || pushStatus === "denied"}
+                style={{
+                  display: "flex", alignItems: "center", gap: spacing.sm,
+                  height: OUTER_RAIL_ROW_HEIGHT, boxSizing: "border-box",
+                  padding: `0 ${spacing.sm}px`,
+                  borderRadius: radius.sm, border: "none", background: "transparent",
+                  color: neutral.textPrimary,
+                  cursor: pushStatus === "subscribed" || pushStatus === "denied" ? "default" : "pointer",
+                  opacity: pushStatus === "denied" ? 0.5 : 1,
+                  fontSize: fontSize.xs, fontFamily, fontWeight: fontWeight.medium,
+                  textAlign: "left",
+                }}
+              >
+                {pushStatus === "subscribed" ? <BellFillIcon size={iconSize.sm} /> : <BellIcon size={iconSize.sm} />}
+                <span className="sidebar-menu-btn-label">
+                  {pushStatus === "loading" ? "Enabling…"
+                    : pushStatus === "subscribed" ? "Notifications on"
+                    : pushStatus === "denied" ? "Notifications blocked"
+                    : "Enable notifications"}
+                </span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Sidebar — see .sidebar in index.css for the drawer/persistent
-          responsive behavior. Two stacked sections: Menu (existing
-          conversation/routing/usage/notification actions, relocated
-          from the old bottom toolbar row) and Activity (the browsable
-          tool/output record — placeholder for now, built next). */}
-      <div className={`sidebar${sidebarOpen ? " open" : ""}`} style={{
+          responsive behavior. Now just Activity/Knowledge — Menu
+          (conversation/routing/usage/notification actions) moved to
+          the outer rail above. Desktop: not rendered at all while
+          leftPanelOpen is false (see the open trigger button below,
+          mirrors the right panel's own open/close pattern). Mobile:
+          always rendered, drawer-slide handled by the .open class/CSS
+          transform, same as before — leftPanelOpen doesn't apply there. */}
+      {(!isDesktopSidebar || leftPanelOpen) && (
+      <div ref={sidebarRef} className={`sidebar${sidebarOpen ? " open" : ""}`} style={{
         display: "flex", flexDirection: "column",
         background: "rgba(6, 8, 14, 0.92)",
         borderRight: `1px solid ${theme.bubbleBorder}`,
@@ -1272,158 +1943,82 @@ export default function App() {
             <div className="sidebar-resize-handle-line" />
           </div>
         )}
-        <Group
-          orientation="vertical"
-          defaultLayout={initialSidebarLayout}
-          onLayoutChanged={handleSidebarLayoutChanged}
-          style={{ flex: 1, minHeight: 0 }}
-        >
-        <Panel id="menu" defaultSize={300} minSize={140} maxSize={600}>
-        <div ref={menuSectionRef} style={{ height: "100%", overflowY: "auto" }}>
+        {/* Just Activity/Knowledge now — Menu (conversation/routing/
+            usage/settings/notifications) relocated to the outer rail.
+            Close button lives here on both mobile (closes the drawer)
+            and desktop (hides the panel entirely — see leftPanelOpen). */}
+        <div style={{ display: "flex", justifyContent: "flex-end", padding: `${spacing.sm}px ${spacing.sm}px 0` }}>
+            <button
+              className={isDesktopSidebar ? undefined : "sidebar-toggle"}
+              aria-label="Close sidebar"
+              onClick={() => (isDesktopSidebar ? setLeftPanelOpen(false) : setSidebarOpen(false))}
+              style={{
+                display: "flex",
+                alignItems: "center", justifyContent: "center",
+                width: controlSize.sm, height: controlSize.sm,
+                borderRadius: radius.xs, border: "none", background: "transparent",
+                color: neutral.textMuted, cursor: "pointer",
+              }}
+            >
+              <XIcon size={iconSize.sm} />
+            </button>
+        </div>
         <div style={{
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          padding: spacing.lg,
-        }}>
-          {/* Hidden when the list collapses to icon-only (isDockedDetail)
-              — found live: "MENU" doesn't fit in the 56px collapsed
-              column (it needs ~46px including its own padding, but was
-              never part of .sidebar-menu-list so never actually
-              shrunk), and spilled over into the docked panel's left
-              edge. */}
-          {!isDockedDetail && (
-            <span style={{ fontSize: fontSize.xs, fontWeight: fontWeight.medium, color: neutral.textPrimary, letterSpacing: "0.04em" }}>
-              MENU
-            </span>
-          )}
-          {/* Close button — mobile/tablet only, nothing to close on desktop
-              (sidebar-toggle itself is hidden there, see index.css). */}
-          <button
-            className="sidebar-toggle"
-            aria-label="Close menu"
-            onClick={() => setSidebarOpen(false)}
-            style={{
-              // display intentionally NOT set here — .sidebar-toggle in
-              // index.css owns it (flex by default, none at the
-              // persistent breakpoint); an inline value here would
-              // always win over that media query regardless of width.
-              alignItems: "center", justifyContent: "center",
-              width: controlSize.sm, height: controlSize.sm,
-              borderRadius: radius.xs, border: "none", background: "transparent",
-              color: neutral.textMuted, cursor: "pointer",
-            }}
-          >
-            <XIcon size={iconSize.sm} />
-          </button>
-        </div>
-
-        <div className={`sidebar-menu-list${isDockedDetail ? " collapsed" : ""}`} style={{ display: "flex", flexDirection: "column", gap: spacing.xxs, padding: `0 ${spacing.sm}px` }}>
-          {/* Chats cluster — the conversation itself: starting one,
-              finding a past one. */}
-          {([
-            { key: "newConvo", icon: <PlusIcon size={iconSize.sm} />, label: "New conversation" },
-            { key: "history", icon: <HistoryIcon size={iconSize.sm} />, label: "Past conversations" },
-          ] as const).map(({ key, icon, label }) => (
-            <button
-              key={key}
-              className="sidebar-menu-btn"
-              title={label}
-              onClick={e => togglePanel(key, e.currentTarget)}
-              style={{
-                display: "flex", alignItems: "center", gap: spacing.sm,
-                padding: `${spacing.sm}px ${spacing.sm}px`,
-                borderRadius: radius.sm, border: "none",
-                background: openPanel === key ? "rgba(255,255,255,0.06)" : "transparent",
-                color: neutral.textPrimary, cursor: "pointer", textAlign: "left",
-                fontSize: fontSize.xs, fontFamily, fontWeight: fontWeight.medium,
-              }}
-            >
-              {icon}
-              <span className="sidebar-menu-btn-label">{label}</span>
-            </button>
-          ))}
-
-          {/* Subtle cluster divider — not a hard rule, just enough to
-              separate "about this chat" from "about the LLMs and you"
-              without a heavy visual break. JuanJo's spec, 2026-08-29. */}
-          <div style={{ height: 1, background: theme.bubbleBorder, opacity: 0.5, margin: `${spacing.sm}px ${spacing.xs}px` }} />
-
-          {/* LLMs & user cluster — provider/model config, usage, app
-              settings, notifications. */}
-          {([
-            { key: "routing", icon: <GitBranchIcon size={iconSize.sm} />, label: "Routing & fallbacks" },
-            { key: "usage", icon: <GraphIcon size={iconSize.sm} />, label: "Usage counters" },
-            { key: "settings", icon: <GearIcon size={iconSize.sm} />, label: "Settings" },
-          ] as const).map(({ key, icon, label }) => (
-            <button
-              key={key}
-              className="sidebar-menu-btn"
-              title={label}
-              onClick={e => togglePanel(key, e.currentTarget)}
-              style={{
-                display: "flex", alignItems: "center", gap: spacing.sm,
-                padding: `${spacing.sm}px ${spacing.sm}px`,
-                borderRadius: radius.sm, border: "none",
-                background: openPanel === key ? "rgba(255,255,255,0.06)" : "transparent",
-                color: neutral.textPrimary, cursor: "pointer", textAlign: "left",
-                fontSize: fontSize.xs, fontFamily, fontWeight: fontWeight.medium,
-              }}
-            >
-              {icon}
-              <span className="sidebar-menu-btn-label">{label}</span>
-            </button>
-          ))}
-          {pushStatus !== "unsupported" && (
-            <button
-              className="sidebar-menu-btn"
-              title={
-                pushStatus === "subscribed" ? "Notifications on"
-                : pushStatus === "denied" ? "Notifications blocked"
-                : "Enable notifications"
-              }
-              onClick={handleEnablePush}
-              disabled={pushStatus === "subscribed" || pushStatus === "loading" || pushStatus === "denied"}
-              style={{
-                display: "flex", alignItems: "center", gap: spacing.sm,
-                padding: `${spacing.sm}px ${spacing.sm}px`,
-                borderRadius: radius.sm, border: "none", background: "transparent",
-                color: neutral.textPrimary,
-                cursor: pushStatus === "subscribed" || pushStatus === "denied" ? "default" : "pointer",
-                opacity: pushStatus === "denied" ? 0.5 : 1,
-                fontSize: fontSize.xs, fontFamily, fontWeight: fontWeight.medium,
-                textAlign: "left",
-              }}
-            >
-              {pushStatus === "subscribed" ? <BellFillIcon size={iconSize.sm} /> : <BellIcon size={iconSize.sm} />}
-              <span className="sidebar-menu-btn-label">
-                {pushStatus === "loading" ? "Enabling…"
-                  : pushStatus === "subscribed" ? "Notifications on"
-                  : pushStatus === "denied" ? "Notifications blocked"
-                  : "Enable notifications"}
-              </span>
-            </button>
-          )}
-        </div>
-        </div>
-        </Panel>
-        <Separator className="sidebar-vertical-separator" />
-        {/* Activity — the browsable tool/output record (which command
-            ran, which mode, which files it produced). Placeholder for
-            this pass, which is just the sidebar shell — real content is
-            the next piece. */}
-        <Panel id="activity" minSize={60}>
-        <div style={{
-          // Left/right padding matches spacing.lg — same as the MENU
-          // header row and the effective text-start of the menu
-          // buttons (8px list padding + 8px button padding = 16px) —
-          // was spacing.sm (8px), reading as noticeably less inset
-          // than Menu's content. JuanJo's call, 2026-08-29.
           padding: `${spacing.lg}px`,
-          height: "100%", overflowY: "auto",
+          flex: 1, minHeight: 0, overflowY: "auto",
         }}>
-          <span style={{ fontSize: fontSize.xs, fontWeight: fontWeight.medium, color: neutral.textPrimary, letterSpacing: "0.04em" }}>
-            ACTIVITY
-          </span>
-          {activityItems.length === 0 ? (
+          <div style={{ display: "flex", alignItems: "flex-end", gap: sidebarTab.gap, marginBottom: spacing.sm, marginLeft: -spacing.sm }}>
+            {(["activity", "knowledge"] as const).map(tab => {
+              const active = leftPanelTab === tab;
+              return (
+                <button
+                  key={tab}
+                  onClick={() => setLeftPanelTab(tab)}
+                  className={`sidebar-tab${active ? " sidebar-tab-active" : ""}`}
+                  style={{
+                    padding: `${sidebarTab.paddingV}px ${sidebarTab.paddingH}px`,
+                    height: sidebarTab.height, boxSizing: "border-box",
+                    borderRadius: `${sidebarTab.radius}px ${sidebarTab.radius}px 0 0`,
+                    cursor: "pointer",
+                    fontSize: sidebarTab.fontSize, fontWeight: sidebarTab.fontWeight, fontFamily,
+                    letterSpacing: "0.04em",
+                    color: active ? sidebarTab.activeColor : sidebarTab.inactiveColor,
+                    background: active ? sidebarTab.activeBg : "transparent",
+                    border: "none",
+                    borderBottom: active
+                      ? `${sidebarTab.underlineThickness}px solid ${sidebarTab.underlineColor}`
+                      : `${sidebarTab.underlineThickness}px solid transparent`,
+                  }}
+                >
+                  {tab === "activity" ? "ACTIVITY" : "KNOWLEDGE"}
+                </button>
+              );
+            })}
+          </div>
+          {leftPanelTab === "knowledge" ? (
+            MOCK_KNOWLEDGE.length === 0 ? (
+              <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted, marginTop: spacing.sm }}>
+                Nothing saved yet — accepted sources and research get synthesized here.
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: spacing.sm, marginTop: spacing.sm }}>
+                {MOCK_KNOWLEDGE.map(item => (
+                  <div key={item.title} style={{ padding: `${spacing.xs}px ${spacing.sm}px`, borderRadius: radius.sm, background: "rgba(255,255,255,0.03)" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.xs }}>
+                      <span style={{ fontSize: fontSize.xs, color: neutral.textPrimary }}>{item.title}</span>
+                      <span style={{
+                        fontSize: fontSize.xxs, color: neutral.textMuted, flexShrink: 0,
+                        fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+                      }}>
+                        /{item.origin}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: fontSize.xxs, color: neutral.textFaint, marginTop: 2 }}>{item.note}</div>
+                  </div>
+                ))}
+              </div>
+            )
+          ) : activityItems.length === 0 ? (
             <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted, marginTop: spacing.sm }}>
               No commands run yet in this conversation.
             </div>
@@ -1484,9 +2079,8 @@ export default function App() {
             </div>
           )}
         </div>
-        </Panel>
-        </Group>
       </div>
+      )}
 
       <canvas ref={canvasRef} style={{ position: "absolute", inset: 0 }} />
 
@@ -1521,6 +2115,662 @@ export default function App() {
       >
         <ThreeBarsIcon size={iconSize.sm} />
       </button>
+
+      {/* Left sidebar OPEN trigger — desktop only, same shape/position
+          as the right panel's own open trigger below (mirrored to the
+          left edge, offset past the outer rail so it never sits under
+          it). Only rendered while closed — the panel's own close button
+          (inside its header, above) handles the other direction. */}
+      {isDesktopSidebar && !leftPanelOpen && (
+        <button
+          aria-label="Open sidebar"
+          onClick={() => setLeftPanelOpen(true)}
+          style={{
+            position: "absolute", top: spacing.xl, left: `calc(var(--outer-rail-width) + ${spacing.xl}px)`, zIndex: 31,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            width: controlSize.md, height: controlSize.md,
+            borderRadius: radius.sm,
+            border: `1px solid ${theme.bubbleBorder}`,
+            background: theme.bubbleBg,
+            color: neutral.textPrimary,
+            cursor: "pointer",
+            backdropFilter: `blur(${blur.sm}px)`,
+            boxShadow: `0 2px 14px rgba(0,0,0,0.35), 0 0 10px ${theme.glow}`,
+          }}
+        >
+          <ThreeBarsIcon size={iconSize.sm} />
+        </button>
+      )}
+
+      {/* Right sidebar OPEN trigger — top-right, opposite the hamburger.
+          Only rendered while closed: once the panel's open, closing it
+          is handled by a button living inside the panel's own header
+          (see below) instead of this floating one — a separate floating
+          button positioned by a fixed viewport offset drifted out of
+          alignment with the header's own content whenever the panel's
+          (now fluid) width changed, reading as disconnected from the
+          panel it was supposedly part of. Desktop only, same breakpoint
+          as the left sidebar's docked panels. */}
+      {isDesktopSidebar && !rightPanelOpen && (
+        <button
+          aria-label="Open sources panel"
+          onClick={() => setRightPanelOpen(true)}
+          style={{
+            position: "absolute", top: spacing.xl, right: spacing.xl, zIndex: 31,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            width: controlSize.md, height: controlSize.md,
+            borderRadius: radius.sm,
+            border: `1px solid ${theme.bubbleBorder}`,
+            background: theme.bubbleBg,
+            color: neutral.textPrimary,
+            cursor: "pointer",
+            backdropFilter: `blur(${blur.sm}px)`,
+            boxShadow: `0 2px 14px rgba(0,0,0,0.35), 0 0 10px ${theme.glow}`,
+          }}
+        >
+          <SearchIcon size={iconSize.sm} />
+        </button>
+      )}
+
+      {/* Right sidebar panel — mirrors .sidebar's fixed/full-height
+          structure (see .right-panel in index.css). Single-purpose
+          (Sources) now — Knowledge moved to sit alongside Activity in
+          the left sidebar instead, since both are records of past
+          work rather than a live tool like Sources. Background/border
+          colors set inline, same split as .sidebar itself, since they
+          depend on the active mode's theme. */}
+      {isDesktopSidebar && rightPanelOpen && (
+        <div className="right-panel hide-scrollbar" style={{
+          background: "rgba(6, 8, 14, 0.92)",
+          borderLeft: `1px solid ${theme.bubbleBorder}`,
+          backdropFilter: `blur(${blur.md}px)`,
+          fontFamily,
+        }}>
+          {/* Horizontal resize — same mechanics as the left sidebar's
+              handle, mirrored to the panel's left edge (this panel
+              grows leftward, anchored to the viewport's right edge). */}
+          <div
+            className="sidebar-resize-handle"
+            onPointerDown={handleRightPanelResizeStart}
+            title="Drag to resize"
+            style={{ position: "absolute", top: 0, bottom: 0, left: -6, width: 12, zIndex: 31 }}
+          >
+            <div className="sidebar-resize-handle-line" />
+          </div>
+          {/* header — tab strip (Sources / Files), same shape as before
+              Knowledge moved out, just repurposed for the new Files
+              tool instead. Close button lives here, in normal flex flow
+              (justify-content:space-between) — not a separately-
+              positioned floating element — so it always aligns with
+              this row's own content regardless of the panel's (fluid)
+              width. */}
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.xs,
+            padding: `${spacing.lg}px ${spacing.lg}px ${spacing.md}px`,
+            borderBottom: "1px solid rgba(255,255,255,0.08)", flexShrink: 0,
+          }}>
+            <div style={{ display: "flex", alignItems: "flex-end", gap: sidebarTab.gap }}>
+              {(["sources", "files"] as const).map(tab => {
+                const active = rightActiveTab === tab;
+                return (
+                  <button
+                    key={tab}
+                    onClick={() => setRightActiveTab(tab)}
+                    className={`sidebar-tab${active ? " sidebar-tab-active" : ""}`}
+                    style={{
+                      display: "flex", alignItems: "center", gap: spacing.xs,
+                      padding: `${sidebarTab.paddingV}px ${sidebarTab.paddingH}px`,
+                      height: sidebarTab.height, boxSizing: "border-box",
+                      borderRadius: `${sidebarTab.radius}px ${sidebarTab.radius}px 0 0`,
+                      fontSize: sidebarTab.fontSize, cursor: "pointer",
+                      fontFamily, fontWeight: sidebarTab.fontWeight,
+                      color: active ? sidebarTab.activeColor : sidebarTab.inactiveColor,
+                      background: active ? sidebarTab.activeBg : "transparent",
+                      border: "none",
+                      borderBottom: active
+                        ? `${sidebarTab.underlineThickness}px solid ${sidebarTab.underlineColor}`
+                        : `${sidebarTab.underlineThickness}px solid transparent`,
+                    }}
+                  >
+                    {tab === "sources" ? <SearchIcon size={12} /> : <FileDirectoryIcon size={12} />}
+                    {tab === "sources" ? "Sources" : "Files"}
+                  </button>
+                );
+              })}
+            </div>
+            <button
+              aria-label="Close sources panel"
+              onClick={() => setRightPanelOpen(false)}
+              style={{
+                width: 22, height: 22, borderRadius: radius.xs,
+                border: "none", background: "transparent", cursor: "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                color: neutral.textMuted,
+              }}
+            >
+              <XIcon size={14} />
+            </button>
+          </div>
+
+          {viewerExpanded && openDocument ? (
+            <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+              {viewerPane}
+            </div>
+          ) : (
+          <Group orientation="vertical" style={{ flex: 1, minHeight: 0 }}>
+          <Panel id="right-tab-content" defaultSize={260} minSize={100}>
+          <div className="hide-scrollbar" style={{ height: "100%", overflowY: "auto", display: "flex", flexDirection: "column" }}>
+          {rightActiveTab === "sources" && (
+          <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+              <div style={{ padding: `${spacing.md}px ${spacing.lg}px 0` }}>
+                <div style={{
+                  display: "flex", flexWrap: "wrap", gap: 5, alignItems: "center",
+                  padding: 6, borderRadius: radius.lg + 2,
+                  background: neutral.surface, border: `1px solid ${theme.bubbleBorder}`,
+                }}>
+                  {sourceChips.map((chip, i) => (
+                    <div key={chip} style={{
+                      display: "flex", alignItems: "center", gap: 4,
+                      padding: "3px 5px 3px 8px", borderRadius: radius.xs + 3,
+                      background: theme.bubbleBg, border: `1px solid ${theme.bubbleBorder}`,
+                      color: neutral.textPrimary, fontSize: 12,
+                    }}>
+                      {chip}
+                      <span
+                        onClick={() => setSourceChips(cs => cs.filter((_, j) => j !== i))}
+                        style={{ cursor: "pointer", display: "flex" }}
+                      >
+                        <XIcon size={12} />
+                      </span>
+                    </div>
+                  ))}
+                  <input
+                    placeholder={sourceChips.length ? "Add another term…" : "e.g. offline-first sync"}
+                    value={sourceDraft}
+                    onChange={e => setSourceDraft(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === "Enter" && sourceDraft.trim()) {
+                        setSourceChips(cs => [...cs, sourceDraft.trim()]);
+                        setSourceDraft("");
+                      }
+                    }}
+                    style={{
+                      flex: 1, minWidth: 80, background: "transparent", border: "none", outline: "none",
+                      color: neutral.textPrimary, fontSize: 12, padding: "4px 3px", fontFamily,
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ padding: `${spacing.sm + 2}px ${spacing.lg}px ${spacing.md}px`, flexShrink: 0 }}>
+                <button
+                  disabled={!sourceChips.length}
+                  style={{
+                    width: "100%", padding: 8, borderRadius: radius.xs + 2, fontSize: 12.5,
+                    fontWeight: fontWeight.medium, fontFamily,
+                    cursor: sourceChips.length ? "pointer" : "not-allowed",
+                    color: sourceChips.length ? neutral.textPrimary : neutral.textFaint,
+                    background: sourceChips.length ? theme.bubbleBg : "rgba(4,8,18,0.3)",
+                    border: sourceChips.length ? `1px solid ${neutral.dotNeutral}` : "1px solid rgba(255,255,255,0.1)",
+                    boxShadow: sourceChips.length ? `0 2px 16px rgba(0,0,0,0.4), 0 0 8px ${theme.glow}` : "none",
+                  }}
+                >
+                  Batch Dispatch
+                </button>
+              </div>
+
+              <div className="hide-scrollbar" style={{
+                flex: 1, overflowY: "auto", padding: `0 ${spacing.lg}px ${spacing.sm}px`,
+                display: "flex", flexDirection: "column", gap: spacing.sm,
+                maskImage: "linear-gradient(to bottom, black calc(100% - 20px), transparent)",
+              }}>
+                {/* term 1: done, expandable */}
+                <div>
+                  <div
+                    onClick={() => setSourceTerm1Open(o => !o)}
+                    style={{ display: "flex", alignItems: "center", gap: spacing.sm, padding: "6px 0", cursor: "pointer" }}
+                  >
+                    {sourceTerm1Open ? <ChevronDownIcon size={12} /> : <ChevronRightIcon size={12} />}
+                    <span style={{ flex: 1, fontSize: 13, color: neutral.textPrimary }}>offline-first sync</span>
+                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: neutral.statusAwake }} />
+                    <span style={{ fontSize: 11, color: neutral.textMuted }}>4 sources</span>
+                  </div>
+                  {sourceTerm1Open && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                      {MOCK_SOURCES.map((s, i) => {
+                        const t = SOURCE_TIER_META[s.tier];
+                        const checked = !!sourceTicks[i];
+                        return (
+                          <div key={s.title} style={{
+                            display: "flex", alignItems: "center", gap: spacing.sm,
+                            padding: "7px 8px", borderRadius: radius.xs + 1, background: "rgba(255,255,255,0.03)",
+                          }}>
+                            <div
+                              onClick={() => handleSourceTickAttempt(i, checked)}
+                              style={{
+                                flexShrink: 0, width: 15, height: 15, borderRadius: 4, cursor: "pointer",
+                                display: "flex", alignItems: "center", justifyContent: "center",
+                                background: checked ? neutral.dotNeutral : "transparent",
+                                border: checked ? `1px solid ${neutral.dotNeutral}` : "1px solid rgba(255,255,255,0.3)",
+                              }}
+                            >
+                              {checked && <CheckIcon size={9} fill="#080608" />}
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{
+                                fontSize: 12.5, color: neutral.textPrimary,
+                                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                              }}>{s.title}</div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 1 }}>
+                                <span style={{ fontSize: 10.5, color: neutral.textFaint }}>{s.domain}</span>
+                                <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 100, color: t.color, background: t.bg }}>{t.label}</span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* term 2: searching */}
+                <div style={{ display: "flex", alignItems: "center", gap: spacing.sm, padding: "6px 0" }}>
+                  <ChevronRightIcon size={12} />
+                  <span className="step-pulse" style={{ flex: 1, fontSize: 13, color: neutral.textMuted }}>conflict resolution</span>
+                  <span style={{ fontSize: 11, color: neutral.textMuted }}>searching…</span>
+                </div>
+
+                {/* term 3: needs input */}
+                <div style={{
+                  display: "flex", alignItems: "center", gap: spacing.sm, padding: "6px 8px",
+                  borderRadius: radius.xs + 1, background: "rgba(230,180,80,0.06)",
+                }}>
+                  <ChevronRightIcon size={12} />
+                  <span style={{ flex: 1, fontSize: 13, color: neutral.textPrimary }}>CRDT algorithms</span>
+                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: "rgb(230,180,80)" }} />
+                  <span style={{ fontSize: 11, color: "rgb(230,180,80)" }}>needs input</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* FILES tab — vertical drill-in: clicking a folder swaps the
+              whole view to that folder's contents at full column width
+              instead of indenting a tree, since a narrow sidebar can't
+              afford indentation without squeezing names down to a
+              sliver. Breadcrumb row is the way back out. Mock tree —
+              real filesystem access is dispatcher/backend work. */}
+          {rightActiveTab === "files" && (
+            <div
+              onDragOver={e => { e.preventDefault(); setFileDragOver(true); }}
+              onDragLeave={() => setFileDragOver(false)}
+              onDrop={e => {
+                e.preventDefault();
+                setFileDragOver(false);
+                if (e.dataTransfer.files.length) addRealFiles(e.dataTransfer.files);
+              }}
+              style={{
+                display: "flex", flexDirection: "column", flex: 1, minHeight: 0,
+                outline: fileDragOver ? `2px dashed ${sidebarBreadcrumb.ancestorColor}` : "none",
+                outlineOffset: -2,
+              }}
+            >
+              <div style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.sm,
+                padding: `${spacing.sm}px ${spacing.lg}px`, flexShrink: 0,
+              }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap", minWidth: 0 }}>
+                {/* Ancestors get real link affordance (accent color,
+                    underline on hover — see .sidebar-breadcrumb-link)
+                    so they read as clickable at a glance, not just gray
+                    label text indistinguishable from the current
+                    location. The current segment is the opposite:
+                    bold/full-brightness so "where am I" is obvious, but
+                    never link-styled — it's not a click target. */}
+                <button
+                  onClick={() => setFilePath(p => p.slice(0, -1))}
+                  disabled={filePath.length === 0}
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    width: 20, height: 20, borderRadius: radius.xs, border: "none",
+                    background: "transparent", cursor: filePath.length ? "pointer" : "default",
+                    color: filePath.length ? sidebarBreadcrumb.ancestorColor : neutral.textFaint,
+                    marginRight: 2,
+                  }}
+                >
+                  <ChevronLeftIcon size={12} />
+                </button>
+                <span
+                  onClick={() => setFilePath([])}
+                  className={filePath.length ? "sidebar-breadcrumb-link" : undefined}
+                  style={{
+                    fontSize: sidebarBreadcrumb.fontSize,
+                    fontWeight: filePath.length ? fontWeight.regular : sidebarBreadcrumb.currentWeight,
+                    color: filePath.length ? sidebarBreadcrumb.ancestorColor : sidebarBreadcrumb.currentColor,
+                    cursor: filePath.length ? "pointer" : "default",
+                  }}
+                >
+                  Home
+                </span>
+                {filePath.map((segment, i) => {
+                  const isCurrent = i === filePath.length - 1;
+                  return (
+                    <span key={i} style={{ display: "flex", alignItems: "center", gap: sidebarBreadcrumb.gap }}>
+                      <span style={{ fontSize: sidebarBreadcrumb.fontSize, color: sidebarBreadcrumb.separatorColor }}>/</span>
+                      <span
+                        onClick={() => !isCurrent && setFilePath(filePath.slice(0, i + 1))}
+                        className={isCurrent ? undefined : "sidebar-breadcrumb-link"}
+                        style={{
+                          fontSize: sidebarBreadcrumb.fontSize,
+                          cursor: isCurrent ? "default" : "pointer",
+                          fontWeight: isCurrent ? sidebarBreadcrumb.currentWeight : fontWeight.regular,
+                          color: isCurrent ? sidebarBreadcrumb.currentColor : sidebarBreadcrumb.ancestorColor,
+                        }}
+                      >
+                        {segment}
+                      </span>
+                    </span>
+                  );
+                })}
+              </div>
+
+                <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
+                  <button
+                    aria-label="Search in directory"
+                    title="Search in directory"
+                    onClick={() => setFileSearchOpen(o => { const next = !o; if (!next) setFileSearchQuery(""); return next; })}
+                    style={{
+                      width: 22, height: 22, borderRadius: radius.xs,
+                      border: "none", cursor: "pointer",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      background: fileSearchOpen ? sidebarTab.activeBg : "transparent",
+                      color: fileSearchOpen ? sidebarBreadcrumb.ancestorColor : neutral.textMuted,
+                    }}
+                  >
+                    <SearchIcon size={13} />
+                  </button>
+                  <button
+                    aria-label="Add directory"
+                    title="Add directory"
+                    onClick={() => { setAddingDirectory(o => !o); setNewDirectoryName(""); }}
+                    style={{
+                      width: 22, height: 22, borderRadius: radius.xs,
+                      border: "none", cursor: "pointer",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      background: addingDirectory ? sidebarTab.activeBg : "transparent",
+                      color: addingDirectory ? sidebarBreadcrumb.ancestorColor : neutral.textMuted,
+                    }}
+                  >
+                    <PlusIcon size={13} />
+                  </button>
+                  <button
+                    aria-label="Import a real file"
+                    title="Import a real file"
+                    onClick={() => importFileInputRef.current?.click()}
+                    style={{
+                      width: 22, height: 22, borderRadius: radius.xs,
+                      border: "none", cursor: "pointer", background: "transparent", color: neutral.textMuted,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                    }}
+                  >
+                    <UploadIcon size={13} />
+                  </button>
+                  <input
+                    ref={importFileInputRef}
+                    type="file"
+                    multiple
+                    onChange={e => { if (e.target.files?.length) addRealFiles(e.target.files); e.target.value = ""; }}
+                    style={{ display: "none" }}
+                  />
+                </div>
+              </div>
+
+              {fileSearchOpen && (
+                <div style={{ padding: `0 ${spacing.lg}px ${spacing.sm}px`, flexShrink: 0 }}>
+                  <input
+                    autoFocus
+                    placeholder="Search this folder…"
+                    value={fileSearchQuery}
+                    onChange={e => setFileSearchQuery(e.target.value)}
+                    style={{
+                      width: "100%", background: neutral.surface, border: `1px solid ${theme.bubbleBorder}`,
+                      borderRadius: radius.xs + 2, outline: "none", color: neutral.textPrimary,
+                      fontSize: 12.5, padding: "5px 8px", fontFamily,
+                    }}
+                  />
+                </div>
+              )}
+
+              {addingDirectory && (
+                <div style={{ padding: `0 ${spacing.lg}px ${spacing.sm}px`, display: "flex", gap: spacing.xs, flexShrink: 0 }}>
+                  <input
+                    autoFocus
+                    placeholder="New folder name…"
+                    value={newDirectoryName}
+                    onChange={e => setNewDirectoryName(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === "Enter" && newDirectoryName.trim()) {
+                        addDirectory(newDirectoryName);
+                        setAddingDirectory(false);
+                      }
+                      if (e.key === "Escape") setAddingDirectory(false);
+                    }}
+                    style={{
+                      flex: 1, background: neutral.surface, border: `1px solid ${theme.bubbleBorder}`,
+                      borderRadius: radius.xs + 2, outline: "none", color: neutral.textPrimary,
+                      fontSize: 12.5, padding: "5px 8px", fontFamily,
+                    }}
+                  />
+                </div>
+              )}
+
+              <div className="hide-scrollbar" style={{
+                flex: 1, overflowY: "auto", padding: `0 ${spacing.sm}px ${spacing.sm}px`,
+                display: "flex", flexDirection: "column", gap: 1,
+              }}>
+                {visibleFolderContents.length === 0 ? (
+                  <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted, padding: `${spacing.sm}px ${spacing.sm}px` }}>
+                    {fileSearchQuery ? "No matches." : "Empty folder."}
+                  </div>
+                ) : visibleFolderContents.map(node => (
+                  <div
+                    key={node.name}
+                    onClick={() => { if (node.type === "folder") setFilePath(p => [...p, node.name]); else openFile(node); }}
+                    className="sidebar-row"
+                    style={{
+                      display: "flex", alignItems: "center", gap: sidebarRow.gap,
+                      padding: `${sidebarRow.paddingV}px ${sidebarRow.paddingH}px`, borderRadius: sidebarRow.radius,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {node.type === "folder"
+                      ? <FileDirectoryIcon size={sidebarRow.iconSize} fill={neutral.textMuted} />
+                      : <FileIcon size={sidebarRow.iconSize} fill={neutral.textFaint} />}
+                    <span style={{
+                      flex: 1, fontSize: 12.5, color: node.type === "folder" ? neutral.textPrimary : neutral.textMuted,
+                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                    }}>
+                      {node.name}
+                    </span>
+                    {node.type === "folder" && <ChevronRightIcon size={12} />}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          </div>
+          </Panel>
+          {openDocument && (
+            <>
+              <Separator className="sidebar-vertical-separator" />
+              <Panel id="right-viewer" minSize={100}>
+                {viewerPane}
+              </Panel>
+            </>
+          )}
+          </Group>
+          )}
+
+          {/* persistent footer disclaimer — Sources-specific, only
+              shown on that tab. */}
+          {rightActiveTab === "sources" && !viewerExpanded && (
+            <div style={{
+              padding: `${spacing.sm + 2}px ${spacing.lg}px`, borderTop: "1px solid rgba(255,255,255,0.08)",
+              display: "flex", gap: 7, alignItems: "flex-start", flexShrink: 0,
+            }}>
+              <AlertIcon size={13} fill="rgba(230,180,80,0.9)" />
+              <span style={{ fontSize: 11, color: neutral.textMuted, lineHeight: 1.4 }}>
+                Not personally reviewed sources can harm output in chat.
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Sources review warning — one-time acknowledgment gate before a
+          source can be ticked. Anchored over the chat at the right
+          panel's height (not inside the panel itself — it's warning
+          about trusting chat output, so it sits where the chat is).
+          Scrim blocks the rest of the app so it has to be acknowledged,
+          not dismissed by clicking away. Logic-only for now: no real
+          enforcement is wired up yet (see the deferred tick-enforcement
+          item) — this just gets the UI in place ahead of that wiring. */}
+      {sourceWarningOpen && (
+        <>
+          <div
+            onClick={() => {}}
+            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 39 }}
+          />
+          <div style={{
+            position: "fixed", top: 96,
+            right: `calc(var(--right-panel-width, 280px) + ${spacing.xxl * 2}px)`,
+            width: 420, zIndex: 40,
+            background: "rgba(4,8,18,0.92)",
+            border: "1px solid rgba(230,180,80,0.4)",
+            borderRadius: radius.lg,
+            backdropFilter: `blur(${blur.md}px)`,
+            boxShadow: "0 8px 30px rgba(0,0,0,0.5), 0 0 20px rgba(230,180,80,0.18)",
+            padding: spacing.xl,
+            fontFamily,
+          }}>
+            <div style={{ display: "flex", gap: spacing.md, alignItems: "flex-start" }}>
+              <div style={{
+                flexShrink: 0, width: 34, height: 34, borderRadius: radius.sm,
+                background: "rgba(230,180,80,0.14)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+                <AlertIcon size={18} fill="rgb(230,180,80)" />
+              </div>
+              <div>
+                <div style={{ fontSize: fontSize.sm, fontWeight: fontWeight.medium, color: neutral.textPrimary, marginBottom: spacing.xs }}>
+                  Review sources before use
+                </div>
+                <div style={{ fontSize: fontSize.xs, color: neutral.textMuted, lineHeight: lineHeight.base }}>
+                  A source has to be ticked before NAVI can use it in this chat. Sources that haven't been
+                  personally reviewed can lead to wrong or misleading conclusions — ticking one means you've
+                  looked at it and accepted it. This shows once; after this, it's on you to review what you tick.
+                </div>
+              </div>
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: spacing.lg }}>
+              <button
+                onClick={() => { setSourceWarningAcknowledged(true); setSourceWarningOpen(false); }}
+                style={{
+                  padding: `${spacing.sm + 1}px ${spacing.lg}px`, borderRadius: radius.sm,
+                  fontSize: fontSize.xs, fontWeight: fontWeight.medium, fontFamily, cursor: "pointer",
+                  color: neutral.textPrimary,
+                  background: "rgba(230,180,80,0.14)",
+                  border: "1px solid rgba(230,180,80,0.5)",
+                }}
+              >
+                I understand
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Agent Work canvas — full-screen takeover, not a sidebar tool:
+          a real node-graph workflow builder needs canvas width no
+          sidebar can give (that's why this exists as its own canvas at
+          all, not another right-panel tab). Shell/placeholder only —
+          the real content is an embedded Activepieces instance, which
+          needs backend infra (Postgres + Redis + its own server) not
+          built yet. Sits above the chat UI (still fully mounted and
+          usable underneath — sidebars stay exactly as the user left
+          them, no automatic fade/hide; if they want the space back,
+          that's their call via the existing manual resize/close
+          controls, not something this canvas does for them), below
+          the outer rail so canvas-switching stays reachable. */}
+      {activeCanvas === "agentWork" && (
+        <div style={{
+          position: "absolute", inset: 0, left: "var(--outer-rail-width, 0px)",
+          zIndex: 20, background: "#0a0a12",
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}>
+          <div style={{ textAlign: "center", color: neutral.textFaint, maxWidth: 360 }}>
+            <RocketIcon size={28} />
+            <div style={{ fontSize: fontSize.sm, color: neutral.textMuted, marginTop: spacing.md, fontWeight: fontWeight.medium }}>
+              Agent Work canvas
+            </div>
+            <div style={{ fontSize: fontSize.xs, marginTop: spacing.xs, lineHeight: lineHeight.base }}>
+              The visual workflow builder lives here — real content (an embedded Activepieces
+              instance) needs backend work that hasn't started yet.
+            </div>
+          </div>
+
+          {/* Compact chat popup — bottom-right, collapsed by default. */}
+          <div style={{ position: "absolute", bottom: spacing.xl, right: spacing.xl, zIndex: 21 }}>
+            {agentWorkChatOpen ? (
+              <div style={{
+                width: 320, height: 400, display: "flex", flexDirection: "column",
+                background: "rgba(10,12,18,0.95)", border: `1px solid ${theme.bubbleBorder}`,
+                borderRadius: radius.lg, boxShadow: `0 8px 30px rgba(0,0,0,0.5), 0 0 20px ${theme.glow}`,
+                backdropFilter: `blur(${blur.md}px)`, overflow: "hidden",
+              }}>
+                <div style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  padding: `${spacing.sm}px ${spacing.md}px`, borderBottom: "1px solid rgba(255,255,255,0.08)",
+                }}>
+                  <span style={{ fontSize: fontSize.xs, fontWeight: fontWeight.medium, color: neutral.textPrimary }}>
+                    Canvas chat
+                  </span>
+                  <button
+                    aria-label="Collapse chat"
+                    onClick={() => setAgentWorkChatOpen(false)}
+                    style={{
+                      width: 22, height: 22, borderRadius: radius.xs, border: "none", background: "transparent",
+                      color: neutral.textMuted, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                    }}
+                  >
+                    <ChevronDownIcon size={14} />
+                  </button>
+                </div>
+                <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: spacing.lg }}>
+                  <span style={{ fontSize: fontSize.xxs, color: neutral.textFaint, textAlign: "center" }}>
+                    Not wired up yet — context will be this canvas's state plus a
+                    summary of a linked chat.
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <button
+                aria-label="Open canvas chat"
+                onClick={() => setAgentWorkChatOpen(true)}
+                style={{
+                  width: controlSize.md + 6, height: controlSize.md + 6, borderRadius: "50%",
+                  border: `1px solid ${theme.bubbleBorder}`, background: theme.bubbleBg,
+                  color: neutral.textPrimary, cursor: "pointer",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  boxShadow: `0 4px 18px rgba(0,0,0,0.4), 0 0 14px ${theme.glow}`,
+                }}
+              >
+                <CommentDiscussionIcon size={iconSize.md} />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Mode selector — top-center. No shared container anymore: each
           label just sits with even spacing; only the active one gets
@@ -1568,42 +2818,40 @@ export default function App() {
             </button>
           );
         })}
-      </div>
-
-      {/* Server status — top-right. A glance-able answer to "is NAVI
-          asleep right now" (Render free tier spins down after 15min
-          idle) without having to send a message and wait to find out. */}
-      <div
-        title={
-          serverStatus === "awake" ? "NAVI is awake"
-            : serverStatus === "waking" ? "NAVI is waking up (cold start)…"
-            : serverStatus === "unreachable" ? "Can't reach NAVI"
-            : "Checking…"
-        }
-        style={{
-          position: "absolute", top: spacing.xl, right: spacing.xl,
-          display: "flex", alignItems: "center", gap: spacing.xs,
-          zIndex: 10,
-        }}
-      >
-        <span style={{
-          width: DOT_SIZE, height: DOT_SIZE, borderRadius: 9999, flexShrink: 0,
-          background: serverStatus === "awake" ? neutral.statusAwake
-            : serverStatus === "waking" ? neutral.statusWaking
-            : serverStatus === "unreachable" ? neutral.statusUnreachable
-            : neutral.dotNeutral,
-          transition: "background 0.3s ease",
-        }} />
-        {/* Hidden below 600px (see .status-label in index.css) — the
-            dot alone still answers "is NAVI awake" at a glance, and
-            freeing this text's width was necessary to stop the mode-
-            tabs row rendering underneath it on narrow phones. */}
-        <span className="status-label" style={{ fontSize: fontSize.xxs, color: neutral.textMuted }}>
-          {serverStatus === "awake" ? "Online"
-            : serverStatus === "waking" ? "Waking up…"
-            : serverStatus === "unreachable" ? "Unreachable"
-            : "Checking…"}
-        </span>
+        {/* Server status — sits to the right of the mode tabs, in the
+            same centered row (was floating at the page's top-right
+            corner, which started overlapping the new right sidebar
+            toggle sharing that same corner; then briefly tried inside
+            the chat input, too far from where it used to be — JuanJo's
+            call, 2026-08-29: keep it up here next to the modes). */}
+        <div
+          title={
+            serverStatus === "awake" ? "NAVI is awake"
+              : serverStatus === "waking" ? "NAVI is waking up (cold start)…"
+              : serverStatus === "unreachable" ? "Can't reach NAVI"
+              : "Checking…"
+          }
+          style={{
+            display: "flex", alignItems: "center", gap: spacing.xs,
+            marginLeft: spacing.md, paddingLeft: spacing.md,
+            borderLeft: "1px solid rgba(255,255,255,0.12)",
+          }}
+        >
+          <span style={{
+            width: DOT_SIZE, height: DOT_SIZE, borderRadius: 9999, flexShrink: 0,
+            background: serverStatus === "awake" ? neutral.statusAwake
+              : serverStatus === "waking" ? neutral.statusWaking
+              : serverStatus === "unreachable" ? neutral.statusUnreachable
+              : neutral.dotNeutral,
+            transition: "background 0.3s ease",
+          }} />
+          <span className="status-label" style={{ fontSize: fontSize.xxs, color: neutral.textMuted }}>
+            {serverStatus === "awake" ? "Online"
+              : serverStatus === "waking" ? "Waking up…"
+              : serverStatus === "unreachable" ? "Unreachable"
+              : "Checking…"}
+          </span>
+        </div>
       </div>
 
       {/* Model picker — shows the model actually in effect for the
@@ -1635,6 +2883,47 @@ export default function App() {
           {effectiveModel.model}
           {!modelOverride[chatMode] && <span style={{ color: neutral.textMuted }}> (auto)</span>}
           <ChevronDownIcon size={12} />
+        </button>
+
+        {/* "Branched from X" — the branch-awareness piece that's the
+            actual gap in Claude's own product (real branches exist
+            there, but stay invisible behind tiny pagination arrows).
+            Only ever one level, so a single pill suffices — no tree
+            view needed for that. Click jumps straight to the parent. */}
+        {currentParentChat && (
+          <button
+            onClick={() => {
+              loadConversation(currentParentChat.id).then(c => c && openConversation(c));
+            }}
+            title={`Branched from "${currentParentChat.title}" — click to open it`}
+            style={{
+              display: "flex", alignItems: "center", gap: spacing.xs,
+              padding: `${spacing.xs}px ${spacing.md}px`, marginLeft: spacing.xs,
+              borderRadius: radius.sm, border: `1px solid ${theme.bubbleBorder}`,
+              background: "transparent", color: neutral.textMuted, cursor: "pointer",
+              fontSize: fontSize.xxs, fontFamily, whiteSpace: "nowrap",
+              maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis",
+            }}
+          >
+            <GitBranchIcon size={12} />
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>Branched from {currentParentChat.title}</span>
+          </button>
+        )}
+
+        {/* Branch trigger — deliberately lives here, inside the active
+            chat, never on the outer rail's New Conversation (which
+            stays unambiguously "always top-level" by construction). */}
+        <button
+          onClick={branchConversation}
+          title="Branch this chat — start a scoped sub-chat from here"
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "center",
+            width: controlSize.md - 4, height: controlSize.md - 4, marginLeft: spacing.xs,
+            borderRadius: radius.sm, border: `1px solid ${theme.bubbleBorder}`,
+            background: "transparent", color: neutral.textMuted, cursor: "pointer",
+          }}
+        >
+          <GitBranchIcon size={12} />
         </button>
       </div>
 
@@ -1945,53 +3234,22 @@ export default function App() {
                 className={isDockedDetail ? "hide-scrollbar sidebar-detail-content" : undefined}
                 style={isDockedDetail ? { height: "100%" } : undefined}
               >
-              {openPanel === "newConvo" && (
-                <div>
-                  <div style={{ fontSize: fontSize.sm, marginBottom: spacing.sm }}>
-                    Start a new conversation? The current one is saved — find it under Past conversations.
-                  </div>
-                  <div style={{ display: "flex", gap: spacing.xs, justifyContent: "flex-end" }}>
-                    <button
-                      onClick={() => setOpenPanel(null)}
-                      style={{
-                        padding: `${spacing.xs}px ${spacing.md}px`, borderRadius: radius.sm,
-                        border: `1px solid ${theme.bubbleBorder}`, background: "transparent",
-                        color: neutral.textMuted, cursor: "pointer", fontSize: fontSize.xs, fontFamily,
-                      }}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={startNewConversation}
-                      style={{
-                        padding: `${spacing.xs}px ${spacing.md}px`, borderRadius: radius.sm,
-                        border: `1px solid ${theme.bubbleBorder}`, background: neutral.surface,
-                        color: neutral.textPrimary, cursor: "pointer", fontSize: fontSize.xs, fontFamily,
-                        fontWeight: fontWeight.medium,
-                      }}
-                    >
-                      Start new
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {openPanel === "history" && (
+              {openPanel === "branches" && (
                 <div>
                   {/* sm/xs here, not the panel-wide default xs/xxs —
                       JuanJo found this panel's content still read small
                       even with the accessibility-scale bump, separate
                       from the mobile/tablet responsive sizing. */}
                   <div style={{ fontSize: fontSize.sm, color: neutral.textMuted, marginBottom: spacing.sm }}>
-                    Past conversations
+                    Branches
                   </div>
-                  {conversations.length === 0 && (
+                  {branches.length === 0 && (
                     <div style={{ fontSize: fontSize.sm, color: neutral.textMuted }}>
-                      Nothing saved yet.
+                      No branches yet — use "New Branch Chat" to scope off a topic from Main Chat.
                     </div>
                   )}
                   <div style={{ display: "flex", flexDirection: "column", gap: spacing.xs }}>
-                    {conversations.map(c => (
+                    {branches.map(c => (
                       <button
                         key={c.id}
                         onClick={() => openConversation(c)}
@@ -2003,22 +3261,18 @@ export default function App() {
                           width: "100%",
                         }}
                       >
-                        {/* marginTop nudges the dot to sit level with the
-                            title text specifically — center-aligning
-                            against the whole two-line block (title +
-                            timestamp) made it look off relative to the
-                            title alone. */}
-                        <span style={{
-                          width: DOT_SIZE, height: DOT_SIZE, borderRadius: 9999, flexShrink: 0,
-                          marginTop: 3,
-                          background: MODE_THEME[c.mode].dot,
-                        }} />
+                        <GitBranchIcon size={iconSize.sm} />
                         <span style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: fontSize.sm, color: neutral.textPrimary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                             {c.title}
                           </div>
-                          <div style={{ fontSize: fontSize.xs, color: neutral.textMuted }}>
-                            {formatDayLabel(c.updatedAt)}, {formatTime(c.updatedAt)}
+                          {/* Direct parent, not full path — with only one
+                              true root (Main Chat), "branched from X"
+                              already answers "where did this come from"
+                              without needing indentation depth to show
+                              multi-level nesting. */}
+                          <div style={{ fontSize: fontSize.xs, color: neutral.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            from {c.parentTitle} · {formatDayLabel(c.updatedAt)}, {formatTime(c.updatedAt)}
                           </div>
                         </span>
                       </button>
