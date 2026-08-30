@@ -447,6 +447,33 @@ body {
   background: rgba(255, 255, 255, 0.3);
 }
 
+/* Horizontal-orientation separator (side-by-side panels, vertical
+   divider line, col-resize cursor) — the mirror image of
+   .sidebar-vertical-separator above, same subtle-line/wide-hit-area
+   language, just rotated. Used by Dev Slate's chat|code|preview split
+   and its nested file-tree|editor split. */
+.dev-slate-column-separator {
+  width: 9px;
+  margin: 0 -4px;
+  cursor: col-resize;
+  display: flex;
+  justify-content: center;
+  position: relative;
+  z-index: 5;
+}
+.dev-slate-column-separator::after {
+  content: "";
+  display: block;
+  width: 1px;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.12);
+  transition: background 0.15s ease;
+}
+.dev-slate-column-separator:hover::after,
+.dev-slate-column-separator:active::after {
+  background: rgba(255, 255, 255, 0.3);
+}
+
 /* Right sidebar — desktop only (isDesktopSidebar in App.tsx), mirrors
    .sidebar's fixed/full-height structure. Single-purpose (Sources) —
    Knowledge moved to live alongside Activity in the left sidebar

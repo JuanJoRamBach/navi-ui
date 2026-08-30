@@ -29,20 +29,25 @@ import {
   CodeIcon,
   PulseIcon,
   HomeIcon,
+  TerminalIcon,
+  CalendarIcon,
+  HistoryIcon,
+  LinkIcon,
   // Reserved for the future step-log UI (not built yet — no host for
   // these until the fairy-animation research mode exists to pair with):
   // SearchIcon, SyncIcon
 } from "@primer/octicons-react";
 import {
-  type Mode, type ChatMode, MODE_THEME,
-  spacing, radius, fontSize, fontWeight, lineHeight, iconSize, controlSize, blur,
+  type Mode, type ChatMode, MODE_THEME, CANVAS_ACCENT,
+  spacing, radius, fontSize, fontWeight, lineHeight, iconSize, controlSize,
   fontFamily, neutral, layout,
 } from "./tokens";
 import {
-  type StoredMessage, type Conversation, type MessageAttachment, type BranchListItem,
+  type StoredMessage, type Conversation, type MessageAttachment, type BranchListItem, type Project,
   getActiveConversationId, loadConversation, saveConversation,
   createConversation, listBranches, getMainConversationId, switchActiveConversation, deriveTitle,
   parseAttachments, parseCommand,
+  listProjects, createProject, switchActiveProject, getActiveProjectId,
 } from "./storage";
 import { Group, Panel, Separator, type LayoutChangedMeta } from "react-resizable-panels";
 import { sidebarTab, sidebarBreadcrumb, sidebarRow } from "./sidebar-tokens";
@@ -437,9 +442,16 @@ export default function App() {
       const ft = fairyTickRef.current;
 
       // Fully opaque clear — no trailing/ghosting from previous frames.
-      ctx.fillStyle = "#06050a";
+      ctx.fillStyle = "#171412";
       ctx.fillRect(0, 0, w, h);
 
+      /* Light effects (orbs, swirl, drifting particles, Research-mode
+         fairies) — disabled 2026-08-31, JuanJo's call moving toward a
+         soberer visual direction. Commented out, not deleted: the
+         canvas still clears to a flat background color every frame
+         (see fillRect above) so layout is unaffected, this block is
+         just never reached. Re-enable by removing this comment wrap. */
+      /*
       // ── Edge swirl — vortex mode only, paused (not rendered) in ambient ──────
       if (cur === "vortex") {
         for (const node of swirlRef.current) {
@@ -622,6 +634,7 @@ export default function App() {
         ctx.fillStyle = cg;
         ctx.fill();
       }
+      */
 
       rafRef.current = requestAnimationFrame(draw);
     };
@@ -688,6 +701,11 @@ export default function App() {
   // without the effect depending on it (parentId never changes for a
   // conversation's lifetime once created, only messages do).
   const activeConversationParentIdRef = useRef<string | undefined>(undefined);
+  // Mirrors the active conversation's own projectId — same reasoning as
+  // parentIdRef above: the save effect needs it on every save without
+  // depending on it, since a conversation's project never changes once
+  // created.
+  const activeConversationProjectIdRef = useRef<string>("");
   // Drives the in-chat "Branched from X" pill — id kept alongside the
   // title so clicking it can jump straight to the parent without a
   // second lookup.
@@ -720,6 +738,7 @@ export default function App() {
       const conversation = (activeId && await loadConversation(activeId)) || await createConversation(chatModeRef.current);
       activeConversationIdRef.current = conversation.id;
       activeConversationParentIdRef.current = conversation.parentId;
+      activeConversationProjectIdRef.current = conversation.projectId;
       setMessages(conversation.messages);
       hydratedCountRef.current = conversation.messages.length;
       selectChatMode(conversation.mode);
@@ -742,6 +761,7 @@ export default function App() {
       mode: chatModeRef.current,
       updatedAt: messages.length ? messages[messages.length - 1].timestamp : Date.now(),
       messages,
+      projectId: activeConversationProjectIdRef.current,
       ...(activeConversationParentIdRef.current ? { parentId: activeConversationParentIdRef.current } : {}),
     });
   }, [messages]);
@@ -823,39 +843,6 @@ export default function App() {
       .catch(() => {}); // panels just show their loading/empty state
   }, []);
 
-  // Server-awake indicator (top-right dot). A plain fetch can't tell
-  // "asleep" apart from "just slow" on its own — Render's cold start is
-  // itself just a slow response to the same request — so this races the
-  // health check against a short timer: still no answer after 3s reads
-  // as "waking up" (cold-starting), a response after that flips it to
-  // "awake". The fetch is never aborted on that timer, since we still
-  // want it to actually finish waking the server up.
-  type ServerStatus = "checking" | "awake" | "waking" | "unreachable";
-  const [serverStatus, setServerStatus] = useState<ServerStatus>("checking");
-  useEffect(() => {
-    let cancelled = false;
-
-    const checkStatus = () => {
-      const slowTimer = window.setTimeout(() => {
-        if (!cancelled) setServerStatus("waking");
-      }, 3000);
-
-      fetch(NAVI_BACKEND_URL)
-        .then(res => {
-          window.clearTimeout(slowTimer);
-          if (!cancelled) setServerStatus(res.ok ? "awake" : "unreachable");
-        })
-        .catch(() => {
-          window.clearTimeout(slowTimer);
-          if (!cancelled) setServerStatus("unreachable");
-        });
-    };
-
-    checkStatus();
-    const interval = window.setInterval(checkStatus, 60000);
-    return () => { cancelled = true; window.clearInterval(interval); };
-  }, []);
-
   // "Today's models" catalog, grouped by provider, derived from every
   // (provider, model) pair NAVI is actually configured to use — the
   // dispatcher roles plus every command's primary/fallback chain. A model
@@ -905,7 +892,7 @@ export default function App() {
 
   const [draft, setDraft] = useState("");
   // Which toolbar popover is open, if any — only one at a time.
-  const [openPanel, setOpenPanel] = useState<"branches" | "models" | "routing" | "usage" | "settings" | "commands" | null>(null);
+  const [openPanel, setOpenPanel] = useState<"branches" | "models" | "routing" | "usage" | "settings" | "commands" | "projects" | "builds" | "agents" | "connections" | null>(null);
   // V3 sidebar (menu drawer on mobile/tablet, persistent column on
   // desktop — see .sidebar in index.css). Only meaningful below
   // layout.sidebarBreakpoint; CSS forces the sidebar visible above it
@@ -934,7 +921,7 @@ export default function App() {
   // stay popovers regardless of width.
   const MASTER_DETAIL_KEYS = ["branches", "routing", "usage", "settings"] as const;
 
-  // Outer rail — the app-level canvas switcher (Chat/Agent Work/Codex/
+  // Outer rail — the app-level canvas switcher (Chat/Agent Work/Dev Slate/
   // Dashboard), sitting outside .sidebar entirely, to its left. One
   // resizable panel, same mechanic as the left/right sidebars, that
   // snaps to icon-only past a minimum rather than a separate fixed
@@ -943,7 +930,7 @@ export default function App() {
   // specifically) converged on this exact pattern over VS Code's actual
   // two-part fixed-rail-plus-panel system. Only "chat" is real for
   // now — the other three canvases don't exist yet, shown disabled.
-  type CanvasKey = "chat" | "agentWork" | "codex" | "dashboard";
+  type CanvasKey = "chat" | "agentWork" | "devSlate" | "dashboard";
   const [activeCanvas, setActiveCanvas] = useState<CanvasKey>("chat");
   // Compact chat popup, Agent Work canvas only — bottom-right, matches
   // the near-universal convention for an ambient assistant widget
@@ -954,6 +941,21 @@ export default function App() {
   // doesn't interrupt the canvas work the way a fixed panel would.
   // Shell/mock content for now — this canvas has no real backend yet.
   const [agentWorkChatOpen, setAgentWorkChatOpen] = useState(false);
+  // Dev Slate's placeholder pane content — every zone in its shell (see
+  // the devSlate canvas render below) uses this same shape so adding a
+  // new pane later, or swapping a placeholder for real content, doesn't
+  // need new styling invented each time.
+  const devSlatePane = (icon: React.ReactNode, label: string, description: string) => (
+    <div style={{
+      height: "100%", display: "flex", flexDirection: "column", alignItems: "center",
+      justifyContent: "center", padding: spacing.lg, textAlign: "center",
+      color: neutral.textFaint, gap: spacing.xs,
+    }}>
+      {icon}
+      <div style={{ fontSize: fontSize.xs, color: neutral.textMuted, fontWeight: fontWeight.medium }}>{label}</div>
+      <div style={{ fontSize: fontSize.xxs, lineHeight: lineHeight.base, maxWidth: 220 }}>{description}</div>
+    </div>
+  );
   // Locked row height for every rail button, icon + label padding —
   // found live: without an explicit height, a button's rendered height
   // depends on whether its label <span> is present (its line-height
@@ -961,6 +963,27 @@ export default function App() {
   // silently shrank each row and shifted every icon below it upward.
   // Fixed height + border-box makes the row identical either way.
   const OUTER_RAIL_ROW_HEIGHT = iconSize.sm + spacing.sm * 2;
+  // Mobile/tablet bottom bar — the outer rail's real replacement below
+  // the desktop breakpoint (not the rail folded into a drawer, a
+  // genuinely different surface: 5 icon-only destinations — Project,
+  // Chat, Agent Work, Dev Slate, Account — always visible and always on
+  // top of whatever canvas is showing, so Agent Work/Dev Slate's
+  // full-screen takeovers always have a way out. Tapping the ALREADY-
+  // active canvas's icon again reveals that canvas's own middle-zone
+  // actions as an upward sheet, instead of a whole rail; Account's icon
+  // does the same for Usage/Routing/Models/Settings, each of which
+  // still opens through the existing togglePanel popover mechanism —
+  // this bar only adds the entry point, not a second copy of that UI.
+  const MOBILE_BAR_HEIGHT = 56;
+  const [mobileCanvasMenuOpen, setMobileCanvasMenuOpen] = useState(false);
+  const [mobileAccountMenuOpen, setMobileAccountMenuOpen] = useState(false);
+  const mobileSheetRowStyle: React.CSSProperties = {
+    display: "flex", alignItems: "center", gap: spacing.sm,
+    height: OUTER_RAIL_ROW_HEIGHT, boxSizing: "border-box", padding: `0 ${spacing.sm}px`,
+    borderRadius: radius.sm, border: "none", background: "transparent",
+    color: neutral.textPrimary, cursor: "pointer", textAlign: "left",
+    fontSize: fontSize.xs, fontFamily, fontWeight: fontWeight.medium, width: "100%",
+  };
   const OUTER_RAIL_MIN_WIDTH = 56;
   const OUTER_RAIL_MAX_WIDTH = 220;
   const OUTER_RAIL_WIDTH_STORAGE_KEY = "navi-outer-rail-width";
@@ -1405,6 +1428,7 @@ export default function App() {
     await switchActiveConversation(conversation.id);
     activeConversationIdRef.current = conversation.id;
     activeConversationParentIdRef.current = conversation.parentId;
+    activeConversationProjectIdRef.current = conversation.projectId;
     setMessages(conversation.messages);
     hydratedCountRef.current = conversation.messages.length;
     selectChatMode(conversation.mode);
@@ -1442,6 +1466,61 @@ export default function App() {
   useEffect(() => {
     getMainConversationId().then(setMainChatId);
   }, []);
+
+  // Project — the real top-level container, sitting above the canvas
+  // switcher (Chat/Agent Work/Dev Slate/Dashboard). Local/IndexedDB-only for
+  // now, no team sharing yet (see storage.ts's Project doc comment).
+  // activeProject is loaded once on mount, alongside the chat itself.
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [activeProjectId, setActiveProjectIdState] = useState<string | null>(null);
+  useEffect(() => {
+    getActiveProjectId().then(id => {
+      setActiveProjectIdState(id);
+      listProjects().then(setProjects);
+    });
+  }, []);
+  const activeProject = projects.find(p => p.id === activeProjectId) ?? null;
+
+  // Reloads the whole chat surface for a newly-current project — same
+  // steps as the initial mount effect above (resolve/create that
+  // project's active conversation, restore its Main Chat pointer), just
+  // triggered by a project switch instead of app launch.
+  const loadChatForActiveProject = useCallback(async () => {
+    const activeId = await getActiveConversationId();
+    const conversation = (activeId && await loadConversation(activeId)) || await createConversation(chatModeRef.current);
+    activeConversationIdRef.current = conversation.id;
+    activeConversationParentIdRef.current = conversation.parentId;
+    activeConversationProjectIdRef.current = conversation.projectId;
+    setMessages(conversation.messages);
+    hydratedCountRef.current = conversation.messages.length;
+    selectChatMode(conversation.mode);
+    if (conversation.parentId) {
+      const parent = await loadConversation(conversation.parentId);
+      setCurrentParentChat(parent ? { id: parent.id, title: parent.title } : null);
+    } else {
+      setCurrentParentChat(null);
+    }
+    setBranches([]); // stale — reloads next time the Branches panel opens (see the openPanel effect above)
+    await getMainConversationId().then(setMainChatId);
+  }, [selectChatMode]);
+
+  const switchProject = useCallback(async (id: string) => {
+    if (id === activeProjectId) { setOpenPanel(null); return; }
+    await switchActiveProject(id);
+    setActiveProjectIdState(id);
+    setOpenPanel(null);
+    await loadChatForActiveProject();
+  }, [activeProjectId, loadChatForActiveProject]);
+
+  const createProjectAndSwitch = useCallback(async () => {
+    const name = window.prompt("Name this project");
+    if (!name || !name.trim()) return;
+    const project = await createProject(name.trim());
+    setProjects(await listProjects());
+    setActiveProjectIdState(project.id);
+    setOpenPanel(null);
+    await loadChatForActiveProject();
+  }, [loadChatForActiveProject]);
 
   // Jumps straight to the project's one Main Chat from anywhere — the
   // in-chat "Branched from X" pill only ever shows the immediate
@@ -1720,7 +1799,16 @@ export default function App() {
   );
 
   return (
-    <div style={{ width: "100vw", height: "100vh", position: "relative", overflow: "hidden", background: "#06050a" }}>
+    <div style={{ width: "100vw", height: "100vh", display: "flex", flexDirection: "column", background: "#171412" }}>
+      {/* Wraps everything the app already had — the mobile bottom bar
+          below is a normal flex sibling to this, not a fixed overlay,
+          so flexbox reserves its height automatically (this wrapper
+          gets exactly "100% minus the bar" for free) instead of every
+          piece of content needing its own manual bottom padding to
+          avoid sitting behind it. `position: relative` is what it used
+          to be on the root itself — every absolute/fixed child inside
+          still anchors to this, unchanged. */}
+      <div style={{ flex: 1, minHeight: 0, position: "relative", overflow: "hidden" }}>
       {/* Sidebar backdrop — mobile/tablet drawer only, see .sidebar-backdrop
           in index.css (auto-hidden at the persistent-sidebar breakpoint). */}
       {sidebarOpen && (
@@ -1745,14 +1833,53 @@ export default function App() {
             <div className="sidebar-resize-handle-line" />
           </div>
 
+          {/* project masthead — the real top-level container, parent of
+              everything below it in this rail (canvas switcher, Chat's
+              branch actions, all of it lives inside whichever project is
+              current). Deliberately NOT styled as another row in the
+              list: edge-to-edge (no side inset/rounded corners the way
+              every button below it has), its own solid-er background,
+              and a full-width bottom border to read as a header this
+              rail hangs off of, not a peer of what it contains. Clicking
+              opens the full project list via the "projects" panel, same
+              togglePanel mechanism as Branches etc. below.
+              TODO: FileDirectoryIcon/ChevronDownIcon are placeholders —
+              JuanJo flagged both icons (folder + chevron) for a swap,
+              no replacement chosen yet. */}
+          <button
+            title={activeProject ? `Project: ${activeProject.name}` : "Select project"}
+            onClick={e => togglePanel("projects", e.currentTarget)}
+            style={{
+              display: "flex", alignItems: "center", gap: spacing.sm, width: "100%",
+              height: OUTER_RAIL_ROW_HEIGHT + spacing.md, boxSizing: "border-box",
+              padding: `0 ${spacing.md}px`, flexShrink: 0,
+              border: "none", borderBottom: "1px solid rgba(255,255,255,0.14)",
+              background: openPanel === "projects" ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.055)",
+              color: neutral.textPrimary, cursor: "pointer", textAlign: "left",
+              fontFamily,
+            }}
+          >
+            <FileDirectoryIcon size={iconSize.md} />
+            <span className="sidebar-menu-btn-label" style={{
+              flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+              fontSize: fontSize.sm, fontWeight: fontWeight.medium,
+            }}>
+              {activeProject?.name ?? "Project"}
+            </span>
+            <ChevronDownIcon size={iconSize.sm} className="sidebar-menu-btn-label" />
+          </button>
+
           {/* top zone — canvas switcher, highest-frequency action */}
           <div style={{ display: "flex", flexDirection: "column", gap: spacing.xxs, padding: spacing.sm, flexShrink: 0 }}>
             {([
               { key: "chat", icon: <CommentDiscussionIcon size={iconSize.sm} />, label: "Chat", available: true },
               { key: "agentWork", icon: <RocketIcon size={iconSize.sm} />, label: "Agent Work", available: true },
-              { key: "codex", icon: <CodeIcon size={iconSize.sm} />, label: "Codex", available: false },
+              { key: "devSlate", icon: <CodeIcon size={iconSize.sm} />, label: "Dev Slate", available: true },
               { key: "dashboard", icon: <PulseIcon size={iconSize.sm} />, label: "Dashboard", available: false },
-            ] as const).map(({ key, icon, label, available }) => (
+            ] as const).map(({ key, icon, label, available }) => {
+              const accent = key in CANVAS_ACCENT ? CANVAS_ACCENT[key as keyof typeof CANVAS_ACCENT] : null;
+              const active = activeCanvas === key;
+              return (
               <button
                 key={key}
                 title={available ? label : `${label} — coming soon`}
@@ -1763,9 +1890,10 @@ export default function App() {
                   display: "flex", alignItems: "center", gap: spacing.sm,
                   height: OUTER_RAIL_ROW_HEIGHT, boxSizing: "border-box",
                   padding: `0 ${spacing.sm}px`,
-                  borderRadius: radius.sm, border: "none",
-                  background: activeCanvas === key ? "rgba(255,255,255,0.06)" : "transparent",
-                  color: available ? neutral.textPrimary : neutral.textFaint,
+                  borderRadius: radius.sm,
+                  border: active && accent ? `1px solid ${accent.glow}` : "1px solid transparent",
+                  background: active ? (accent ? accent.glow : "rgba(255,255,255,0.06)") : "transparent",
+                  color: !available ? neutral.textFaint : active && accent ? accent.color : neutral.textPrimary,
                   cursor: available ? "pointer" : "default",
                   fontSize: fontSize.xs, fontFamily, fontWeight: fontWeight.medium,
                   textAlign: "left", opacity: available ? 1 : 0.5,
@@ -1774,14 +1902,19 @@ export default function App() {
                 {icon}
                 <span className="sidebar-menu-btn-label">{label}</span>
               </button>
-            ))}
+              );
+            })}
           </div>
 
           <div style={{ height: 1, background: "rgba(255,255,255,0.08)", margin: `${spacing.sm}px ${spacing.sm}px ${spacing.md}px` }} />
 
           {/* middle zone — canvas-dependent contextual actions. Only
-              Chat's are real for now: Main Chat (jump to the project's
-              one true root from anywhere), New Branch Chat (branch off
+              Chat's are real for now: Root Chat (jump to the project's
+              one true root from anywhere — named to keep the branch/
+              tree metaphor "Branches" already uses, JuanJo's call
+              2026-08-31: bare "Root" risked reading as a settings/
+              account destination for first-time users, "Root Chat"
+              keeps it unambiguous), New Branch Chat (branch off
               whatever's active), Branches (flat browse list). The other
               canvases' equivalents don't exist yet. */}
           <div style={{ display: "flex", flexDirection: "column", gap: spacing.xxs, padding: spacing.sm, flex: 1, minHeight: 0, overflowY: "auto" }}>
@@ -1789,7 +1922,7 @@ export default function App() {
               <>
                 <button
                   className="sidebar-menu-btn"
-                  title="Main Chat"
+                  title="Root Chat"
                   disabled={!mainChatId}
                   onClick={jumpToMainChat}
                   style={{
@@ -1804,7 +1937,7 @@ export default function App() {
                   }}
                 >
                   <HomeIcon size={iconSize.sm} />
-                  <span className="sidebar-menu-btn-label">Main Chat</span>
+                  <span className="sidebar-menu-btn-label">Root Chat</span>
                 </button>
                 <button
                   className="sidebar-menu-btn"
@@ -1838,7 +1971,100 @@ export default function App() {
                   }}
                 >
                   <GitBranchIcon size={iconSize.sm} />
-                  <span className="sidebar-menu-btn-label">Branches</span>
+                  <span className="sidebar-menu-btn-label" style={{ flex: 1 }}>Branches</span>
+                  <ChevronDownIcon size={12} className="sidebar-menu-btn-label" />
+                </button>
+              </>
+            )}
+            {/* Dev Slate's own middle zone — New Build / Builds, not a
+                reskin of Chat's Main Chat/New Branch Chat/Branches.
+                Deliberately no "Main Build" equivalent: unlike Chat's
+                one-trunk model, a project can hold several independent
+                builds (a homepage, a pricing page, a signup app) with
+                no forced canonical one to jump back to. Templates
+                folds into New Build as a step, not a third button —
+                same "don't pad the rail" call as the mobile-nav
+                discussion. Both placeholder for now — Dev Slate has no
+                backend yet, so both just surface the same honest
+                "nothing wired up" panel rather than pretending to
+                create something real. */}
+            {activeCanvas === "devSlate" && (
+              <>
+                <button
+                  className="sidebar-menu-btn"
+                  title="New Build"
+                  onClick={e => togglePanel("builds", e.currentTarget)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: spacing.sm,
+                    height: OUTER_RAIL_ROW_HEIGHT, boxSizing: "border-box",
+                    padding: `0 ${spacing.sm}px`,
+                    borderRadius: radius.sm, border: "none",
+                    background: "transparent",
+                    color: neutral.textPrimary, cursor: "pointer", textAlign: "left",
+                    fontSize: fontSize.xs, fontFamily, fontWeight: fontWeight.medium,
+                  }}
+                >
+                  <PlusIcon size={iconSize.sm} />
+                  <span className="sidebar-menu-btn-label">New Build</span>
+                </button>
+                <button
+                  className="sidebar-menu-btn"
+                  title="Builds"
+                  onClick={e => togglePanel("builds", e.currentTarget)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: spacing.sm,
+                    height: OUTER_RAIL_ROW_HEIGHT, boxSizing: "border-box",
+                    padding: `0 ${spacing.sm}px`,
+                    borderRadius: radius.sm, border: "none",
+                    background: openPanel === "builds" ? "rgba(255,255,255,0.06)" : "transparent",
+                    color: neutral.textPrimary, cursor: "pointer", textAlign: "left",
+                    fontSize: fontSize.xs, fontFamily, fontWeight: fontWeight.medium,
+                  }}
+                >
+                  <FileDirectoryIcon size={iconSize.sm} />
+                  <span className="sidebar-menu-btn-label" style={{ flex: 1 }}>Builds</span>
+                  <ChevronDownIcon size={12} className="sidebar-menu-btn-label" />
+                </button>
+              </>
+            )}
+            {/* Agent Work's own middle zone — New Workflow / Agents,
+                same New-X/browse-X shape as Chat and Dev Slate. */}
+            {activeCanvas === "agentWork" && (
+              <>
+                <button
+                  className="sidebar-menu-btn"
+                  title="New Workflow"
+                  onClick={e => togglePanel("agents", e.currentTarget)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: spacing.sm,
+                    height: OUTER_RAIL_ROW_HEIGHT, boxSizing: "border-box",
+                    padding: `0 ${spacing.sm}px`,
+                    borderRadius: radius.sm, border: "none",
+                    background: "transparent",
+                    color: neutral.textPrimary, cursor: "pointer", textAlign: "left",
+                    fontSize: fontSize.xs, fontFamily, fontWeight: fontWeight.medium,
+                  }}
+                >
+                  <PlusIcon size={iconSize.sm} />
+                  <span className="sidebar-menu-btn-label">New Workflow</span>
+                </button>
+                <button
+                  className="sidebar-menu-btn"
+                  title="Agents"
+                  onClick={e => togglePanel("agents", e.currentTarget)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: spacing.sm,
+                    height: OUTER_RAIL_ROW_HEIGHT, boxSizing: "border-box",
+                    padding: `0 ${spacing.sm}px`,
+                    borderRadius: radius.sm, border: "none",
+                    background: openPanel === "agents" ? "rgba(255,255,255,0.06)" : "transparent",
+                    color: neutral.textPrimary, cursor: "pointer", textAlign: "left",
+                    fontSize: fontSize.xs, fontFamily, fontWeight: fontWeight.medium,
+                  }}
+                >
+                  <RocketIcon size={iconSize.sm} />
+                  <span className="sidebar-menu-btn-label" style={{ flex: 1 }}>Agents</span>
+                  <ChevronDownIcon size={12} className="sidebar-menu-btn-label" />
                 </button>
               </>
             )}
@@ -1923,7 +2149,6 @@ export default function App() {
         display: "flex", flexDirection: "column",
         background: "rgba(6, 8, 14, 0.92)",
         borderRight: `1px solid ${theme.bubbleBorder}`,
-        backdropFilter: `blur(${blur.md}px)`,
         fontFamily,
       }}>
         {/* Horizontal resize handle — desktop only (see .sidebar-toggle-
@@ -2109,7 +2334,6 @@ export default function App() {
           background: theme.bubbleBg,
           color: neutral.textPrimary,
           cursor: "pointer",
-          backdropFilter: `blur(${blur.sm}px)`,
           boxShadow: `0 2px 14px rgba(0,0,0,0.35), 0 0 10px ${theme.glow}`,
         }}
       >
@@ -2134,7 +2358,6 @@ export default function App() {
             background: theme.bubbleBg,
             color: neutral.textPrimary,
             cursor: "pointer",
-            backdropFilter: `blur(${blur.sm}px)`,
             boxShadow: `0 2px 14px rgba(0,0,0,0.35), 0 0 10px ${theme.glow}`,
           }}
         >
@@ -2149,9 +2372,10 @@ export default function App() {
           button positioned by a fixed viewport offset drifted out of
           alignment with the header's own content whenever the panel's
           (now fluid) width changed, reading as disconnected from the
-          panel it was supposedly part of. Desktop only, same breakpoint
-          as the left sidebar's docked panels. */}
-      {isDesktopSidebar && !rightPanelOpen && (
+          panel it was supposedly part of. No longer desktop-only — the
+          panel itself now renders as an overlay drawer on mobile too
+          (see .right-panel below), so this needs to be reachable there. */}
+      {!rightPanelOpen && (
         <button
           aria-label="Open sources panel"
           onClick={() => setRightPanelOpen(true)}
@@ -2164,12 +2388,19 @@ export default function App() {
             background: theme.bubbleBg,
             color: neutral.textPrimary,
             cursor: "pointer",
-            backdropFilter: `blur(${blur.sm}px)`,
             boxShadow: `0 2px 14px rgba(0,0,0,0.35), 0 0 10px ${theme.glow}`,
           }}
         >
           <SearchIcon size={iconSize.sm} />
         </button>
+      )}
+
+      {/* Mobile backdrop for the right panel — same tap-outside-to-close
+          convention as .sidebar-backdrop. Desktop doesn't need this:
+          there the panel is docked (shifts .chat-column, see the
+          right-panel-open body class) rather than overlaying it. */}
+      {!isDesktopSidebar && rightPanelOpen && (
+        <div className="sidebar-backdrop" onClick={() => setRightPanelOpen(false)} />
       )}
 
       {/* Right sidebar panel — mirrors .sidebar's fixed/full-height
@@ -2178,12 +2409,15 @@ export default function App() {
           the left sidebar instead, since both are records of past
           work rather than a live tool like Sources. Background/border
           colors set inline, same split as .sidebar itself, since they
-          depend on the active mode's theme. */}
-      {isDesktopSidebar && rightPanelOpen && (
+          depend on the active mode's theme. No longer desktop-only —
+          on mobile this renders the same way, just as an overlay
+          drawer instead of a docked panel (the right-panel-open body
+          class that shifts .chat-column only ever gets added on
+          desktop, so mobile naturally gets drawer behavior for free). */}
+      {rightPanelOpen && (
         <div className="right-panel hide-scrollbar" style={{
           background: "rgba(6, 8, 14, 0.92)",
           borderLeft: `1px solid ${theme.bubbleBorder}`,
-          backdropFilter: `blur(${blur.md}px)`,
           fontFamily,
         }}>
           {/* Horizontal resize — same mechanics as the left sidebar's
@@ -2209,6 +2443,32 @@ export default function App() {
             padding: `${spacing.lg}px ${spacing.lg}px ${spacing.md}px`,
             borderBottom: "1px solid rgba(255,255,255,0.08)", flexShrink: 0,
           }}>
+            {activeCanvas === "agentWork" ? (
+              /* Agent Work's right panel isn't tabbed like Chat's —
+                 just a label plus the small Connections trigger (a
+                 button opening a popover, not its own sidebar section
+                 — deliberately small per JuanJo's spec, since it's
+                 status, not a catalog). */
+              <div style={{ display: "flex", alignItems: "center", gap: spacing.sm }}>
+                <span style={{ fontSize: sidebarTab.fontSize, fontWeight: sidebarTab.fontWeight, color: sidebarTab.activeColor, fontFamily }}>
+                  Agent Work
+                </span>
+                <button
+                  onClick={e => togglePanel("connections", e.currentTarget)}
+                  title="Connections"
+                  style={{
+                    display: "flex", alignItems: "center", gap: 4,
+                    padding: `4px ${spacing.xs}px`, borderRadius: radius.xs,
+                    border: `1px solid ${openPanel === "connections" ? theme.bubbleBorder : "rgba(255,255,255,0.12)"}`,
+                    background: openPanel === "connections" ? "rgba(255,255,255,0.06)" : "transparent",
+                    color: neutral.textMuted, cursor: "pointer", fontSize: fontSize.xxs, fontFamily,
+                  }}
+                >
+                  <LinkIcon size={12} />
+                  Connections
+                </button>
+              </div>
+            ) : (
             <div style={{ display: "flex", alignItems: "flex-end", gap: sidebarTab.gap }}>
               {(["sources", "files"] as const).map(tab => {
                 const active = rightActiveTab === tab;
@@ -2238,6 +2498,7 @@ export default function App() {
                 );
               })}
             </div>
+            )}
             <button
               aria-label="Close sources panel"
               onClick={() => setRightPanelOpen(false)}
@@ -2252,7 +2513,24 @@ export default function App() {
             </button>
           </div>
 
-          {viewerExpanded && openDocument ? (
+          {activeCanvas === "agentWork" ? (
+            /* Calendar (primary — "what's going to fire when" across
+               every workflow in this project) over Run History
+               (secondary, smaller — JuanJo's explicitly experimental
+               inclusion, "sounds okayish, we can see how it goes", not
+               a locked decision the way the calendar is). Plain flex
+               split, not a resizable Group — doesn't need drag-resize
+               the way Dev Slate's code column does. */
+            <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+              <div style={{ flex: 7, minHeight: 0 }}>
+                {devSlatePane(<CalendarIcon size={22} fill={CANVAS_ACCENT.agentWork.color} />, "Schedule", "When every workflow in this project is set to fire — across all of them, not one at a time. Not wired up yet.")}
+              </div>
+              <div style={{ height: 1, background: "rgba(255,255,255,0.08)", flexShrink: 0 }} />
+              <div style={{ flex: 3, minHeight: 0 }}>
+                {devSlatePane(<HistoryIcon size={18} fill={CANVAS_ACCENT.agentWork.color} />, "Run History", "Recent runs across this project's workflows. Experimental inclusion — not wired up yet.")}
+              </div>
+            </div>
+          ) : viewerExpanded && openDocument ? (
             <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
               {viewerPane}
             </div>
@@ -2612,8 +2890,12 @@ export default function App() {
           )}
 
           {/* persistent footer disclaimer — Sources-specific, only
-              shown on that tab. */}
-          {rightActiveTab === "sources" && !viewerExpanded && (
+              shown on that tab. activeCanvas check added alongside the
+              existing rightActiveTab one: that state doesn't reset when
+              switching canvases, so without it this leaked into Agent
+              Work's panel too (its rightActiveTab was just sitting at
+              the unused default). */}
+          {activeCanvas === "chat" && rightActiveTab === "sources" && !viewerExpanded && (
             <div style={{
               padding: `${spacing.sm + 2}px ${spacing.lg}px`, borderTop: "1px solid rgba(255,255,255,0.08)",
               display: "flex", gap: 7, alignItems: "flex-start", flexShrink: 0,
@@ -2648,7 +2930,6 @@ export default function App() {
             background: "rgba(4,8,18,0.92)",
             border: "1px solid rgba(230,180,80,0.4)",
             borderRadius: radius.lg,
-            backdropFilter: `blur(${blur.md}px)`,
             boxShadow: "0 8px 30px rgba(0,0,0,0.5), 0 0 20px rgba(230,180,80,0.18)",
             padding: spacing.xl,
             fontFamily,
@@ -2705,11 +2986,11 @@ export default function App() {
       {activeCanvas === "agentWork" && (
         <div style={{
           position: "absolute", inset: 0, left: "var(--outer-rail-width, 0px)",
-          zIndex: 20, background: "#0a0a12",
+          zIndex: 20, background: "#171412",
           display: "flex", alignItems: "center", justifyContent: "center",
         }}>
           <div style={{ textAlign: "center", color: neutral.textFaint, maxWidth: 360 }}>
-            <RocketIcon size={28} />
+            <RocketIcon size={28} fill={CANVAS_ACCENT.agentWork.color} />
             <div style={{ fontSize: fontSize.sm, color: neutral.textMuted, marginTop: spacing.md, fontWeight: fontWeight.medium }}>
               Agent Work canvas
             </div>
@@ -2726,7 +3007,7 @@ export default function App() {
                 width: 320, height: 400, display: "flex", flexDirection: "column",
                 background: "rgba(10,12,18,0.95)", border: `1px solid ${theme.bubbleBorder}`,
                 borderRadius: radius.lg, boxShadow: `0 8px 30px rgba(0,0,0,0.5), 0 0 20px ${theme.glow}`,
-                backdropFilter: `blur(${blur.md}px)`, overflow: "hidden",
+                overflow: "hidden",
               }}>
                 <div style={{
                   display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -2769,6 +3050,55 @@ export default function App() {
               </button>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Dev Slate canvas — same full-screen-takeover convention as
+          Agent Work above (sits above chat, left/right sidebars stay
+          exactly as the user left them, reachable the whole time —
+          that's where Files/Activity/version-history live for this
+          canvas too, reused as-is, not rebuilt here). Shell only: the
+          layout itself is real (three horizontally-resizable panes,
+          the code column further split into a file-tree+editor row
+          over a terminal drawer), but every zone is a placeholder —
+          nothing wired to Nodepod/Monaco/GrapesJS/Onlook yet. Built
+          this way on purpose so wiring in the real pieces later only
+          means swapping what's inside a pane, not restructuring the
+          layout around them. */}
+      {activeCanvas === "devSlate" && (
+        <div style={{
+          position: "absolute", inset: 0, left: "var(--outer-rail-width, 0px)",
+          zIndex: 20, background: "#171412",
+        }}>
+          <Group orientation="horizontal" style={{ width: "100%", height: "100%" }}>
+            <Panel id="dev-slate-chat" defaultSize="22%" minSize="15%" maxSize="35%">
+              {devSlatePane(<CommentDiscussionIcon size={22} fill={CANVAS_ACCENT.devSlate.color} />, "Chat", "This session's own chat — drives generation for whichever track this project is set to.")}
+            </Panel>
+            <Separator className="dev-slate-column-separator" />
+            <Panel id="dev-slate-code" defaultSize="46%" minSize="25%">
+              <Group orientation="vertical" style={{ width: "100%", height: "100%" }}>
+                <Panel id="dev-slate-editor-row" defaultSize="75%" minSize="40%">
+                  <Group orientation="horizontal" style={{ width: "100%", height: "100%" }}>
+                    <Panel id="dev-slate-files" defaultSize="22%" minSize="12%" maxSize="40%">
+                      {devSlatePane(<FileDirectoryIcon size={20} fill={CANVAS_ACCENT.devSlate.color} />, "Files", "Project file tree — reuses the existing Files panel, not rebuilt.")}
+                    </Panel>
+                    <Separator className="dev-slate-column-separator" />
+                    <Panel id="dev-slate-editor" minSize="30%">
+                      {devSlatePane(<CodeIcon size={22} fill={CANVAS_ACCENT.devSlate.color} />, "Code", "Monaco — also hosts the diff view when reviewing an AI-proposed change.")}
+                    </Panel>
+                  </Group>
+                </Panel>
+                <Separator className="sidebar-vertical-separator" />
+                <Panel id="dev-slate-terminal" defaultSize="25%" minSize="12%" maxSize="50%">
+                  {devSlatePane(<TerminalIcon size={20} fill={CANVAS_ACCENT.devSlate.color} />, "Terminal", "Build/install output — xterm.js, paired with whichever execution engine gets picked.")}
+                </Panel>
+              </Group>
+            </Panel>
+            <Separator className="dev-slate-column-separator" />
+            <Panel id="dev-slate-preview" defaultSize="32%" minSize="20%">
+              {devSlatePane(<GlobeIcon size={22} fill={CANVAS_ACCENT.devSlate.color} />, "Preview", "Live preview — GrapesJS or Onlook's own canvas docks here, per the project's track.")}
+            </Panel>
+          </Group>
         </div>
       )}
 
@@ -2818,40 +3148,6 @@ export default function App() {
             </button>
           );
         })}
-        {/* Server status — sits to the right of the mode tabs, in the
-            same centered row (was floating at the page's top-right
-            corner, which started overlapping the new right sidebar
-            toggle sharing that same corner; then briefly tried inside
-            the chat input, too far from where it used to be — JuanJo's
-            call, 2026-08-29: keep it up here next to the modes). */}
-        <div
-          title={
-            serverStatus === "awake" ? "NAVI is awake"
-              : serverStatus === "waking" ? "NAVI is waking up (cold start)…"
-              : serverStatus === "unreachable" ? "Can't reach NAVI"
-              : "Checking…"
-          }
-          style={{
-            display: "flex", alignItems: "center", gap: spacing.xs,
-            marginLeft: spacing.md, paddingLeft: spacing.md,
-            borderLeft: "1px solid rgba(255,255,255,0.12)",
-          }}
-        >
-          <span style={{
-            width: DOT_SIZE, height: DOT_SIZE, borderRadius: 9999, flexShrink: 0,
-            background: serverStatus === "awake" ? neutral.statusAwake
-              : serverStatus === "waking" ? neutral.statusWaking
-              : serverStatus === "unreachable" ? neutral.statusUnreachable
-              : neutral.dotNeutral,
-            transition: "background 0.3s ease",
-          }} />
-          <span className="status-label" style={{ fontSize: fontSize.xxs, color: neutral.textMuted }}>
-            {serverStatus === "awake" ? "Online"
-              : serverStatus === "waking" ? "Waking up…"
-              : serverStatus === "unreachable" ? "Unreachable"
-              : "Checking…"}
-          </span>
-        </div>
       </div>
 
       {/* Model picker — shows the model actually in effect for the
@@ -2874,7 +3170,6 @@ export default function App() {
             fontFamily,
             fontWeight: fontWeight.medium,
             whiteSpace: "nowrap",
-            backdropFilter: `blur(${blur.sm}px)`,
             boxShadow: `0 2px 14px rgba(0,0,0,0.35), 0 0 10px ${theme.glow}`,
           }}
         >
@@ -2910,21 +3205,6 @@ export default function App() {
           </button>
         )}
 
-        {/* Branch trigger — deliberately lives here, inside the active
-            chat, never on the outer rail's New Conversation (which
-            stays unambiguously "always top-level" by construction). */}
-        <button
-          onClick={branchConversation}
-          title="Branch this chat — start a scoped sub-chat from here"
-          style={{
-            display: "flex", alignItems: "center", justifyContent: "center",
-            width: controlSize.md - 4, height: controlSize.md - 4, marginLeft: spacing.xs,
-            borderRadius: radius.sm, border: `1px solid ${theme.bubbleBorder}`,
-            background: "transparent", color: neutral.textMuted, cursor: "pointer",
-          }}
-        >
-          <GitBranchIcon size={12} />
-        </button>
       </div>
 
       {/* Chat surface — glassy bubbles over the animated background.
@@ -2959,7 +3239,6 @@ export default function App() {
               borderRadius: radius.lg,
               fontSize: fontSize.sm,
               color: neutral.textMuted,
-              backdropFilter: `blur(${blur.lg}px)`,
               background: theme.bubbleBg,
               border: `1px solid ${theme.bubbleBorder}`,
               boxShadow: `0 4px 18px rgba(0,0,0,0.35), 0 0 14px ${theme.glow}`,
@@ -2993,7 +3272,6 @@ export default function App() {
                 // Heavier blur does the legibility work here instead of a
                 // solid fill, so the color underneath can go darker/more
                 // transparent without the text losing contrast.
-                backdropFilter: `blur(${blur.lg}px)`,
                 // NAVI's bubble fully carries the active mode's tint — that's
                 // the "content" layer, meant to feel immersive. Your own
                 // messages stay neutral on purpose (see the button-color
@@ -3129,7 +3407,6 @@ export default function App() {
                   fontFamily,
                   fontWeight: fontWeight.medium,
                   whiteSpace: "nowrap",
-                  backdropFilter: `blur(${blur.sm}px)`,
                   boxShadow: panelActive
                     ? `0 2px 20px rgba(0,0,0,0.5), 0 0 16px ${theme.glow}, inset 0 0 12px ${theme.glow}`
                     : `0 2px 20px rgba(0,0,0,0.45), 0 0 10px ${theme.glow}, inset 0 0 8px ${theme.glow}`,
@@ -3201,7 +3478,6 @@ export default function App() {
               border: `1px solid ${theme.bubbleBorder}`,
               borderRadius: radius.lg,
               boxShadow: `0 8px 30px rgba(0,0,0,0.5), 0 0 16px ${theme.glow}`,
-              backdropFilter: `blur(${blur.md}px)`,
               padding: spacing.md,
               color: neutral.textPrimary,
               fontFamily,
@@ -3234,6 +3510,88 @@ export default function App() {
                 className={isDockedDetail ? "hide-scrollbar sidebar-detail-content" : undefined}
                 style={isDockedDetail ? { height: "100%" } : undefined}
               >
+              {openPanel === "projects" && (
+                <div>
+                  <div style={{ fontSize: fontSize.sm, color: neutral.textMuted, marginBottom: spacing.sm }}>
+                    Projects
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: spacing.xs, marginBottom: spacing.md }}>
+                    {projects.map(p => (
+                      <button
+                        key={p.id}
+                        onClick={() => switchProject(p.id)}
+                        style={{
+                          display: "flex", alignItems: "center", gap: spacing.xs,
+                          padding: spacing.xs, borderRadius: radius.sm, border: "none",
+                          background: p.id === activeProjectId ? "rgba(255,255,255,0.06)" : "transparent",
+                          cursor: "pointer", textAlign: "left",
+                          width: "100%",
+                        }}
+                      >
+                        <FileDirectoryIcon size={iconSize.sm} />
+                        <span style={{ flex: 1, minWidth: 0, fontSize: fontSize.sm, color: neutral.textPrimary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {p.name}
+                        </span>
+                        {p.id === activeProjectId && <CheckIcon size={iconSize.sm} />}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    onClick={createProjectAndSwitch}
+                    style={{
+                      display: "flex", alignItems: "center", gap: spacing.sm, width: "100%",
+                      height: OUTER_RAIL_ROW_HEIGHT, boxSizing: "border-box",
+                      padding: `0 ${spacing.sm}px`,
+                      borderRadius: radius.sm, border: `1px dashed rgba(255,255,255,0.18)`,
+                      background: "transparent", color: neutral.textPrimary, cursor: "pointer", textAlign: "left",
+                      fontSize: fontSize.xs, fontFamily, fontWeight: fontWeight.medium,
+                    }}
+                  >
+                    <PlusIcon size={iconSize.sm} />
+                    New Project
+                  </button>
+                </div>
+              )}
+
+              {openPanel === "builds" && (
+                <div>
+                  <div style={{ fontSize: fontSize.sm, color: neutral.textMuted, marginBottom: spacing.sm }}>
+                    Builds
+                  </div>
+                  <div style={{ fontSize: fontSize.sm, color: neutral.textMuted }}>
+                    Nothing wired up yet — Dev Slate's execution engine and storage aren't built, so there's
+                    nowhere for a build to actually come from yet. This panel is here so the shape's already
+                    in place once that lands.
+                  </div>
+                </div>
+              )}
+
+              {openPanel === "agents" && (
+                <div>
+                  <div style={{ fontSize: fontSize.sm, color: neutral.textMuted, marginBottom: spacing.sm }}>
+                    Agents
+                  </div>
+                  <div style={{ fontSize: fontSize.sm, color: neutral.textMuted }}>
+                    Nothing wired up yet — Agent Work's real content (an embedded Activepieces instance)
+                    needs backend infra that hasn't been built. This panel is here so the shape's already
+                    in place once that lands.
+                  </div>
+                </div>
+              )}
+
+              {openPanel === "connections" && (
+                <div>
+                  <div style={{ fontSize: fontSize.sm, color: neutral.textMuted, marginBottom: spacing.sm }}>
+                    Connections
+                  </div>
+                  <div style={{ fontSize: fontSize.sm, color: neutral.textMuted }}>
+                    Live status of this project's connected accounts (Slack, Gmail, HubSpot, etc.) will
+                    show here — read from Activepieces' own Connections API, not a separate NAVI credential
+                    store. Not wired up yet.
+                  </div>
+                </div>
+              )}
+
               {openPanel === "branches" && (
                 <div>
                   {/* sm/xs here, not the panel-wide default xs/xxs —
@@ -3245,7 +3603,7 @@ export default function App() {
                   </div>
                   {branches.length === 0 && (
                     <div style={{ fontSize: fontSize.sm, color: neutral.textMuted }}>
-                      No branches yet — use "New Branch Chat" to scope off a topic from Main Chat.
+                      No branches yet — use "New Branch Chat" to scope off a topic from Root Chat.
                     </div>
                   )}
                   <div style={{ display: "flex", flexDirection: "column", gap: spacing.xs }}>
@@ -3474,7 +3832,6 @@ export default function App() {
           background: neutral.surface,
           border: `1px solid ${theme.bubbleBorder}`,
           boxShadow: `0 0 14px ${theme.glow}`,
-          backdropFilter: `blur(${blur.md}px)`,
         }}>
           <button
             aria-label="Commands"
@@ -3523,6 +3880,162 @@ export default function App() {
           </button>
         </div>
       </div>
+      </div>
+
+      {/* Mobile/tablet bottom bar — see MOBILE_BAR_HEIGHT above for the
+          full reasoning. A normal flex child now, not a fixed overlay
+          (see the wrapper div right after the root open) — its height
+          is reserved automatically, nothing above it needs manual
+          bottom padding to avoid sitting behind it. The two sheets
+          below stay position:fixed on purpose, since they're meant to
+          float over content, not push it. zIndex 40 on the bar itself
+          still matters for one thing: staying above the click-outside overlay any
+          togglePanel popover opens (zIndex 35), so tapping a different
+          bar button while a popover's open switches/toggles correctly
+          instead of the tap just closing the popover. */}
+      {!isDesktopSidebar && (
+        <>
+          {mobileCanvasMenuOpen && (activeCanvas === "chat" || activeCanvas === "devSlate" || activeCanvas === "agentWork") && (
+            <div style={{
+              position: "fixed", left: spacing.md, right: spacing.md, bottom: MOBILE_BAR_HEIGHT + spacing.sm,
+              zIndex: 41, background: theme.bubbleBg, border: `1px solid ${theme.bubbleBorder}`,
+              borderRadius: radius.lg, boxShadow: `0 8px 30px rgba(0,0,0,0.5), 0 0 16px ${theme.glow}`,
+              display: "flex", flexDirection: "column", gap: spacing.xxs,
+            }}>
+              {activeCanvas === "chat" && (
+                <>
+                  <button
+                    disabled={!mainChatId}
+                    onClick={() => { jumpToMainChat(); setMobileCanvasMenuOpen(false); }}
+                    style={{ ...mobileSheetRowStyle, color: mainChatId ? neutral.textPrimary : neutral.textFaint, cursor: mainChatId ? "pointer" : "default" }}
+                  >
+                    <HomeIcon size={iconSize.sm} />
+                    Root Chat
+                  </button>
+                  <button
+                    onClick={() => { branchConversation(); setMobileCanvasMenuOpen(false); }}
+                    style={mobileSheetRowStyle}
+                  >
+                    <PlusIcon size={iconSize.sm} />
+                    New Branch Chat
+                  </button>
+                  <button
+                    onClick={e => { togglePanel("branches", e.currentTarget); setMobileCanvasMenuOpen(false); }}
+                    style={mobileSheetRowStyle}
+                  >
+                    <GitBranchIcon size={iconSize.sm} />
+                    Branches
+                  </button>
+                </>
+              )}
+              {activeCanvas === "devSlate" && (
+                <>
+                  <button
+                    onClick={e => { togglePanel("builds", e.currentTarget); setMobileCanvasMenuOpen(false); }}
+                    style={mobileSheetRowStyle}
+                  >
+                    <PlusIcon size={iconSize.sm} />
+                    New Build
+                  </button>
+                  <button
+                    onClick={e => { togglePanel("builds", e.currentTarget); setMobileCanvasMenuOpen(false); }}
+                    style={mobileSheetRowStyle}
+                  >
+                    <FileDirectoryIcon size={iconSize.sm} />
+                    Builds
+                  </button>
+                </>
+              )}
+              {activeCanvas === "agentWork" && (
+                <>
+                  <button
+                    onClick={e => { togglePanel("agents", e.currentTarget); setMobileCanvasMenuOpen(false); }}
+                    style={mobileSheetRowStyle}
+                  >
+                    <PlusIcon size={iconSize.sm} />
+                    New Workflow
+                  </button>
+                  <button
+                    onClick={e => { togglePanel("agents", e.currentTarget); setMobileCanvasMenuOpen(false); }}
+                    style={mobileSheetRowStyle}
+                  >
+                    <RocketIcon size={iconSize.sm} />
+                    Agents
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+
+          {mobileAccountMenuOpen && (
+            <div style={{
+              position: "fixed", left: spacing.md, right: spacing.md, bottom: MOBILE_BAR_HEIGHT + spacing.sm,
+              zIndex: 41, background: theme.bubbleBg, border: `1px solid ${theme.bubbleBorder}`,
+              borderRadius: radius.lg, boxShadow: `0 8px 30px rgba(0,0,0,0.5), 0 0 16px ${theme.glow}`,
+              display: "flex", flexDirection: "column", gap: spacing.xxs,
+            }}>
+              {([
+                { key: "usage", icon: <GraphIcon size={iconSize.sm} />, label: "Usage counters" },
+                { key: "routing", icon: <GitBranchIcon size={iconSize.sm} />, label: "Routing & fallbacks" },
+                { key: "models", icon: <CpuIcon size={iconSize.sm} />, label: "Today's models" },
+                { key: "settings", icon: <GearIcon size={iconSize.sm} />, label: "Settings" },
+              ] as const).map(({ key, icon, label }) => (
+                <button
+                  key={key}
+                  onClick={e => { togglePanel(key, e.currentTarget); setMobileAccountMenuOpen(false); }}
+                  style={mobileSheetRowStyle}
+                >
+                  {icon}
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div style={{
+            flexShrink: 0, height: MOBILE_BAR_HEIGHT, position: "relative",
+            zIndex: 40, display: "flex", alignItems: "center", justifyContent: "space-around",
+            background: "rgba(6, 8, 14, 0.95)", borderTop: `1px solid ${theme.bubbleBorder}`,
+          }}>
+            <button
+              title="Project"
+              onClick={e => { setMobileCanvasMenuOpen(false); setMobileAccountMenuOpen(false); togglePanel("projects", e.currentTarget); }}
+              style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 44, height: 44, border: "none", background: "transparent", color: neutral.textMuted, cursor: "pointer" }}
+            >
+              <FileDirectoryIcon size={iconSize.md} />
+            </button>
+            {([
+              { key: "chat", icon: <CommentDiscussionIcon size={iconSize.md} /> },
+              { key: "agentWork", icon: <RocketIcon size={iconSize.md} /> },
+              { key: "devSlate", icon: <CodeIcon size={iconSize.md} /> },
+            ] as const).map(({ key, icon }) => (
+              <button
+                key={key}
+                title={key}
+                onClick={() => {
+                  setMobileAccountMenuOpen(false);
+                  if (activeCanvas === key) setMobileCanvasMenuOpen(o => !o);
+                  else { setActiveCanvas(key); setMobileCanvasMenuOpen(false); }
+                }}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "center", width: 44, height: 44,
+                  border: "none", background: "transparent", cursor: "pointer",
+                  color: activeCanvas === key ? neutral.textPrimary : neutral.textMuted,
+                }}
+              >
+                {icon}
+              </button>
+            ))}
+            <button
+              title="Account"
+              onClick={() => { setMobileCanvasMenuOpen(false); setMobileAccountMenuOpen(o => !o); }}
+              style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 44, height: 44, border: "none", background: "transparent", color: neutral.textMuted, cursor: "pointer" }}
+            >
+              <GearIcon size={iconSize.md} />
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

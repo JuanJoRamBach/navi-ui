@@ -131,6 +131,20 @@ export const neutral = {
   statusUnreachable: "rgb(220, 100, 100)",
 } as const;
 
+// Canvas-level accent colors — Chat / Agent Work / Dev Slate, not to be
+// confused with MODE_THEME below (Chat's own three internal modes).
+// Built with the "lock lightness + chroma, only rotate hue" OKLCH
+// method (2026-08-31) specifically so none of the three visually
+// outweighs another — same brightness, same intensity, just a
+// different hue angle each. Chosen to sit clear of MODE_THEME's own
+// hues (Research=green ~140-150°, Brainstorm=purple ~290-300°) so an
+// accent color never means two different things depending on context.
+export const CANVAS_ACCENT: Record<"chat" | "agentWork" | "devSlate", { color: string; glow: string }> = {
+  chat: { color: "oklch(65% 0.12 250)", glow: "oklch(65% 0.12 250 / 0.35)" }, // blue — matches Normal mode, reinforces rather than competes
+  agentWork: { color: "oklch(65% 0.12 70)", glow: "oklch(65% 0.12 70 / 0.35)" }, // amber
+  devSlate: { color: "oklch(65% 0.12 200)", glow: "oklch(65% 0.12 200 / 0.35)" }, // teal
+} as const;
+
 export const MODE_THEME: Record<ChatMode, {
   canvasMode: Mode;
   hueBase: number; hueRange: number;
