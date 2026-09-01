@@ -17,17 +17,22 @@ export function DevSlateFiles() {
   const [path, setPath] = useState("");
   const [entries, setEntries] = useState<FileTreeEntry[]>([]);
   const [loading, setLoading] = useState(false);
-  const { activeFilePath } = useDevSlateState();
+  const { activeFilePath, fsVersion } = useDevSlateState();
 
   useEffect(() => {
     getConnectedFolderName().then(setFolderName);
   }, []);
 
+  // fsVersion bumps on every successful write_file (see devslateStore.ts)
+  // — without it in the dependency list, a file the model just created
+  // wouldn't show up here until something else happened to trigger a
+  // re-list (found live, JuanJo 2026-09-01: "the directory didn't
+  // refresh to show the file").
   useEffect(() => {
     if (!folderName) return;
     setLoading(true);
     listLocalDirectory(path).then(setEntries).finally(() => setLoading(false));
-  }, [folderName, path]);
+  }, [folderName, path, fsVersion]);
 
   const handleConnect = async () => {
     const name = await connectFolder();

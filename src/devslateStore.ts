@@ -21,6 +21,10 @@ interface DevSlateState {
   activeFileContent: string;
   pendingWrite: PendingWrite | null;
   terminalLines: TerminalLine[];
+  // Bumped on every successful write_file (either path — reviewed or
+  // auto-accepted) so the Files pane knows to re-list instead of
+  // showing a stale tree until the user happens to click around.
+  fsVersion: number;
 }
 
 let state: DevSlateState = {
@@ -28,6 +32,7 @@ let state: DevSlateState = {
   activeFileContent: "",
   pendingWrite: null,
   terminalLines: [],
+  fsVersion: 0,
 };
 let onWriteDecision: ((accepted: boolean) => void) | null = null;
 
@@ -63,16 +68,29 @@ export function requestWriteReview(write: PendingWrite): Promise<boolean> {
   });
 }
 
-// Only updates local UI state and resolves the pending promise — the
+// Only clears the review UI and resolves the pending promise — the
 // actual disk write happens exactly once, in devslate.ts's tool_request
 // handler (it owns the WebSocket relay and reports the result back to
-// the model). Writing here too would double-apply the same change.
+// the model), which calls notifyFileWritten below once that write
+// actually succeeds. Writing here too would double-apply the same
+// change; setting activeFileContent to the proposed "after" here too
+// would show content that turns out not to match what was actually
+// written if the disk write itself somehow failed.
 export function decideWriteReview(accepted: boolean): void {
   const write = state.pendingWrite;
   if (!write) return;
-  setState({ activeFileContent: accepted ? write.after : write.before, pendingWrite: null });
+  if (!accepted) setState({ activeFileContent: write.before, pendingWrite: null });
+  else setState({ pendingWrite: null });
   onWriteDecision?.(accepted);
   onWriteDecision = null;
+}
+
+// Called by devslate.ts right after a write_file actually lands on disk
+// — whether it went through review-and-accept or auto-accept. Single
+// place both paths funnel through, so Code/Files/Preview all update the
+// same way regardless of which path produced the write.
+export function notifyFileWritten(path: string, content: string): void {
+  setState({ activeFilePath: path, activeFileContent: content, pendingWrite: null, fsVersion: state.fsVersion + 1 });
 }
 
 export function appendTerminalLine(level: TerminalLine["level"], text: string): void {

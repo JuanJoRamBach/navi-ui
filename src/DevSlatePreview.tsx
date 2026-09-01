@@ -52,10 +52,17 @@ async function inlineLocalReferences(html: string, basePath: string): Promise<st
 }
 
 export function DevSlatePreview() {
-  const { activeFilePath, activeFileContent } = useDevSlateState();
+  const { activeFilePath, activeFileContent, pendingWrite } = useDevSlateState();
   const [srcDoc, setSrcDoc] = useState<string | null>(null);
 
   const isHtml = activeFilePath?.toLowerCase().endsWith(".html") ?? false;
+  // While a write's pending review, activeFileContent is the file's
+  // BEFORE snapshot — empty for a brand-new file. Rendering that would
+  // flash a blank page before the real content ever appears (found
+  // live, JuanJo 2026-09-01: "the preview looks broken"). Showing a
+  // plain "reviewing" state instead is also more honest — nothing's
+  // actually committed yet, so there's nothing real to preview.
+  const isPendingThisFile = pendingWrite?.path === activeFilePath;
 
   useEffect(() => {
     if (!isHtml || !activeFilePath) {
@@ -97,6 +104,15 @@ export function DevSlatePreview() {
       <div style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: spacing.sm, color: neutral.textFaint, fontFamily, padding: spacing.lg, textAlign: "center" }}>
         <GlobeIcon size={22} fill={accent} />
         <div style={{ fontSize: fontSize.xs }}>Preview only renders HTML files — open one from the Files pane.</div>
+      </div>
+    );
+  }
+
+  if (isPendingThisFile) {
+    return (
+      <div style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: spacing.sm, color: neutral.textFaint, fontFamily, padding: spacing.lg, textAlign: "center" }}>
+        <GlobeIcon size={22} fill={accent} />
+        <div style={{ fontSize: fontSize.xs }}>Reviewing a proposed change — see the Code pane. Preview updates once it's accepted.</div>
       </div>
     );
   }

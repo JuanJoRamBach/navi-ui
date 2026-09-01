@@ -7,6 +7,7 @@
 // shape, not a variant of the same thing.
 import { NAVI_BACKEND_URL } from "./config";
 import { handleDevSlateToolCall, readLocalFile, writeLocalFile } from "./devslateFs";
+import { notifyFileWritten } from "./devslateStore";
 
 export interface PendingWrite {
   path: string;
@@ -100,7 +101,16 @@ export interface DevSlateHandlers {
   // the UI; auto-accept mode skips straight to true. Not called at all
   // when autoAccept is on, since there's nothing to ask.
   onWriteRequest?: (write: PendingWrite) => Promise<boolean>;
-  autoAccept?: boolean;
+  // A live getter, not a plain boolean — connectDevSlate is only called
+  // once per conversationId (see DevSlateChat.tsx's effect), so a
+  // boolean captured at connect time would go stale the moment the
+  // user toggles the checkbox afterward. Real bug, caught live
+  // (2026-09-01): auto-accept silently never took effect because of
+  // exactly this — the write still applied (a separate check inside
+  // onWriteRequest happened to short-circuit correctly), but this
+  // module's own branch never saw it, so the review UI's bookkeeping
+  // (activeFilePath, fsVersion) never ran for that path.
+  getAutoAccept?: () => boolean;
   // Fired the moment a user_message is sent and again on every relayed
   // tool call, so the UI has something concrete to show while a turn is
   // in flight — otherwise a slow (or silently failing) reply just looks
@@ -143,15 +153,24 @@ export function connectDevSlate(conversationId: string, handlers: DevSlateHandle
       // write_file gets the review treatment (default mode is "accept
       // changes" — the user approves each diff, per JuanJo's explicit
       // call, 2026-09-01) — every other relayed tool (read_file, grep)
-      // is read-only and doesn't need it.
-      if (name === "write_file" && !handlers.autoAccept) {
+      // is read-only and doesn't need it. One path regardless of
+      // auto-accept, so Code/Files/Preview all update the same way no
+      // matter which one produced the write (see the fsVersion bug
+      // note above getAutoAccept).
+      if (name === "write_file") {
         const path = String(args.path ?? "");
         const after = String(args.content ?? "");
         const before = await readLocalFile(path).catch(() => "");
-        const accepted = (await handlers.onWriteRequest?.({ path, before, after })) ?? false;
-        const result = accepted
-          ? await writeLocalFile(path, after)
-          : `The user reviewed this change and did not accept it. ${path} was left unchanged.`;
+        const accepted = handlers.getAutoAccept?.()
+          ? true
+          : (await handlers.onWriteRequest?.({ path, before, after })) ?? false;
+        let result: string;
+        if (accepted) {
+          result = await writeLocalFile(path, after);
+          notifyFileWritten(path, after);
+        } else {
+          result = `The user reviewed this change and did not accept it. ${path} was left unchanged.`;
+        }
         ws.send(JSON.stringify({ type: "tool_result", id: frame.id, result }));
         return;
       }

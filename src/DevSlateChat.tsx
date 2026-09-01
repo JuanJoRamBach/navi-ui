@@ -221,11 +221,8 @@ export function DevSlateChat() {
       onMessage: (msg) => { setActivity(null); setMessages(m => [...m, msg]); },
       onStatusChange: setStatus,
       onActivity: setActivity,
-      autoAccept: false, // read fresh via onWriteRequest below instead of a stale closure
-      onWriteRequest: (write) => {
-        if (autoAcceptRef.current) return Promise.resolve(true);
-        return requestWriteReview(write);
-      },
+      getAutoAccept: () => autoAcceptRef.current,
+      onWriteRequest: (write) => requestWriteReview(write),
     });
     connRef.current = conn;
 
