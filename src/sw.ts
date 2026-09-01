@@ -9,7 +9,7 @@
 
 import { precacheAndRoute, cleanupOutdatedCaches, createHandlerBoundToURL } from "workbox-precaching";
 import { registerRoute, NavigationRoute } from "workbox-routing";
-import { appendMessage } from "./storage";
+import { appendMessage, parseAttachments } from "./storage";
 
 declare const self: ServiceWorkerGlobalScope;
 
@@ -44,7 +44,17 @@ self.addEventListener("push", event => {
     payload = { title: "NAVI", body: event.data?.text() ?? "New message" };
   }
 
-  const message = { role: "navi" as const, text: payload.body, timestamp: Date.now() };
+  // Push-delivered replies are exactly the case Activity most needs to
+  // flag — /research's async result, arriving with real files attached,
+  // is the main reason a message reaches the user via push at all
+  // rather than a normal /chat/send response.
+  const attachments = parseAttachments(payload.body);
+  const message = {
+    role: "navi" as const,
+    text: payload.body,
+    timestamp: Date.now(),
+    ...(attachments.length > 0 ? { attachments } : {}),
+  };
 
   event.waitUntil(
     Promise.all([

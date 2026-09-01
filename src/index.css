@@ -2,6 +2,58 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* Mirrors tokens.fontSize in tokens.ts — every fontSize.xs/xxs/sm usage
+   there is `var(--font-size-*)`, not a plain number, specifically so
+   this media query can make the whole scale responsive even though
+   every actual usage is an inline style (which can't read a media
+   query directly, but can read a var() that one redefines elsewhere).
+   Desktop values are the accessibility-floor scale (14px minimum,
+   JuanJo's explicit call for a 25-65 user age range); mobile/tablet
+   shrinks xs and sm a step but keeps the 14px floor on xxs — smaller
+   screens don't mean better eyesight, so it never goes below that. */
+:root {
+  --font-size-xxs: 14px;
+  --font-size-xs: 14px;
+  --font-size-sm: 15px;
+}
+@media (min-width: 1024px) {
+  :root {
+    --font-size-xxs: 14px;
+    --font-size-xs: 15px;
+    /* 17px felt too big live — JuanJo's follow-up, 2026-08-29. */
+    --font-size-sm: 15.5px;
+  }
+}
+
+/* Top bar overlap fix (found live on a real narrow phone width) — the
+   hamburger toggle (top-left), mode-tabs row (top-center), and server
+   status (top-right) are three independently absolutely-positioned
+   elements with no collision avoidance between them. At normal widths
+   there's enough natural margin that this never matters; on a narrow
+   phone the mode-tabs row's natural content width extends far enough
+   to render underneath the other two. gap lives here (not inline)
+   specifically so the narrow-width override below can shrink it —
+   inline always wins over an external rule regardless of media query. */
+.mode-tabs-row {
+  gap: 20px; /* spacing.xxl(24) - spacing.xxs(4), matches the old inline value */
+}
+:root {
+  --mode-tab-active-padding-h: 20px; /* matches the old inline spacing.xl */
+}
+@media (max-width: 600px) {
+  .mode-tabs-row {
+    gap: 4px;
+    padding-left: 52px;  /* clears the hamburger (left:20px + ~38px box + margin) */
+    padding-right: 52px; /* clears the status dot once its text label is hidden */
+  }
+  .status-label {
+    display: none; /* the dot alone still answers "is NAVI awake" */
+  }
+  :root {
+    --mode-tab-active-padding-h: 8px;
+  }
+}
+
 body {
   background: #080608;
   overflow: hidden;
@@ -11,23 +63,121 @@ body {
    picker pill just below it — the toolbar row moved down next to the
    input bar it actually relates to. Above 900px the column caps its
    width and centers instead of stretching edge to edge. */
+/* Shared by .chat-column, the mode-selector row, and the model-picker
+   pill — all three need the exact same left/right positioning so they
+   stay visually aligned as one block (see the max()-based rule below).
+   display:flex is set HERE, not left to each usage's own inline style —
+   justify-content:center is meaningless without it, and this was a
+   real bug: the model-picker pill's div never had display:flex set
+   inline (only the mode-selector row did), so justify-content:center
+   silently did nothing and its button rendered at the div's left edge
+   via default block flow instead of centered — invisible to a
+   getBoundingClientRect() check on the div itself (always correctly
+   positioned), only visible by checking where the actual button
+   rendered inside it. Owning display:flex here means no future usage
+   of this class can accidentally omit it again. */
+.centered-col {
+  display: flex;
+  left: 0;
+  right: 0;
+  justify-content: center;
+}
+
 .chat-column {
+  position: absolute;
+  inset: 0;
   display: flex;
   flex-direction: column;
   padding: 100px 20px 16px; /* 20/16 mirror tokens.spacing.xl/lg; 100 is a derived clearance value, not a scale step */
 }
 
-/* 860px comfortably fits the 5-button toolbar row (~770px of content +
-   48px padding) without it ever needing to scroll — a narrower cap
-   here made the column snap noticeably thinner right as this
-   breakpoint kicked in, since the toolbar no longer fit and fell back
-   to its horizontal-scroll state. */
-@media (min-width: 860px) {
+/* 1024px (not the old 860px) is where the column stops stretching
+   edge-to-edge and starts capping/centering itself — aligned with the
+   font-size and persistent-sidebar breakpoints elsewhere in this file,
+   deliberately. JuanJo's call (2026-08-29): tablet should keep the
+   full mobile treatment throughout, not just smaller fonts — the old
+   860px meant a tablet in the 860-1024px range got "desktop-width"
+   chat layout with "mobile-size" fonts, a real mismatch. 1000px
+   max-width is JuanJo's separate explicit call for how wide the chat
+   itself should read once it IS in desktop mode. */
+@media (min-width: 1024px) {
   .chat-column {
-    max-width: 860px;
+    max-width: 1000px;
     margin: 0 auto;
     padding-left: 24px;
     padding-right: 24px;
+  }
+}
+
+/* Persistent-sidebar breakpoint. --sidebar-width is the ONE source of
+   truth for how wide the sidebar actually is right now — its default
+   (below) is the fluid clamp() formula, but a manual drag-resize
+   (App.tsx) overrides it via documentElement.style.setProperty, which
+   cleanly beats this rule the same way any inline style beats an
+   external one. Every formula that needs to know the sidebar's width —
+   .sidebar itself, .sidebar-detail-panel, and .chat-column/.centered-
+   col's floor below — reads this ONE variable instead of each
+   independently duplicating "280+24=304"-style arithmetic, which
+   caused a real bug earlier this session (the sidebar's own min and
+   the chat's floor drifted out of sync when one got edited without the
+   other). JuanJo's explicit call (2026-08-29), refined after seeing it
+   live: the chat should stay centered on the *page*, same as always —
+   it should only ever shift right by the minimum needed to keep 24px
+   clear of the sidebar, never more than that. A flat "always shift by
+   304px past this breakpoint" was wrong two ways: (1) it stayed
+   shifted even at very wide viewports where full-page centering
+   already clears the sidebar by hundreds of pixels, reading as
+   permanently off-center for no reason; (2) it was a hard on/off jump
+   exactly at 1024px instead of a smooth transition, visible as a
+   sudden snap right at the boundary. max(natural-centered-position,
+   sidebar-width+gap) fixes both: at wide viewports the natural
+   centered value already exceeds that floor, so max() picks the
+   natural value and the chat is genuinely full-page-centered, sidebar
+   or not; only near the boundary does the floor take over instead, and
+   it does so continuously as the viewport shrinks, not as a jump.
+   Applied identically to .chat-column and .centered-col so the whole
+   vertical stack (mode tabs, model picker, chat) moves together. */
+:root {
+  --sidebar-width: 280px;
+  /* Set by App.tsx to var(--sidebar-width) while the left sidebar is
+     open, "0px" while the user's closed it — separate from
+     --sidebar-width itself (which still governs .sidebar's own
+     rendered width for whenever it reopens) so the chat-column floor
+     below can collapse independently of that. */
+  --left-panel-width: var(--sidebar-width);
+}
+@media (min-width: 1024px) {
+  :root {
+    --sidebar-width: clamp(280px, calc((100vw - 1000px) / 2 - 24px), 480px);
+  }
+  .chat-column,
+  .centered-col {
+    /* +outer-rail-width: the rail sits further left than .sidebar's own
+       floor accounted for — without adding it here, .sidebar and the
+       outer rail would overlap the chat by the rail's width whenever
+       the rail is at its default/expanded size. */
+    left: max(calc((100% - 1000px) / 2), calc(var(--outer-rail-width) + var(--left-panel-width) + 24px));
+    /* right deliberately mirrors the SAME natural-centering value as
+       left, not its own independent max(...,0px) floor — found live:
+       flooring each side separately makes the box asymmetric whenever
+       the natural value sits between 0 and 304 (e.g. at 1024px viewport,
+       left floors to 304 but right's own floor only kicks in below 0,
+       so right stays at its small natural ~12px) — the box ends up
+       off-center relative to the true page center instead of just
+       narrower-but-still-centered in that transition zone. */
+    right: calc((100% - 1000px) / 2);
+    /* .chat-column inherits margin:0 auto from the max-width tier
+       below (same 1024px breakpoint now, previously a separate 860px
+       one) — combined with explicit left+right+an implied width
+       (max-width) here, that's 4 positioning constraints active at
+       once, a genuinely over-constrained case CSS engines can
+       legitimately resolve differently (Chromium vs Firefox have real
+       history of
+       diverging on exactly this). Reset to margin:0 so there's nothing
+       left for any engine to auto-resolve — left/right alone fully
+       determine the box now. .centered-col never had margin set, so
+       this is a no-op there, just explicit for the same safety. */
+    margin: 0;
   }
 }
 
@@ -69,6 +219,312 @@ body {
 }
 .snap-item {
   scroll-snap-align: start;
+}
+
+/* V3 sidebar shell — mirrors tokens.layout in tokens.ts (sidebarWidth:
+   280, sidebarBreakpoint: 1024); duplicated here since inline styles
+   can't express a media query, same reasoning as .chat-column above.
+
+   .sidebar defaults to an off-canvas drawer (translated fully off-
+   screen, slides in via .sidebar.open) — that's the mobile/tablet
+   behavior. At/above the breakpoint it's forced persistently visible
+   regardless of the .open class, AND its width becomes fluid instead
+   of a fixed 280px (JuanJo, 2026-08-29: "sidebar is too narrow, should
+   go right until the 24px separation starts") — it grows to fill the
+   gap left by .chat-column's own centering, capped at 480px so it
+   doesn't get silly-wide on an ultrawide monitor, never shrinking below
+   the 280px it needs to stay at right at the breakpoint edge (where
+   .chat-column's max()-floor in the media query below is pinned to
+   exactly sidebarWidth(280)+gap(24)=304 — if the sidebar's own min
+   here ever changes, that 304 needs to change with it). clamp(min,
+   preferred, max): preferred is "however far .chat-column's natural
+   full-page-centered edge sits, minus the 24px gap" — the same
+   (100vw-1000px)/2 formula .chat-column uses for its own floor
+   comparison, just solved for the sidebar's side of that boundary
+   instead. .sidebar-backdrop only ever matters below the breakpoint
+   (click-outside-to-close for the drawer) — auto-hidden above it even
+   if React still thinks the drawer is "open", so desktop never shows a
+   stray dimming overlay. */
+.sidebar {
+  position: fixed;
+  top: 0; left: 0; bottom: 0;
+  width: 280px;
+  transform: translateX(-100%);
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+  z-index: 30;
+}
+.sidebar.open {
+  transform: translateX(0);
+}
+.sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 29;
+}
+/* Both toggle buttons (open hamburger, close X) — display lives here,
+   not inline, specifically so the >=1024px override below can actually
+   hide them (an inline display value always wins over an external
+   stylesheet rule regardless of media query — this was a real bug,
+   found live: both stayed visible past the breakpoint since their
+   inline style set display:"flex" directly). */
+.sidebar-toggle {
+  display: flex;
+}
+/* Outer rail — app-level canvas switcher, desktop only, sits to
+   .sidebar's left. --outer-rail-width defaults to 0px so nothing here
+   shifts before App.tsx's effect sets a real value on mount (mobile
+   never sets it at all, staying 0 permanently — the rail itself is
+   isDesktopSidebar-gated in JSX). */
+:root {
+  --outer-rail-width: 0px;
+}
+.outer-rail {
+  position: fixed;
+  top: 0; left: 0; bottom: 0;
+  z-index: 32;
+  display: flex;
+  flex-direction: column;
+}
+/* Collapsed (dragged to its minimum width) — icon-only. Just hides the
+   label; deliberately does NOT recenter the icon or change its padding
+   — found live: centering made icons jump to a different x-position
+   than where they sit expanded, since expanded icons are left-padded,
+   not centered in the full button width. Keeping the same padding in
+   both states keeps every icon anchored at the same spot regardless of
+   collapse state. */
+.outer-rail.collapsed .sidebar-menu-btn-label {
+  display: none;
+}
+@media (min-width: 1024px) {
+  .sidebar {
+    transform: translateX(0) !important;
+    left: var(--outer-rail-width);
+    width: var(--sidebar-width);
+  }
+  .sidebar-backdrop {
+    display: none;
+  }
+  .sidebar-toggle {
+    display: none; /* nothing to toggle — sidebar's always visible */
+  }
+  /* Menu button list becomes a fixed-width left column once the
+     detail panel exists to its right (see .sidebar-detail-panel) —
+     below this breakpoint it's full sidebar width, no detail column,
+     same as before. */
+  .sidebar-menu-list {
+    width: 200px;
+    flex-shrink: 0;
+    transition: width 0.2s ease;
+  }
+  /* Collapses to icon-only whenever a detail panel is docked open
+     (isDockedDetail in App.tsx sets this class) — JuanJo's call,
+     2026-08-29: the fixed 200px list was eating too much of an already
+     narrow sidebar, leaving the detail content "caged." 56px is just
+     the icon + its padding; labels hidden via .sidebar-menu-btn-label
+     below. Always exactly matches .sidebar-detail-panel's left/width
+     math (56px), since the two only ever exist together. */
+  .sidebar-menu-list.collapsed {
+    width: 56px;
+  }
+  .sidebar-menu-list.collapsed .sidebar-menu-btn {
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+}
+.sidebar-menu-btn-label {
+  overflow: hidden;
+  white-space: nowrap;
+}
+.sidebar-menu-list.collapsed .sidebar-menu-btn-label {
+  display: none;
+}
+
+/* Docked master-detail panel (Past conversations/Routing & fallbacks/
+   Usage counters, desktop only — see isDockedDetail in App.tsx; tablet
+   keeps the floating popover, JuanJo's explicit call, 2026-08-29). Same
+   popover element as the floating one, just positioned to sit flush
+   against .sidebar-menu-list's right edge instead of floating near the
+   clicked button. left:56px matches .sidebar-menu-list.collapsed's
+   width above — the two always coexist (the list only ever collapses
+   because a detail panel is open), so this doesn't need its own
+   conditional. width has to track .sidebar's own fluid clamp() formula
+   (sidebar width minus the 56px list column) — a CSS class rather than
+   inline math specifically because that clamp() result can't be read
+   back out into JS/inline styles. Only ever rendered while
+   isDesktopSidebar is true (React-side), so no media query needed here
+   — it exists in the DOM exclusively at/above the breakpoint already. */
+.sidebar-detail-panel {
+  position: fixed;
+  top: 0;
+  left: 56px;
+  z-index: 30;
+  width: calc(var(--sidebar-width) - 56px);
+  /* height set inline (App.tsx) from the measured Menu section height,
+     not fixed here — see the comment at that inline style. Static
+     chrome only (background/border/shadow/height) — scrolling and the
+     fade mask live on .sidebar-detail-content (the inner div) instead,
+     so the border doesn't fade along with the content. */
+}
+/* Close button (X, top-right of the docked panel) — collapsing the
+   list to icon-only removed the obvious "click the same menu item
+   again" affordance at a glance, so JuanJo asked for an explicit close
+   action instead. Returns the list to its full icon+label state too,
+   since that's driven by the same isDockedDetail condition. */
+.sidebar-detail-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 31;
+}
+.sidebar-detail-content {
+  height: 100%;
+  overflow-y: auto;
+  padding: 16px; /* mirrors tokens.spacing.lg */
+  /* Content is often taller than the panel's measured height (a long
+     conversation list, many routing chains) — same bottom-fade
+     technique as .message-fade-top, so a scrollable cutoff reads as
+     "more below" instead of looking like a rendering bug. */
+  mask-image: linear-gradient(to bottom, black calc(100% - 24px), transparent);
+  -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 24px), transparent);
+}
+
+/* Hover feedback for the sidebar menu buttons — separate from the
+   "active" (openPanel === key) background already handled inline,
+   since :hover can't be expressed as an inline style at all. Slightly
+   lower alpha than the active state's 0.06 so the two stay visually
+   distinguishable when hovering a non-active button. */
+.sidebar-menu-btn:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+/* Sidebar horizontal resize handle — invisible 12px hit area (matches
+   the outer div's inline width), thin line only appears on hover so it
+   doesn't read as a permanent visible seam when the user isn't
+   interacting with it. */
+.sidebar-resize-handle {
+  cursor: ew-resize;
+  display: flex;
+  justify-content: center;
+}
+.sidebar-resize-handle-line {
+  width: 1px;
+  height: 100%;
+  background: transparent;
+  transition: background 0.15s ease;
+}
+.sidebar-resize-handle:hover .sidebar-resize-handle-line {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Vertical Menu/Activity separator (react-resizable-panels' Separator —
+   unstyled by default, per its own docs). 9px hit area for an easy
+   grab, but only a thin 1px line actually visible at rest — same
+   "subtle, not a hard rule" language as the cluster divider inside the
+   Menu list, just draggable this time. Brightens a bit while actively
+   being dragged (the library adds data-resize-handle-active) so
+   there's clear feedback mid-drag, not just on hover. */
+.sidebar-vertical-separator {
+  height: 9px;
+  margin: -4px 0;
+  cursor: row-resize;
+  display: flex;
+  align-items: center;
+  position: relative;
+  z-index: 5;
+}
+.sidebar-vertical-separator::after {
+  content: "";
+  display: block;
+  width: 100%;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.12);
+  transition: background 0.15s ease;
+}
+.sidebar-vertical-separator:hover::after,
+.sidebar-vertical-separator:active::after {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* Horizontal-orientation separator (side-by-side panels, vertical
+   divider line, col-resize cursor) — the mirror image of
+   .sidebar-vertical-separator above, same subtle-line/wide-hit-area
+   language, just rotated. Used by Dev Slate's chat|code|preview split
+   and its nested file-tree|editor split. */
+.dev-slate-column-separator {
+  width: 9px;
+  margin: 0 -4px;
+  cursor: col-resize;
+  display: flex;
+  justify-content: center;
+  position: relative;
+  z-index: 5;
+}
+.dev-slate-column-separator::after {
+  content: "";
+  display: block;
+  width: 1px;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.12);
+  transition: background 0.15s ease;
+}
+.dev-slate-column-separator:hover::after,
+.dev-slate-column-separator:active::after {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* Right sidebar — desktop only (isDesktopSidebar in App.tsx), mirrors
+   .sidebar's fixed/full-height structure. Single-purpose (Sources) —
+   Knowledge moved to live alongside Activity in the left sidebar
+   instead. Background/border colors are set inline (App.tsx), same
+   split as .sidebar itself, since they depend on the active mode's
+   theme. Width was hardcoded at 340px and drifted out of sync with the
+   left sidebar's own fluid width — JuanJo's call, 2026-08-29: it needs
+   the same "leave exactly 24px clear of the chat" rule the left
+   sidebar already follows, not an independent fixed number. Mirrors
+   --sidebar-width's own clamp() formula exactly (same floor/ceiling,
+   same leftover-space math, just solved for the right edge). */
+:root {
+  --right-panel-width: 280px;
+}
+@media (min-width: 1024px) {
+  :root {
+    --right-panel-width: clamp(280px, calc((100vw - 1000px) / 2 - 24px), 480px);
+  }
+  /* Only applies while the right panel is actually open (App.tsx toggles
+     this class on <body> based on rightPanelOpen) — otherwise .chat-
+     column/.centered-col would stay permanently shifted left even with
+     the panel closed. Higher specificity than the plain .chat-column/
+     .centered-col rule above wins regardless of source order. */
+  body.right-panel-open .chat-column,
+  body.right-panel-open .centered-col {
+    right: max(calc((100% - 1000px) / 2), calc(var(--right-panel-width) + 24px));
+  }
+}
+.right-panel {
+  position: fixed;
+  top: 0; right: 0; bottom: 0;
+  width: var(--right-panel-width);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Sidebar tools design system (see sidebar-tokens.ts for the color/
+   size values these rules reference in comments — kept in sync by
+   hand since CSS can't import a TS const). Only the :hover states live
+   here; everything state-driven (active tab, current breadcrumb
+   segment) is inline in App.tsx since React already knows that state. */
+.sidebar-row:hover {
+  background: rgba(255,255,255,0.05); /* sidebarRow.hoverBg */
+}
+.sidebar-tab:hover:not(.sidebar-tab-active) {
+  color: rgba(240,244,255,0.75);
+}
+.sidebar-breadcrumb-link:hover {
+  color: rgb(160, 195, 255); /* sidebarBreadcrumb.ancestorHoverColor */
+  text-decoration: underline;
 }
 
 /* "Working" step indicator, shown while a reply is being generated —
