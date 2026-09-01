@@ -1,133 +1,135 @@
-import { useEffect, useState } from "react";
-import { GlobeIcon } from "@primer/octicons-react";
-import { spacing, fontSize, neutral, fontFamily, CANVAS_ACCENT } from "./tokens";
-import { readLocalFile } from "./devslateFs";
-import { appendTerminalLine, useDevSlateState } from "./devslateStore";
+import { useEffect, useRef, useState } from "react";
+import grapesjs, { type Editor } from "grapesjs";
+import gjsPresetWebpage from "grapesjs-preset-webpage";
+import "grapesjs/dist/css/grapes.min.css";
+import { GlobeIcon, DeviceDesktopIcon } from "@primer/octicons-react";
+import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT } from "./tokens";
+import { writeLocalFile } from "./devslateFs";
+import { notifyFileWritten, useDevSlateState } from "./devslateStore";
 
 const accent = CANVAS_ACCENT.devSlate.color;
 
-// Console output from inside the sandboxed iframe reaches this pane's
-// parent window via postMessage — the iframe has no other way to talk
-// back out, deliberately (sandbox="allow-scripts", no allow-same-origin,
-// so it can't reach window.parent directly or read/write anything
-// outside itself). Bridge script gets inlined into every rendered page.
-const CONSOLE_BRIDGE = `
-<script>
-(function () {
-  var send = function (level, args) {
-    try {
-      window.parent.postMessage({ __devslate: true, level: level, text: Array.prototype.map.call(args, function (a) {
-        try { return typeof a === "string" ? a : JSON.stringify(a); } catch (e) { return String(a); }
-      }).join(" ") }, "*");
-    } catch (e) {}
-  };
-  ["log", "warn", "error"].forEach(function (level) {
-    var original = console[level];
-    console[level] = function () { send(level, arguments); original.apply(console, arguments); };
-  });
-  window.addEventListener("error", function (e) { send("error", [e.message + " (" + e.filename + ":" + e.lineno + ")"]); });
-})();
-</script>
-`;
-
-const LOCAL_REF_RE = /<(link|script)\b[^>]*\b(?:href|src)=["']([^"':]+)["'][^>]*>(?:<\/script>)?/gi;
-
-// Simple relative-link inlining — not a bundler, deliberately, per the
-// light-coding scope this whole feature targets (HTML/CSS/JS quick
-// prototyping, not real module resolution). A ':' in the path (http://,
-// https://, //) is treated as external and left untouched.
-async function inlineLocalReferences(html: string, basePath: string): Promise<string> {
-  const baseDir = basePath.includes("/") ? basePath.slice(0, basePath.lastIndexOf("/")) : "";
-  const matches = [...html.matchAll(LOCAL_REF_RE)];
-  let result = html;
-  for (const match of matches) {
-    const [full, tag, href] = match;
-    const resolved = baseDir ? `${baseDir}/${href}` : href;
-    const content = await readLocalFile(resolved).catch(() => null);
-    if (content === null) continue;
-    const inlined = tag.toLowerCase() === "link" ? `<style>\n${content}\n</style>` : `<script>\n${content}\n</script>`;
-    result = result.replace(full, inlined);
-  }
-  return result;
+// GrapesJS's editor.getHtml()/getCss() only return <body> content and
+// bare CSS respectively — it has no concept of <head> boilerplate
+// (meta/title/viewport). Splitting/rejoining around that gap via
+// DOMParser (real HTML parsing, not regex) rather than reinventing it.
+function splitHtmlDocument(html: string): { headHtml: string; bodyHtml: string; css: string } {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const styleEls = Array.from(doc.querySelectorAll("style"));
+  const css = styleEls.map(s => s.textContent ?? "").join("\n");
+  styleEls.forEach(s => s.remove());
+  return { headHtml: doc.head.innerHTML, bodyHtml: doc.body.innerHTML, css };
 }
 
+function buildHtmlDocument(headHtml: string, bodyHtml: string, css: string): string {
+  return `<!DOCTYPE html>\n<html lang="en">\n<head>\n${headHtml}\n<style>\n${css}\n</style>\n</head>\n<body>\n${bodyHtml}\n</body>\n</html>\n`;
+}
+
+// A real embedded visual editor (drag/style/edit elements), not a
+// static viewer — replaces an earlier plain sandboxed-iframe renderer.
+// Scoped to the plain-HTML/CSS/JS track; a React/Tailwind track would
+// need a different tool entirely (GrapesJS edits a DOM tree directly,
+// it doesn't understand JSX/component boundaries) — not built here.
 export function DevSlatePreview() {
   const { activeFilePath, activeFileContent, pendingWrite } = useDevSlateState();
-  const [srcDoc, setSrcDoc] = useState<string | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const editorRef = useRef<Editor | null>(null);
+  const headHtmlRef = useRef("");
+  const loadedPathRef = useRef<string | null>(null);
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const isHtml = activeFilePath?.toLowerCase().endsWith(".html") ?? false;
-  // While a write's pending review, activeFileContent is the file's
-  // BEFORE snapshot — empty for a brand-new file. Rendering that would
-  // flash a blank page before the real content ever appears (found
-  // live, JuanJo 2026-09-01: "the preview looks broken"). Showing a
-  // plain "reviewing" state instead is also more honest — nothing's
-  // actually committed yet, so there's nothing real to preview.
   const isPendingThisFile = pendingWrite?.path === activeFilePath;
 
+  // Editor instance lives for the pane's whole lifetime, not per-file —
+  // re-creating it on every file switch would be slow and would lose
+  // GrapesJS's own undo history pointlessly. Content gets swapped via
+  // setComponents/setStyle in the effect below instead.
   useEffect(() => {
-    if (!isHtml || !activeFilePath) {
-      setSrcDoc(null);
-      return;
-    }
-    let cancelled = false;
-    inlineLocalReferences(activeFileContent, activeFilePath).then((inlined) => {
-      if (cancelled) return;
-      const withBridge = inlined.includes("</head>")
-        ? inlined.replace("</head>", `${CONSOLE_BRIDGE}</head>`)
-        : `${CONSOLE_BRIDGE}${inlined}`;
-      setSrcDoc(withBridge);
+    if (!containerRef.current || editorRef.current) return;
+    const editor = grapesjs.init({
+      container: containerRef.current,
+      height: "100%",
+      fromElement: false,
+      storageManager: false,
+      plugins: [gjsPresetWebpage],
     });
-    return () => { cancelled = true; };
-  }, [isHtml, activeFilePath, activeFileContent]);
-
-  useEffect(() => {
-    const onMessage = (e: MessageEvent) => {
-      if (e.data && typeof e.data === "object" && e.data.__devslate) {
-        appendTerminalLine(e.data.level, e.data.text);
-      }
-    };
-    window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
+    editor.on("component:update", () => setDirty(true));
+    editor.on("style:update", () => setDirty(true));
+    editorRef.current = editor;
+    return () => { editor.destroy(); editorRef.current = null; };
   }, []);
 
-  if (!activeFilePath) {
-    return (
-      <div style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: spacing.sm, color: neutral.textFaint, fontFamily }}>
-        <GlobeIcon size={22} fill={accent} />
-        <div style={{ fontSize: fontSize.xs }}>Select an HTML file to preview it here.</div>
-      </div>
-    );
-  }
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor || !isHtml || !activeFilePath || isPendingThisFile) return;
+    if (loadedPathRef.current === activeFilePath && !dirty) return; // don't clobber in-progress edits on an unrelated re-render
+    const { headHtml, bodyHtml, css } = splitHtmlDocument(activeFileContent);
+    headHtmlRef.current = headHtml;
+    editor.setComponents(bodyHtml);
+    editor.setStyle(css);
+    loadedPathRef.current = activeFilePath;
+    setDirty(false);
+  }, [isHtml, activeFilePath, activeFileContent, isPendingThisFile]);
 
-  if (!isHtml) {
-    return (
-      <div style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: spacing.sm, color: neutral.textFaint, fontFamily, padding: spacing.lg, textAlign: "center" }}>
-        <GlobeIcon size={22} fill={accent} />
-        <div style={{ fontSize: fontSize.xs }}>Preview only renders HTML files — open one from the Files pane.</div>
-      </div>
-    );
-  }
+  const save = async () => {
+    const editor = editorRef.current;
+    if (!editor || !activeFilePath) return;
+    setSaving(true);
+    const fullHtml = buildHtmlDocument(headHtmlRef.current, editor.getHtml(), editor.getCss() ?? "");
+    await writeLocalFile(activeFilePath, fullHtml);
+    notifyFileWritten(activeFilePath, fullHtml);
+    setSaving(false);
+    setDirty(false);
+  };
 
-  if (isPendingThisFile) {
-    return (
-      <div style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: spacing.sm, color: neutral.textFaint, fontFamily, padding: spacing.lg, textAlign: "center" }}>
-        <GlobeIcon size={22} fill={accent} />
-        <div style={{ fontSize: fontSize.xs }}>Reviewing a proposed change — see the Code pane. Preview updates once it's accepted.</div>
-      </div>
-    );
-  }
+  const showEmptyState = !activeFilePath || !isHtml || isPendingThisFile;
+  const emptyMessage = !activeFilePath
+    ? "Select an HTML file to edit it here."
+    : !isHtml
+      ? "Preview only edits HTML files — open one from the Files pane."
+      : "Reviewing a proposed change — see the Code pane. This pane updates once it's accepted.";
 
   return (
-    <iframe
-      key={activeFilePath}
-      title="Dev Slate preview"
-      srcDoc={srcDoc ?? ""}
-      // No allow-same-origin, on purpose — real browser-enforced
-      // isolation for whatever the model just wrote, no exception. This
-      // is the client-side sandbox the whole "no server execution
-      // engine" design bet depends on.
-      sandbox="allow-scripts"
-      style={{ width: "100%", height: "100%", border: "none", background: "#fff" }}
-    />
+    <div style={{ height: "100%", display: "flex", flexDirection: "column", fontFamily }}>
+      <div style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.xs,
+        padding: `${spacing.xxs}px ${spacing.sm}px`, borderBottom: "1px solid rgba(255,255,255,0.08)", flexShrink: 0,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, color: neutral.textFaint, fontSize: fontSize.xxs }}>
+          <DeviceDesktopIcon size={14} fill={accent} /> Visual editor — GrapesJS
+        </div>
+        {!showEmptyState && (
+          <button
+            onClick={() => void save()}
+            disabled={!dirty || saving}
+            style={{
+              padding: `2px ${spacing.xs}px`, borderRadius: radius.xs, border: "none",
+              background: dirty ? accent : "rgba(255,255,255,0.06)",
+              color: dirty ? "#08110d" : neutral.textFaint,
+              cursor: dirty && !saving ? "pointer" : "default",
+              fontSize: fontSize.xxs, fontWeight: fontWeight.medium, fontFamily,
+            }}
+          >
+            {saving ? "Saving…" : dirty ? "Save changes" : "Saved"}
+          </button>
+        )}
+      </div>
+
+      <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
+        {showEmptyState && (
+          <div style={{
+            position: "absolute", inset: 0, zIndex: 1, background: "#080808",
+            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+            gap: spacing.sm, color: neutral.textFaint, padding: spacing.lg, textAlign: "center",
+          }}>
+            <GlobeIcon size={22} fill={accent} />
+            <div style={{ fontSize: fontSize.xs }}>{emptyMessage}</div>
+          </div>
+        )}
+        <div ref={containerRef} style={{ height: "100%" }} />
+      </div>
+    </div>
   );
 }
