@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronDownIcon, CheckIcon, PaperclipIcon, XIcon, FileIcon } from "@primer/octicons-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDownIcon, CheckIcon, PaperclipIcon, XIcon, FileIcon, PencilIcon, ZapIcon } from "@primer/octicons-react";
 import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT } from "./tokens";
 import {
   connectDevSlate, createSlate, fetchModelCatalog, loadSlateHistory, setPinnedModel,
@@ -7,6 +7,7 @@ import {
 } from "./devslate";
 import { connectFolder, getConnectedFolderName, hasLocalFsSupport, listAllFiles, readLocalFile } from "./devslateFs";
 import { requestWriteReview, useDevSlateState } from "./devslateStore";
+import "./devslate-chat-bg.css";
 
 const accent = CANVAS_ACCENT.devSlate.color;
 
@@ -78,7 +79,10 @@ function ModelBadge({ conversationId }: { conversationId: string }) {
       </button>
       {open && (
         <div style={{
-          position: "absolute", top: "100%", left: 0, marginTop: spacing.xxs, zIndex: 50,
+          // Opens upward — this badge now sits near the pane's bottom
+          // edge (moved there 2026-09-01), a downward "top:100%" popover
+          // would get clipped by the pane's own bottom boundary.
+          position: "absolute", bottom: "100%", right: 0, marginBottom: spacing.xxs, zIndex: 50,
           width: 280, maxHeight: 320, overflowY: "auto",
           background: "#111318", border: "1px solid rgba(255,255,255,0.12)", borderRadius: radius.sm,
           boxShadow: "0 8px 24px rgba(0,0,0,0.5)", padding: spacing.xs,
@@ -112,6 +116,46 @@ function ModelBadge({ conversationId }: { conversationId: string }) {
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+// The "kind of edition" selector — review-first vs. auto-accept, per
+// write_file's default-mode decision (JuanJo, 2026-09-01: default is
+// manual per-diff review, auto-accept is an explicit opt-in). A
+// segmented control rather than the small checkbox it replaced, since
+// it now sits alongside the model selector as one of two peer choices
+// for this Slate.
+function EditModeSelector({ autoAccept, onChange }: { autoAccept: boolean; onChange: (value: boolean) => void }) {
+  const OPTIONS: { value: boolean; label: string; icon: typeof PencilIcon }[] = [
+    { value: false, label: "Review changes", icon: PencilIcon },
+    { value: true, label: "Auto-accept", icon: ZapIcon },
+  ];
+  return (
+    <div style={{
+      display: "flex", borderRadius: radius.sm, border: "1px solid rgba(255,255,255,0.1)",
+      background: "rgba(255,255,255,0.03)", overflow: "hidden",
+    }}>
+      {OPTIONS.map(({ value, label, icon: Icon }) => {
+        const active = autoAccept === value;
+        return (
+          <button
+            key={label}
+            onClick={() => onChange(value)}
+            title={label}
+            style={{
+              display: "flex", alignItems: "center", gap: 4,
+              padding: `${spacing.xxs}px ${spacing.xs}px`, border: "none",
+              background: active ? "rgba(255,255,255,0.08)" : "transparent",
+              color: active ? accent : neutral.textMuted,
+              cursor: active ? "default" : "pointer", fontSize: fontSize.xxs, fontFamily,
+            }}
+          >
+            <Icon size={12} />
+            {label}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -258,37 +302,33 @@ export function DevSlateChat() {
     if (name) setFolderName(name);
   };
 
+  // column-reverse means DOM-first renders visually last (pinned at the
+  // bottom) — same "spawns from the bottom, grows upward" technique the
+  // main Chat canvas already uses, no scroll-to-bottom JS needed. The
+  // activity/pendingWrite indicators go BEFORE the reversed messages in
+  // DOM order so they land at the very bottom, exactly where the real
+  // reply will appear once it arrives.
+  const reversedMessages = useMemo(() => [...messages].reverse(), [messages]);
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", fontFamily }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", fontFamily, position: "relative" }}>
+      {/* Left-padded — the app-wide floating "open left sidebar" button
+          (position:absolute, top:spacing.xl, width:controlSize.md,
+          zIndex:31) floats over whatever's in that corner regardless of
+          canvas; Dev Slate's Chat pane is just the first one to put
+          real content there. Shifting this row clear of it keeps the
+          button a true floating overlay (no reserved dead space
+          elsewhere in the canvas — that was tried and looked bad,
+          JuanJo 2026-09-01). 52px ≈ spacing.xl(20) + controlSize.md(38). */}
       <div style={{
-        display: "flex", flexDirection: "column", gap: spacing.xxs,
-        padding: spacing.sm, borderBottom: "1px solid rgba(255,255,255,0.08)", flexShrink: 0,
+        display: "flex", alignItems: "center", gap: spacing.xs,
+        padding: spacing.sm, paddingLeft: 52,
+        borderBottom: "1px solid rgba(255,255,255,0.08)", flexShrink: 0, zIndex: 1,
       }}>
-        {/* Left-padded on this row only — the app-wide floating "open
-            left sidebar" button (position:absolute, top:spacing.xl,
-            width:controlSize.md, zIndex:31) floats over whatever's in
-            that corner regardless of canvas; Dev Slate's Chat pane is
-            just the first one to put real content there. Shifting this
-            one row clear of it keeps the button a true floating overlay
-            (no reserved dead space elsewhere in the canvas — that was
-            tried and looked bad, JuanJo 2026-09-01) at the cost of the
-            badge starting a little right of the pane's own edge. 52px ≈
-            spacing.xl(20) + controlSize.md(38), same footprint as
-            before, just scoped to this one row instead of the whole
-            canvas. */}
-        <div style={{ paddingLeft: 52, display: "flex" }}>
-          {conversationId ? <ModelBadge conversationId={conversationId} /> : <span />}
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: spacing.xs }}>
-          <span style={{
-            width: 6, height: 6, borderRadius: 9999,
-            background: status === "open" ? "#3ecf8e" : status === "connecting" ? "#e0b94a" : "#e05a4a",
-          }} title={status} />
-          <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: fontSize.xxs, color: neutral.textMuted, cursor: "pointer" }}>
-            <input type="checkbox" checked={autoAccept} onChange={e => setAutoAccept(e.target.checked)} />
-            Auto-accept edits
-          </label>
-        </div>
+        <span style={{
+          width: 6, height: 6, borderRadius: 9999, flexShrink: 0,
+          background: status === "open" ? "#3ecf8e" : status === "connecting" ? "#e0b94a" : "#e05a4a",
+        }} title={status} />
       </div>
 
       {!folderName && (
@@ -313,36 +353,51 @@ export function DevSlateChat() {
         </div>
       )}
 
-      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: spacing.sm, display: "flex", flexDirection: "column", gap: spacing.sm }}>
-        {messages.map((m, i) => (
-          <div key={i} style={{
-            alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "90%",
-            background: m.role === "user" ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.03)",
-            borderRadius: radius.sm, padding: spacing.xs, fontSize: fontSize.sm, color: neutral.textPrimary,
-            whiteSpace: "pre-wrap",
-          }}>
-            {m.text}
-          </div>
-        ))}
-        {pendingWrite && (
-          <div style={{
-            alignSelf: "flex-start", display: "flex", alignItems: "center", gap: spacing.xs,
-            border: `1px solid ${accent}55`, borderRadius: radius.sm, padding: spacing.xs,
-            fontSize: fontSize.xxs, color: neutral.textMuted, fontFamily: "monospace",
-          }}>
-            <CheckIcon size={12} />
-            Reviewing a change to {pendingWrite.path} — see the Code pane
-          </div>
-        )}
-        {activity && (
-          <div style={{
-            alignSelf: "flex-start", display: "flex", alignItems: "center", gap: spacing.xs,
-            padding: `${spacing.xxs}px ${spacing.xs}px`, fontSize: fontSize.xxs, color: neutral.textFaint, fontFamily,
-          }}>
-            <span className="step-pulse" style={{ width: 6, height: 6, borderRadius: 9999, background: accent }} />
-            <span className="step-pulse">{activity}</span>
-          </div>
-        )}
+      <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
+        <div className="devslate-chat-bg" />
+        <div className="hide-scrollbar message-fade-top" style={{
+          position: "relative", zIndex: 1, height: "100%", overflowY: "auto", padding: spacing.sm,
+          display: "flex", flexDirection: "column-reverse", gap: spacing.sm,
+        }}>
+          {activity && (
+            <div style={{
+              alignSelf: "flex-start", display: "flex", alignItems: "center", gap: spacing.xs,
+              padding: `${spacing.xxs}px ${spacing.xs}px`, fontSize: fontSize.xxs, color: neutral.textFaint, fontFamily,
+            }}>
+              <span className="step-pulse" style={{ width: 6, height: 6, borderRadius: 9999, background: accent }} />
+              <span className="step-pulse">{activity}</span>
+            </div>
+          )}
+          {pendingWrite && (
+            <div style={{
+              alignSelf: "flex-start", display: "flex", alignItems: "center", gap: spacing.xs,
+              border: `1px solid ${accent}55`, borderRadius: radius.sm, padding: spacing.xs,
+              fontSize: fontSize.xxs, color: neutral.textMuted, fontFamily: "monospace",
+            }}>
+              <CheckIcon size={12} />
+              Reviewing a change to {pendingWrite.path} — see the Code pane
+            </div>
+          )}
+          {reversedMessages.map((m, i) => (
+            <div key={reversedMessages.length - i} style={{
+              alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "90%",
+              background: m.role === "user" ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.03)",
+              borderRadius: radius.sm, padding: spacing.xs, fontSize: fontSize.sm, color: neutral.textPrimary,
+              whiteSpace: "pre-wrap",
+            }}>
+              {m.text}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* "Kind of edition" (review-vs-auto-accept) at bottom-left, model
+          selector at bottom-right — two peer per-Slate choices, JuanJo's
+          layout call 2026-09-01 (moved out of the old top-header
+          checkbox/badge). */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.xs, padding: `0 ${spacing.sm}px`, zIndex: 1 }}>
+        <EditModeSelector autoAccept={autoAccept} onChange={setAutoAccept} />
+        {conversationId && <ModelBadge conversationId={conversationId} />}
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: spacing.xs, padding: spacing.sm, borderTop: "1px solid rgba(255,255,255,0.08)" }}>

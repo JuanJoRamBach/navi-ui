@@ -1,0 +1,32 @@
+/* Ambient glowing-dots background for Dev Slate's Chat pane — adapted
+   from a hover-driven "CSS Creative Background Hover Effects: Glowing
+   Dots" technique (box-shadow glow + scale on individual dots) into an
+   autonomously-pulsing version instead: this sits BEHIND real
+   interactive chat content (bubbles, input), so a mouse-hover-only
+   effect would rarely ever actually trigger — most of the area is
+   covered by content, not reachable background. Pure CSS, no JS, no
+   real DOM dots (a tiled radial-gradient background-image instead of
+   hundreds of span elements) — cheap regardless of pane size.
+   pointer-events: none so it never intercepts clicks meant for the
+   chat above it. */
+
+.devslate-chat-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+  background-color: #080808;
+  background-image:
+    radial-gradient(circle, oklch(65% 0.12 200 / 0.55) 1px, transparent 1.5px),
+    radial-gradient(circle, oklch(65% 0.12 200 / 0.35) 1px, transparent 1.5px),
+    radial-gradient(circle, oklch(65% 0.12 200 / 0.25) 1px, transparent 1.5px);
+  background-size: 42px 42px, 68px 68px, 96px 96px;
+  background-position: 0 0, 20px 30px, 50px 10px;
+  animation: devslate-dots-pulse 7s ease-in-out infinite;
+}
+
+@keyframes devslate-dots-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
