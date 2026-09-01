@@ -61,21 +61,21 @@ function ModelBadge({ conversationId }: { conversationId: string }) {
   const currentLabel = catalog?.current ? `${catalog.current.provider}/${catalog.current.model}` : "loading…";
 
   return (
-    <div style={{ position: "relative" }}>
+    <div style={{ position: "relative", minWidth: 0 }}>
       <button
         onClick={() => setOpen(o => !o)}
         title="Model used for this Slate's chat"
         style={{
-          display: "flex", alignItems: "center", gap: spacing.xxs,
+          display: "flex", alignItems: "center", gap: spacing.xxs, minWidth: 0,
           padding: `${spacing.xxs}px ${spacing.xs}px`, borderRadius: radius.sm,
           border: `1px solid rgba(255,255,255,0.1)`, background: "rgba(255,255,255,0.04)",
           color: neutral.textMuted, cursor: "pointer", fontSize: fontSize.xxs, fontFamily,
-          maxWidth: 220, overflow: "hidden",
+          maxWidth: 150, overflow: "hidden",
         }}
       >
-        <span style={{ width: 6, height: 6, borderRadius: 9999, background: accent, flexShrink: 0 }} />
+        <span style={{ width: 5, height: 5, borderRadius: 9999, background: accent, flexShrink: 0 }} />
         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{currentLabel}</span>
-        <ChevronDownIcon size={12} />
+        <ChevronDownIcon size={11} />
       </button>
       {open && (
         <div style={{
@@ -122,40 +122,63 @@ function ModelBadge({ conversationId }: { conversationId: string }) {
 
 // The "kind of edition" selector — review-first vs. auto-accept, per
 // write_file's default-mode decision (JuanJo, 2026-09-01: default is
-// manual per-diff review, auto-accept is an explicit opt-in). A
-// segmented control rather than the small checkbox it replaced, since
-// it now sits alongside the model selector as one of two peer choices
-// for this Slate.
+// manual per-diff review, auto-accept is an explicit opt-in). Compact
+// icon+label trigger that opens a small floating popup with the two
+// options, same shape as ModelBadge right next to it — JuanJo's call,
+// 2026-09-01: both small, both under the input, not an always-expanded
+// segmented control.
 function EditModeSelector({ autoAccept, onChange }: { autoAccept: boolean; onChange: (value: boolean) => void }) {
+  const [open, setOpen] = useState(false);
   const OPTIONS: { value: boolean; label: string; icon: typeof PencilIcon }[] = [
     { value: false, label: "Review changes", icon: PencilIcon },
     { value: true, label: "Auto-accept", icon: ZapIcon },
   ];
+  const current = OPTIONS.find(o => o.value === autoAccept)!;
+
   return (
-    <div style={{
-      display: "flex", borderRadius: radius.sm, border: "1px solid rgba(255,255,255,0.1)",
-      background: "rgba(255,255,255,0.03)", overflow: "hidden",
-    }}>
-      {OPTIONS.map(({ value, label, icon: Icon }) => {
-        const active = autoAccept === value;
-        return (
-          <button
-            key={label}
-            onClick={() => onChange(value)}
-            title={label}
-            style={{
-              display: "flex", alignItems: "center", gap: 4,
-              padding: `${spacing.xxs}px ${spacing.xs}px`, border: "none",
-              background: active ? "rgba(255,255,255,0.08)" : "transparent",
-              color: active ? accent : neutral.textMuted,
-              cursor: active ? "default" : "pointer", fontSize: fontSize.xxs, fontFamily,
-            }}
-          >
-            <Icon size={12} />
-            {label}
-          </button>
-        );
-      })}
+    <div style={{ position: "relative", minWidth: 0 }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        title="How proposed edits are applied"
+        style={{
+          display: "flex", alignItems: "center", gap: 4, minWidth: 0,
+          padding: `${spacing.xxs}px ${spacing.xs}px`, borderRadius: radius.sm,
+          border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.03)",
+          color: neutral.textMuted, cursor: "pointer", fontSize: fontSize.xxs, fontFamily,
+        }}
+      >
+        <current.icon size={11} />
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{current.label}</span>
+        <ChevronDownIcon size={11} />
+      </button>
+      {open && (
+        <div style={{
+          position: "absolute", bottom: "100%", left: 0, marginBottom: spacing.xxs, zIndex: 50,
+          width: 180, background: "#111318", border: "1px solid rgba(255,255,255,0.12)",
+          borderRadius: radius.sm, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", padding: spacing.xs,
+        }}>
+          {OPTIONS.map(({ value, label, icon: Icon }) => {
+            const active = autoAccept === value;
+            return (
+              <button
+                key={label}
+                onClick={() => { onChange(value); setOpen(false); }}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.xs,
+                  width: "100%", textAlign: "left", padding: `${spacing.xxs}px ${spacing.xs}px`,
+                  borderRadius: radius.xs, border: "none",
+                  background: active ? "rgba(255,255,255,0.06)" : "transparent",
+                  color: active ? neutral.textPrimary : neutral.textMuted,
+                  cursor: active ? "default" : "pointer", fontSize: fontSize.xxs, fontFamily,
+                }}
+              >
+                <span style={{ display: "flex", alignItems: "center", gap: 4 }}><Icon size={12} /> {label}</span>
+                {active && <CheckIcon size={12} />}
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -182,7 +205,7 @@ function AttachFilePicker({ attached, onAttach }: { attached: string[]; onAttach
         onClick={() => setOpen(o => !o)}
         title="Attach a file to this message"
         style={{
-          display: "flex", alignItems: "center", justifyContent: "center",
+          display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
           width: 30, height: 30, borderRadius: radius.sm,
           border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.03)",
           color: neutral.textMuted, cursor: "pointer",
@@ -311,7 +334,13 @@ export function DevSlateChat() {
   const reversedMessages = useMemo(() => [...messages].reverse(), [messages]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", fontFamily, position: "relative" }}>
+    // minWidth is a hard floor, not a suggestion — react-resizable-panels'
+    // Panel sizing is percentage-based and doesn't stop the user dragging
+    // this pane narrower than its content can sit comfortably in (JuanJo,
+    // 2026-09-01: "I can squash elements so much it deforms the UI").
+    // Below this width the pane scrolls horizontally instead of squashing
+    // its rows.
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", minWidth: 220, overflowX: "auto", fontFamily, position: "relative" }}>
       {/* Left-padded — the app-wide floating "open left sidebar" button
           (position:absolute, top:spacing.xl, width:controlSize.md,
           zIndex:31) floats over whatever's in that corner regardless of
@@ -323,7 +352,7 @@ export function DevSlateChat() {
       <div style={{
         display: "flex", alignItems: "center", gap: spacing.xs,
         padding: spacing.sm, paddingLeft: 52,
-        borderBottom: "1px solid rgba(255,255,255,0.08)", flexShrink: 0, zIndex: 1,
+        borderBottom: "2px solid rgba(255,255,255,0.08)", flexShrink: 0, zIndex: 1,
       }}>
         <span style={{
           width: 6, height: 6, borderRadius: 9999, flexShrink: 0,
@@ -332,7 +361,7 @@ export function DevSlateChat() {
       </div>
 
       {!folderName && (
-        <div style={{ padding: spacing.sm, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+        <div style={{ padding: spacing.sm, borderBottom: "2px solid rgba(255,255,255,0.08)" }}>
           {hasLocalFsSupport() ? (
             <button onClick={handleConnectFolder} style={{
               width: "100%", padding: spacing.xs, borderRadius: radius.sm, border: `1px solid ${accent}66`,
@@ -348,13 +377,16 @@ export function DevSlateChat() {
         </div>
       )}
       {folderName && (
-        <div style={{ padding: `${spacing.xxs}px ${spacing.sm}px`, fontSize: fontSize.xxs, color: neutral.textFaint, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+        <div style={{ padding: `${spacing.xxs}px ${spacing.sm}px`, fontSize: fontSize.xxs, color: neutral.textFaint, borderBottom: "2px solid rgba(255,255,255,0.08)" }}>
           Connected: {folderName}
         </div>
       )}
 
       <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
-        <div className="devslate-chat-bg" />
+        <div className="devslate-chat-bg">
+          <div className="devslate-chat-bg-dots" />
+          <div className="devslate-chat-bg-glow" />
+        </div>
         <div className="hide-scrollbar message-fade-top" style={{
           position: "relative", zIndex: 1, height: "100%", overflowY: "auto", padding: spacing.sm,
           display: "flex", flexDirection: "column-reverse", gap: spacing.sm,
@@ -391,16 +423,7 @@ export function DevSlateChat() {
         </div>
       </div>
 
-      {/* "Kind of edition" (review-vs-auto-accept) at bottom-left, model
-          selector at bottom-right — two peer per-Slate choices, JuanJo's
-          layout call 2026-09-01 (moved out of the old top-header
-          checkbox/badge). */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.xs, padding: `0 ${spacing.sm}px`, zIndex: 1 }}>
-        <EditModeSelector autoAccept={autoAccept} onChange={setAutoAccept} />
-        {conversationId && <ModelBadge conversationId={conversationId} />}
-      </div>
-
-      <div style={{ display: "flex", flexDirection: "column", gap: spacing.xs, padding: spacing.sm, borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: spacing.xs, padding: spacing.sm, borderTop: "2px solid rgba(255,255,255,0.08)" }}>
         {attachedPaths.length > 0 && (
           <div style={{ display: "flex", flexWrap: "wrap", gap: spacing.xxs }}>
             {attachedPaths.map(path => (
@@ -433,17 +456,25 @@ export function DevSlateChat() {
             onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }}
             placeholder="Ask for a change…"
             style={{
-              flex: 1, padding: spacing.xs, borderRadius: radius.sm, border: "1px solid rgba(255,255,255,0.1)",
+              flex: 1, minWidth: 0, padding: spacing.xs, borderRadius: radius.sm, border: "1px solid rgba(255,255,255,0.1)",
               background: "rgba(255,255,255,0.03)", color: neutral.textPrimary, fontSize: fontSize.sm, fontFamily,
             }}
           />
           <button onClick={() => void send()} disabled={status !== "open"} style={{
-            padding: `${spacing.xs}px ${spacing.md}px`, borderRadius: radius.sm, border: "none",
+            flexShrink: 0, padding: `${spacing.xs}px ${spacing.md}px`, borderRadius: radius.sm, border: "none",
             background: accent, color: "#08110d", cursor: status === "open" ? "pointer" : "default",
             fontSize: fontSize.sm, fontWeight: fontWeight.medium, fontFamily, opacity: status === "open" ? 1 : 0.5,
           }}>
             Send
           </button>
+        </div>
+
+        {/* "Kind of edition" (review-vs-auto-accept) at bottom-left,
+            model selector at bottom-right — both compact, both under
+            the input, JuanJo's layout call 2026-09-01. */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.xs, minWidth: 0 }}>
+          <EditModeSelector autoAccept={autoAccept} onChange={setAutoAccept} />
+          {conversationId && <ModelBadge conversationId={conversationId} />}
         </div>
       </div>
     </div>
