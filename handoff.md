@@ -30,7 +30,7 @@ Carried forward unchanged from the prior handoff (2026-08-30) — nothing below 
 - Entry flow: dedicated Project Selector screen + persistent compact project-switcher pinned above the canvas switcher. Neither built.
 - **Left sidebar = project-wide tools, right sidebar = canvas-dependent tools.** Files' placement (currently right, likely wants to move left) still unconfirmed.
 - Outer rail's full intended order: project switcher (not built) → canvas switcher (Chat/Agent Work/Dev Slate/Dashboard) → contextual middle zone → account-stuff bottom zone.
-- **Dev Slate and Agent Work have no backend at all** — confirmed again this session (clarified directly with JuanJo after a mix-up in the NAVI-backend thread about whether either maps to a real routed task; they don't, not even a name/routing decision was made for either in this session). Both canvases render placeholder-only shells; `App.tsx` comments say so explicitly ("Dev Slate's execution engine and storage aren't built").
+- **Correction, added after this was originally written**: this session's NAVI-backend thread mistakenly concluded Dev Slate and Agent Work had no backend at all. That was true *at the time* it was said, but a parallel Claude Code session (working on the NAVI repo directly, not through this frontend session) built real backends for both the same day — Agent Work's workflow/run/step data model + graph executor, and a real Dev Slate chat loop with its own `/devslate/*` routes. This navi-pwa repo's `App.tsx` still renders both as placeholder shells — that part is still accurate, the frontend hasn't been wired to either backend yet. See NAVI's own `HANDOFF.md`/`IDEAS.md` for the authoritative backend state.
 
 ## Not in scope right now (explicitly deferred)
 
