@@ -81,10 +81,16 @@ export default defineConfig(({ mode }) => {
           // or on the splash screen while the app loads.
           background_color: '#06050a',
           theme_color: '#06050a',
+          // Only 'any' (the default purpose, left unset) — these PNGs
+          // already have their own rounded corners + transparent
+          // padding baked in, which is invalid for 'maskable' (that
+          // purpose requires a full-bleed opaque square; the OS applies
+          // its own mask shape on top). Declaring a pre-rounded icon as
+          // maskable failed the install/icon check entirely on some
+          // paths (JuanJo, 2026-09-01: installed PWA showed no icon).
           icons: [
             { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },
             { src: 'icon-512.png', sizes: '512x512', type: 'image/png' },
-            { src: 'icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
           ],
         },
       }),
