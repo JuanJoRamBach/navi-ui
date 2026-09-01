@@ -19,3 +19,8 @@ logs/
 # beside it.
 /.plugins/
 /.opencode-skills/
+
+# Local-only running notes across Claude Code sessions — scratch
+# continuity, not project documentation, not meant to be committed.
+# Auto-loaded via CLAUDE.md's @IDEAS.md import.
+IDEAS.md
