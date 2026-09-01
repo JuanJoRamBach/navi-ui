@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import grapesjs, { type Editor } from "grapesjs";
 import gjsPresetWebpage from "grapesjs-preset-webpage";
 import "grapesjs/dist/css/grapes.min.css";
+import "./devslate-grapesjs-theme.css";
 import { GlobeIcon, DeviceDesktopIcon } from "@primer/octicons-react";
 import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT } from "./tokens";
 import { writeLocalFile } from "./devslateFs";
@@ -57,6 +58,15 @@ export function DevSlatePreview() {
     });
     editor.on("component:update", () => setDirty(true));
     editor.on("style:update", () => setDirty(true));
+    // Removes buttons that duplicate chrome NAVI already has elsewhere
+    // (Fullscreen — the pane's already resizable; Export/code-view —
+    // that's Monaco's job in the Code pane) via GrapesJS's own official
+    // Panels API (real button ids, not guessing at rendered title text
+    // the way a CSS selector would have to) — belt-and-suspenders with
+    // the title-based hide in devslate-grapesjs-theme.css.
+    for (const id of ["fullscreen", "export-template"]) {
+      editor.Panels.removeButton("options", id);
+    }
     editorRef.current = editor;
     return () => { editor.destroy(); editorRef.current = null; };
   }, []);
@@ -128,7 +138,7 @@ export function DevSlatePreview() {
             <div style={{ fontSize: fontSize.xs }}>{emptyMessage}</div>
           </div>
         )}
-        <div ref={containerRef} style={{ height: "100%" }} />
+        <div ref={containerRef} className="devslate-grapesjs" style={{ height: "100%" }} />
       </div>
     </div>
   );

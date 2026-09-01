@@ -1,0 +1,102 @@
+/* Re-skins GrapesJS's default (light-gray, generic page-builder) chrome
+   to match Dev Slate's own dark theme — real, stable, publicly-documented
+   .gjs-* class names, not a hack. Scoped under .devslate-grapesjs so it
+   never leaks into anything outside this one pane. Values pulled from
+   tokens.ts by hand (this file can't import a .ts module) — if
+   neutral.textPrimary/CANVAS_ACCENT.devSlate ever change, update here too.
+
+   Also hides a few default toolbar buttons that duplicate chrome NAVI
+   already has elsewhere (Fullscreen — the pane itself is already
+   resizable; Export/code-view — that's what the Code pane's Monaco view
+   is for) so they never render in the first place, not just get hidden
+   after paint. */
+
+.devslate-grapesjs .gjs-editor,
+.devslate-grapesjs .gjs-cv-canvas {
+  background: #080808;
+}
+
+.devslate-grapesjs .gjs-one-bg {
+  background-color: #0e0e10;
+}
+.devslate-grapesjs .gjs-two-color {
+  color: rgba(246, 246, 246, 0.62);
+}
+.devslate-grapesjs .gjs-three-bg {
+  background-color: oklch(65% 0.12 200);
+  color: #08110d;
+}
+.devslate-grapesjs .gjs-four-color,
+.devslate-grapesjs .gjs-four-color-h:hover {
+  color: oklch(65% 0.12 200);
+}
+
+.devslate-grapesjs .gjs-pn-panel {
+  background: #0e0e10;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+.devslate-grapesjs .gjs-pn-btn {
+  color: rgba(246, 246, 246, 0.62);
+}
+.devslate-grapesjs .gjs-pn-btn:hover {
+  color: rgba(246, 246, 246, 0.95);
+}
+.devslate-grapesjs .gjs-pn-active,
+.devslate-grapesjs .gjs-pn-btn.gjs-pn-active {
+  background-color: rgba(255, 255, 255, 0.08);
+  color: oklch(65% 0.12 200);
+}
+
+.devslate-grapesjs .gjs-block {
+  background: #0e0e10;
+  border-color: rgba(255, 255, 255, 0.08);
+  color: rgba(246, 246, 246, 0.85);
+}
+.devslate-grapesjs .gjs-block:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: oklch(65% 0.12 200);
+}
+
+.devslate-grapesjs .gjs-layer {
+  background: #0e0e10;
+  border-color: rgba(255, 255, 255, 0.06);
+  color: rgba(246, 246, 246, 0.85);
+}
+.devslate-grapesjs .gjs-layer.gjs-selected {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.devslate-grapesjs .gjs-sm-sector .gjs-sm-title {
+  background: #0e0e10;
+  color: rgba(246, 246, 246, 0.85);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+.devslate-grapesjs .gjs-field {
+  background: #050505;
+  border-color: rgba(255, 255, 255, 0.1);
+  color: rgba(246, 246, 246, 0.85);
+}
+.devslate-grapesjs .gjs-label {
+  color: rgba(246, 246, 246, 0.48);
+}
+
+.devslate-grapesjs .gjs-frame {
+  background: #fff;
+}
+
+.devslate-grapesjs .gjs-toolbar {
+  background: oklch(65% 0.12 200);
+}
+.devslate-grapesjs .gjs-toolbar-item {
+  color: #08110d;
+}
+.devslate-grapesjs .gjs-badge {
+  background: oklch(65% 0.12 200);
+  color: #08110d;
+}
+
+.devslate-grapesjs .gjs-pn-btn[title="Fullscreen"],
+.devslate-grapesjs .gjs-pn-btn[title="View code"],
+.devslate-grapesjs .gjs-pn-btn[title="Export"] {
+  display: none;
+}
