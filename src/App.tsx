@@ -113,7 +113,7 @@ function formatDayLabel(timestamp: number): string {
 // actually configured to use. See RoutingConfig/useEffect fetch below.
 type ModelEntry = { provider: string; model: string };
 interface RoutingConfig {
-  roles: { dispatcher_chat: ModelEntry | null; dispatcher_autonomous: ModelEntry | null };
+  roles: { normal_chat: ModelEntry | null; dispatcher_autonomous: ModelEntry | null };
   task_routing: Record<string, { primary: ModelEntry | null; fallback: ModelEntry[] } | null>;
   enabled_providers: string[];
 }
@@ -442,7 +442,7 @@ export default function App() {
       const ft = fairyTickRef.current;
 
       // Fully opaque clear — no trailing/ghosting from previous frames.
-      ctx.fillStyle = "#171412";
+      ctx.fillStyle = "#080808";
       ctx.fillRect(0, 0, w, h);
 
       /* Light effects (orbs, swirl, drifting particles, Research-mode
@@ -859,7 +859,7 @@ export default function App() {
       models.set(entry.model, labels);
       byProvider.set(entry.provider, models);
     };
-    add(routingConfig.roles.dispatcher_chat, "Normal chat");
+    add(routingConfig.roles.normal_chat, "Normal chat");
     add(routingConfig.roles.dispatcher_autonomous, "Autonomous jobs");
     for (const [cmd, routing] of Object.entries(routingConfig.task_routing)) {
       if (!routing?.primary) continue;
@@ -874,12 +874,12 @@ export default function App() {
   }, [routingConfig]);
 
   // "Routing & fallbacks" chains, one per command that has a primary
-  // configured — plus Normal Chat, which comes from the dispatcher_chat
+  // configured — plus Normal Chat, which comes from the normal_chat
   // role rather than task_routing.
   const routingChains = useMemo(() => {
     if (!routingConfig) return [];
     const chains: { label: string; chain: string[]; dotColor?: string }[] = [];
-    const chat = routingConfig.roles.dispatcher_chat;
+    const chat = routingConfig.roles.normal_chat;
     if (chat) chains.push({ label: "Normal Chat", chain: [`${chat.provider} · ${chat.model}`], dotColor: MODE_THEME.normal.dot });
     for (const [cmd, routing] of Object.entries(routingConfig.task_routing)) {
       if (!routing?.primary) continue;
@@ -932,6 +932,24 @@ export default function App() {
   // now — the other three canvases don't exist yet, shown disabled.
   type CanvasKey = "chat" | "agentWork" | "devSlate" | "dashboard";
   const [activeCanvas, setActiveCanvas] = useState<CanvasKey>("chat");
+  // Three-tier fixed elevation stack, JuanJo's final call 2026-08-31 —
+  // no zone-hue-following anywhere in chrome, full stop. Darkest for
+  // rail/left sidebar (receding, peripheral), mid for the canvas itself
+  // (where the actual work happens), right sidebar fused to the canvas
+  // tier rather than getting its own color (matches how every source
+  // reviewed tonight agreed it should work — right sidebar is
+  // canvas-local, not a separate zone). A third, lighter tier exists
+  // for genuinely interactive surfaces (inputs, popovers) — not wired
+  // in everywhere yet, applied where it clearly fits.
+  const railBg = "#020202";
+  const canvasBg = "#080808";
+  const sidebarBg = railBg;
+  // Neutral now, not zone-hue-following — the one piece of tonight's
+  // original color system that's gone from chrome entirely. Content
+  // (NAVI's own reply bubbles) keeps its per-mode color via theme.glow
+  // below; this is only for generic UI chrome (hamburger, panel
+  // open-triggers), which should never have carried mode/zone color.
+  const neutralGlow = "rgba(255, 255, 255, 0.14)";
   // Compact chat popup, Agent Work canvas only — bottom-right, matches
   // the near-universal convention for an ambient assistant widget
   // (researched: "90% of chatbots sit bottom-right"). Deliberately NOT
@@ -1049,7 +1067,6 @@ export default function App() {
       "--left-panel-width", isDesktopSidebar && leftPanelOpen ? "var(--sidebar-width)" : "0px"
     );
   }, [isDesktopSidebar, leftPanelOpen]);
-  const [rightActiveTab, setRightActiveTab] = useState<"sources" | "files">("sources");
   // Local file placement (Windows-Explorer-style drag/place, not the
   // deferred cross-user transfer — see the file-transfer memory).
   // Vertical drill-in instead of a horizontal column browser or an
@@ -1109,15 +1126,37 @@ export default function App() {
       return next;
     });
   }, [filePath]);
+  // Removes a top-level (root) directory only — unmounting a root is a
+  // distinct action from deleting a regular subfolder (not built; out
+  // of scope here), so this only ever touches fileTree's own array.
+  const removeRootDirectory = useCallback((name: string) => {
+    setFileTree(tree => tree.filter(n => n.name !== name));
+  }, []);
   const [addingDirectory, setAddingDirectory] = useState(false);
   const [newDirectoryName, setNewDirectoryName] = useState("");
-  const [fileSearchOpen, setFileSearchOpen] = useState(false);
+  // Search is always-rendered now (JuanJo, 2026-08-31 — the toggle
+  // version meant an extra click before every search, and closing it
+  // threw the query away). Scope toggle replaces the open/close
+  // affordance: "this folder" (default, matches prior behavior) vs.
+  // "all directories" (recursive, across every mounted root).
   const [fileSearchQuery, setFileSearchQuery] = useState("");
+  const [fileSearchScope, setFileSearchScope] = useState<"folder" | "all">("folder");
+  const flattenTree = useCallback((nodes: FileNode[], path: string[] = []): { node: FileNode; path: string[] }[] => {
+    let out: { node: FileNode; path: string[] }[] = [];
+    for (const n of nodes) {
+      out.push({ node: n, path });
+      if (n.type === "folder" && n.children) out = out.concat(flattenTree(n.children, [...path, n.name]));
+    }
+    return out;
+  }, []);
   const visibleFolderContents = useMemo(() => {
-    if (!fileSearchQuery.trim()) return currentFolder;
     const q = fileSearchQuery.trim().toLowerCase();
-    return currentFolder.filter(n => n.name.toLowerCase().includes(q));
-  }, [currentFolder, fileSearchQuery]);
+    if (!q) return currentFolder.map(node => ({ node, path: filePath }));
+    if (fileSearchScope === "folder") {
+      return currentFolder.filter(n => n.name.toLowerCase().includes(q)).map(node => ({ node, path: filePath }));
+    }
+    return flattenTree(fileTree).filter(({ node }) => node.name.toLowerCase().includes(q));
+  }, [currentFolder, fileSearchQuery, fileSearchScope, fileTree, flattenTree, filePath]);
 
   // Document viewer — lives at the right-PANEL level, not inside the
   // Files tab: it's the one "window" that coexists alongside whatever
@@ -1200,7 +1239,7 @@ export default function App() {
   // where it came from, reusing the same /command flag convention
   // Activity already uses (parseCommand/StoredMessage.command) rather
   // than inventing a separate labeling scheme.
-  const [leftPanelTab, setLeftPanelTab] = useState<"activity" | "knowledge">("activity");
+  const [leftPanelTab, setLeftPanelTab] = useState<"activity" | "knowledge" | "files">("activity");
   const MOCK_KNOWLEDGE = [
     { title: "Local-first sync — synthesis", note: "from 3 accepted sources", origin: "search" as const },
     { title: "CRDT tradeoffs — synthesis", note: "from 2 accepted sources", origin: "search" as const },
@@ -1539,14 +1578,14 @@ export default function App() {
   const [modelOverride, setModelOverride] = useState<Record<ChatMode, { provider: string; model: string } | null>>({
     normal: null, research: null, brainstorm: null,
   });
-  // The real auto-routed default — the same dispatcher_chat model
-  // answers every mode's free-form chat; only the system prompt and
-  // allowed tools change per mode (see dispatcher/modes/ + dispatcher/
-  // chat.py in NAVI). A typed /research command still uses its own
-  // task_routing model — this pill is about what answers your actual
-  // chat messages, not the slash commands.
+  // The real auto-routed default — the same normal_chat model answers
+  // every mode's free-form chat; only the system prompt and allowed
+  // tools change per mode (see dispatcher/modes/ + dispatcher/chat.py in
+  // NAVI). A typed /research command still uses its own task_routing
+  // model — this pill is about what answers your actual chat messages,
+  // not the slash commands.
   const autoModelFor = useCallback((_mode: ChatMode): ModelEntry | null => {
-    return routingConfig?.roles.dispatcher_chat ?? null;
+    return routingConfig?.roles.normal_chat ?? null;
   }, [routingConfig]);
   // The model actually in effect for the current mode — a manual pick if
   // one exists, otherwise the real auto-routed default (or a loading
@@ -1799,7 +1838,7 @@ export default function App() {
   );
 
   return (
-    <div style={{ width: "100vw", height: "100vh", display: "flex", flexDirection: "column", background: "#171412" }}>
+    <div style={{ width: "100vw", height: "100vh", display: "flex", flexDirection: "column", background: "#080808" }}>
       {/* Wraps everything the app already had — the mobile bottom bar
           below is a normal flex sibling to this, not a fixed overlay,
           so flexbox reserves its height automatically (this wrapper
@@ -1820,7 +1859,11 @@ export default function App() {
           by --outer-rail-width (see index.css). */}
       {isDesktopSidebar && (
         <div className={`outer-rail hide-scrollbar${outerRailCollapsed ? " collapsed" : ""}`} style={{
-          background: "rgba(4, 5, 10, 0.95)",
+          // Rail tier — same value as sidebarBg/railBg above, just
+          // written literally here (this div renders before that const
+          // is declared in the component body; safe either way since
+          // it's a fixed value, but kept explicit for clarity).
+          background: "#020202",
           borderRight: "1px solid rgba(255,255,255,0.08)",
           width: outerRailWidth,
         }}>
@@ -2147,8 +2190,8 @@ export default function App() {
       {(!isDesktopSidebar || leftPanelOpen) && (
       <div ref={sidebarRef} className={`sidebar${sidebarOpen ? " open" : ""}`} style={{
         display: "flex", flexDirection: "column",
-        background: "rgba(6, 8, 14, 0.92)",
-        borderRight: `1px solid ${theme.bubbleBorder}`,
+        background: sidebarBg,
+        borderRight: "1px solid rgba(255,255,255,0.08)",
         fontFamily,
       }}>
         {/* Horizontal resize handle — desktop only (see .sidebar-toggle-
@@ -2171,55 +2214,311 @@ export default function App() {
         {/* Just Activity/Knowledge now — Menu (conversation/routing/
             usage/settings/notifications) relocated to the outer rail.
             Close button lives here on both mobile (closes the drawer)
-            and desktop (hides the panel entirely — see leftPanelOpen). */}
-        <div style={{ display: "flex", justifyContent: "flex-end", padding: `${spacing.sm}px ${spacing.sm}px 0` }}>
-            <button
-              className={isDesktopSidebar ? undefined : "sidebar-toggle"}
-              aria-label="Close sidebar"
-              onClick={() => (isDesktopSidebar ? setLeftPanelOpen(false) : setSidebarOpen(false))}
-              style={{
-                display: "flex",
-                alignItems: "center", justifyContent: "center",
-                width: controlSize.sm, height: controlSize.sm,
-                borderRadius: radius.xs, border: "none", background: "transparent",
-                color: neutral.textMuted, cursor: "pointer",
-              }}
-            >
-              <XIcon size={iconSize.sm} />
-            </button>
-        </div>
+            and desktop (hides the panel entirely — see leftPanelOpen).
+            Tabs share this same row now (2026-08-31, JuanJo's call) —
+            they used to sit in their own padded content div below,
+            which left a dead empty gap between the close button and the
+            tabs above the actual content. One row, tabs left/close right. */}
         <div style={{
-          padding: `${spacing.lg}px`,
-          flex: 1, minHeight: 0, overflowY: "auto",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: `${spacing.lg}px ${spacing.sm}px ${spacing.md}px ${spacing.lg}px`,
+          borderBottom: "1px solid rgba(255,255,255,0.08)",
         }}>
-          <div style={{ display: "flex", alignItems: "flex-end", gap: sidebarTab.gap, marginBottom: spacing.sm, marginLeft: -spacing.sm }}>
-            {(["activity", "knowledge"] as const).map(tab => {
+          {/* minWidth:0 lets this row actually shrink below its content
+              size instead of pushing the close button off-screen when
+              the sidebar is narrowed — the failure mode JuanJo hit
+              (2026-08-31) once a 3rd tab (Files) made the strip wider.
+              Inactive tabs collapse to icon-only (title attr = hover
+              tooltip) for the same reason: text labels don't shrink
+              gracefully, icons do, and a 3+ tab strip needs real room
+              to breathe at narrow widths regardless of how many tools
+              get added later. */}
+          <div style={{ display: "flex", alignItems: "flex-end", gap: sidebarTab.gap, minWidth: 0, overflow: "hidden" }}>
+            {(["activity", "knowledge", "files"] as const).map(tab => {
               const active = leftPanelTab === tab;
+              const label = tab === "activity" ? "ACTIVITY" : tab === "knowledge" ? "KNOWLEDGE" : "FILES";
+              const Icon = tab === "activity" ? PulseIcon : tab === "knowledge" ? BookIcon : FileDirectoryIcon;
               return (
                 <button
                   key={tab}
                   onClick={() => setLeftPanelTab(tab)}
+                  title={label}
+                  aria-label={label}
                   className={`sidebar-tab${active ? " sidebar-tab-active" : ""}`}
                   style={{
-                    padding: `${sidebarTab.paddingV}px ${sidebarTab.paddingH}px`,
+                    display: "flex", alignItems: "center", gap: 5, flexShrink: 0,
+                    padding: active ? `${sidebarTab.paddingV}px ${sidebarTab.paddingH}px` : 0,
+                    width: active ? undefined : sidebarTab.height, justifyContent: "center",
                     height: sidebarTab.height, boxSizing: "border-box",
-                    borderRadius: `${sidebarTab.radius}px ${sidebarTab.radius}px 0 0`,
+                    borderRadius: `${sidebarTab.radius}px`,
                     cursor: "pointer",
                     fontSize: sidebarTab.fontSize, fontWeight: sidebarTab.fontWeight, fontFamily,
                     letterSpacing: "0.04em",
                     color: active ? sidebarTab.activeColor : sidebarTab.inactiveColor,
                     background: active ? sidebarTab.activeBg : "transparent",
                     border: "none",
-                    borderBottom: active
-                      ? `${sidebarTab.underlineThickness}px solid ${sidebarTab.underlineColor}`
-                      : `${sidebarTab.underlineThickness}px solid transparent`,
                   }}
                 >
-                  {tab === "activity" ? "ACTIVITY" : "KNOWLEDGE"}
+                  <Icon size={13} />
+                  {active && label}
                 </button>
               );
             })}
           </div>
+          <button
+            className={isDesktopSidebar ? undefined : "sidebar-toggle"}
+            aria-label="Close sidebar"
+            onClick={() => (isDesktopSidebar ? setLeftPanelOpen(false) : setSidebarOpen(false))}
+            style={{
+              display: "flex", flexShrink: 0,
+              alignItems: "center", justifyContent: "center",
+              width: controlSize.sm, height: controlSize.sm,
+              borderRadius: radius.xs, border: "none", background: "transparent",
+              color: neutral.textMuted, cursor: "pointer",
+            }}
+          >
+            <XIcon size={iconSize.sm} />
+          </button>
+        </div>
+        {leftPanelTab === "files" ? (
+        <div
+          onDragOver={e => { e.preventDefault(); setFileDragOver(true); }}
+          onDragLeave={() => setFileDragOver(false)}
+          onDrop={e => {
+            e.preventDefault();
+            setFileDragOver(false);
+            if (e.dataTransfer.files.length) addRealFiles(e.dataTransfer.files);
+          }}
+          style={{
+            display: "flex", flexDirection: "column", flex: 1, minHeight: 0,
+            outline: fileDragOver ? `2px dashed ${sidebarBreadcrumb.ancestorColor}` : "none",
+            outlineOffset: -2,
+          }}
+        >
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.sm,
+            padding: `${spacing.sm}px ${spacing.lg}px`, flexShrink: 0,
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap", minWidth: 0 }}>
+              <button
+                onClick={() => setFilePath(p => p.slice(0, -1))}
+                disabled={filePath.length === 0}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  width: 20, height: 20, borderRadius: radius.xs, border: "none",
+                  background: "transparent", cursor: filePath.length ? "pointer" : "default",
+                  color: filePath.length ? sidebarBreadcrumb.ancestorColor : neutral.textFaint,
+                  marginRight: 2,
+                }}
+              >
+                <ChevronLeftIcon size={12} />
+              </button>
+              <span
+                onClick={() => setFilePath([])}
+                className={filePath.length ? "sidebar-breadcrumb-link" : undefined}
+                style={{
+                  fontSize: sidebarBreadcrumb.fontSize,
+                  fontWeight: filePath.length ? fontWeight.regular : sidebarBreadcrumb.currentWeight,
+                  color: filePath.length ? sidebarBreadcrumb.ancestorColor : sidebarBreadcrumb.currentColor,
+                  cursor: filePath.length ? "pointer" : "default",
+                }}
+              >
+                Home
+              </span>
+              {filePath.map((segment, i) => {
+                const isCurrent = i === filePath.length - 1;
+                return (
+                  <span key={i} style={{ display: "flex", alignItems: "center", gap: sidebarBreadcrumb.gap }}>
+                    <span style={{ fontSize: sidebarBreadcrumb.fontSize, color: sidebarBreadcrumb.separatorColor }}>/</span>
+                    <span
+                      onClick={() => !isCurrent && setFilePath(filePath.slice(0, i + 1))}
+                      className={isCurrent ? undefined : "sidebar-breadcrumb-link"}
+                      style={{
+                        fontSize: sidebarBreadcrumb.fontSize,
+                        cursor: isCurrent ? "default" : "pointer",
+                        fontWeight: isCurrent ? sidebarBreadcrumb.currentWeight : fontWeight.regular,
+                        color: isCurrent ? sidebarBreadcrumb.currentColor : sidebarBreadcrumb.ancestorColor,
+                      }}
+                    >
+                      {segment}
+                    </span>
+                  </span>
+                );
+              })}
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
+              <button
+                aria-label={filePath.length === 0 ? "Add directory" : "New folder"}
+                title={filePath.length === 0 ? "Add directory (new root)" : "New folder"}
+                onClick={() => { setAddingDirectory(o => !o); setNewDirectoryName(""); }}
+                style={{
+                  width: 22, height: 22, borderRadius: radius.xs,
+                  border: "none", cursor: "pointer",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  background: addingDirectory ? sidebarTab.activeBg : "transparent",
+                  color: addingDirectory ? sidebarBreadcrumb.ancestorColor : neutral.textMuted,
+                }}
+              >
+                <PlusIcon size={13} />
+              </button>
+              <button
+                aria-label="Import a real file"
+                title="Import a real file"
+                onClick={() => importFileInputRef.current?.click()}
+                style={{
+                  width: 22, height: 22, borderRadius: radius.xs,
+                  border: "none", cursor: "pointer", background: "transparent", color: neutral.textMuted,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}
+              >
+                <UploadIcon size={13} />
+              </button>
+              <input
+                ref={importFileInputRef}
+                type="file"
+                multiple
+                onChange={e => { if (e.target.files?.length) addRealFiles(e.target.files); e.target.value = ""; }}
+                style={{ display: "none" }}
+              />
+            </div>
+          </div>
+
+          {/* Always-open search — replaces the old toggle (JuanJo,
+              2026-08-31: an extra click before every search, and closing
+              it discarded the query, was the exact complaint). Scope
+              chips pick "this folder" (default) vs. "all directories" —
+              the latter walks every mounted root recursively, needed now
+              that Files supports more than one root. */}
+          <div style={{ padding: `0 ${spacing.lg}px ${spacing.sm}px`, display: "flex", flexDirection: "column", gap: spacing.xs, flexShrink: 0 }}>
+            <div style={{ position: "relative" }}>
+              <input
+                placeholder="Search files…"
+                value={fileSearchQuery}
+                onChange={e => setFileSearchQuery(e.target.value)}
+                style={{
+                  width: "100%", background: neutral.surface, border: "1px solid rgba(255,255,255,0.12)",
+                  borderRadius: radius.xs + 2, outline: "none", color: neutral.textPrimary,
+                  fontSize: 12.5, padding: "5px 8px 5px 26px", fontFamily,
+                }}
+              />
+              <span style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", pointerEvents: "none", display: "flex" }}>
+                <SearchIcon size={12} fill={neutral.textFaint} />
+              </span>
+            </div>
+            <div style={{ display: "flex", gap: 4 }}>
+              {(["folder", "all"] as const).map(scope => {
+                const active = fileSearchScope === scope;
+                return (
+                  <button
+                    key={scope}
+                    onClick={() => setFileSearchScope(scope)}
+                    style={{
+                      padding: "2px 7px", borderRadius: radius.xs, border: "none", cursor: "pointer",
+                      fontSize: 10.5, fontFamily, letterSpacing: "0.03em",
+                      color: active ? sidebarTab.activeColor : sidebarTab.inactiveColor,
+                      background: active ? sidebarTab.activeBg : "transparent",
+                    }}
+                  >
+                    {scope === "folder" ? "THIS FOLDER" : "ALL DIRECTORIES"}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {addingDirectory && (
+            <div style={{ padding: `0 ${spacing.lg}px ${spacing.sm}px`, display: "flex", gap: spacing.xs, flexShrink: 0 }}>
+              <input
+                autoFocus
+                placeholder={filePath.length === 0 ? "New root directory name…" : "New folder name…"}
+                value={newDirectoryName}
+                onChange={e => setNewDirectoryName(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === "Enter" && newDirectoryName.trim()) {
+                    addDirectory(newDirectoryName);
+                    setAddingDirectory(false);
+                  }
+                  if (e.key === "Escape") setAddingDirectory(false);
+                }}
+                style={{
+                  flex: 1, background: neutral.surface, border: "1px solid rgba(255,255,255,0.12)",
+                  borderRadius: radius.xs + 2, outline: "none", color: neutral.textPrimary,
+                  fontSize: 12.5, padding: "5px 8px", fontFamily,
+                }}
+              />
+            </div>
+          )}
+
+          <div className="hide-scrollbar" style={{
+            flex: 1, overflowY: "auto", padding: `0 ${spacing.sm}px ${spacing.sm}px`,
+            display: "flex", flexDirection: "column", gap: 1,
+          }}>
+            {visibleFolderContents.length === 0 ? (
+              <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted, padding: `${spacing.sm}px ${spacing.sm}px` }}>
+                {fileSearchQuery ? "No matches." : "Empty folder."}
+              </div>
+            ) : visibleFolderContents.map(({ node, path }) => {
+              const isRoot = path.length === 0 && !fileSearchQuery;
+              const showPathHint = fileSearchScope === "all" && fileSearchQuery && path.length > 0;
+              return (
+                <div
+                  key={`${path.join("/")}/${node.name}`}
+                  onClick={() => {
+                    if (node.type === "folder") { setFilePath([...path, node.name]); setFileSearchQuery(""); }
+                    else openFile(node);
+                  }}
+                  className="sidebar-row"
+                  style={{
+                    display: "flex", alignItems: "center", gap: sidebarRow.gap,
+                    padding: `${sidebarRow.paddingV}px ${sidebarRow.paddingH}px`, borderRadius: sidebarRow.radius,
+                    cursor: "pointer",
+                  }}
+                >
+                  {node.type === "folder"
+                    ? isRoot
+                      ? <PinIcon size={sidebarRow.iconSize} fill={neutral.textMuted} />
+                      : <FileDirectoryIcon size={sidebarRow.iconSize} fill={neutral.textMuted} />
+                    : <FileIcon size={sidebarRow.iconSize} fill={neutral.textFaint} />}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{
+                      fontSize: 12.5, color: node.type === "folder" ? neutral.textPrimary : neutral.textMuted,
+                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                    }}>
+                      {node.name}
+                    </div>
+                    {showPathHint && (
+                      <div style={{ fontSize: 10, color: neutral.textFaint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        Home/{path.join("/")}
+                      </div>
+                    )}
+                  </div>
+                  {isRoot && (
+                    <button
+                      aria-label={`Remove ${node.name} directory`}
+                      title="Remove directory"
+                      onClick={e => { e.stopPropagation(); removeRootDirectory(node.name); }}
+                      className="sidebar-row-remove"
+                      style={{
+                        width: 18, height: 18, borderRadius: radius.xs, border: "none",
+                        background: "transparent", color: neutral.textFaint, cursor: "pointer",
+                        display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                      }}
+                    >
+                      <XIcon size={11} />
+                    </button>
+                  )}
+                  {node.type === "folder" && <ChevronRightIcon size={12} />}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        ) : (
+        <div style={{
+          padding: `0 ${spacing.lg}px ${spacing.lg}px`,
+          flex: 1, minHeight: 0, overflowY: "auto",
+        }}>
           {leftPanelTab === "knowledge" ? (
             MOCK_KNOWLEDGE.length === 0 ? (
               <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted, marginTop: spacing.sm }}>
@@ -2228,7 +2527,7 @@ export default function App() {
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: spacing.sm, marginTop: spacing.sm }}>
                 {MOCK_KNOWLEDGE.map(item => (
-                  <div key={item.title} style={{ padding: `${spacing.xs}px ${spacing.sm}px`, borderRadius: radius.sm, background: "rgba(255,255,255,0.03)" }}>
+                  <div key={item.title} style={{ padding: `${spacing.xs}px ${spacing.sm}px`, borderRadius: radius.sm, background: "rgba(255,255,255,0.06)" }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.xs }}>
                       <span style={{ fontSize: fontSize.xs, color: neutral.textPrimary }}>{item.title}</span>
                       <span style={{
@@ -2304,6 +2603,7 @@ export default function App() {
             </div>
           )}
         </div>
+        )}
       </div>
       )}
 
@@ -2330,11 +2630,11 @@ export default function App() {
           alignItems: "center", justifyContent: "center",
           width: controlSize.md, height: controlSize.md,
           borderRadius: radius.sm,
-          border: `1px solid ${theme.bubbleBorder}`,
-          background: theme.bubbleBg,
+          border: "1px solid rgba(255,255,255,0.12)",
+          background: "rgba(255,255,255,0.06)",
           color: neutral.textPrimary,
           cursor: "pointer",
-          boxShadow: `0 2px 14px rgba(0,0,0,0.35), 0 0 10px ${theme.glow}`,
+          boxShadow: `0 2px 14px rgba(0,0,0,0.35), 0 0 10px ${neutralGlow}`,
         }}
       >
         <ThreeBarsIcon size={iconSize.sm} />
@@ -2354,11 +2654,11 @@ export default function App() {
             display: "flex", alignItems: "center", justifyContent: "center",
             width: controlSize.md, height: controlSize.md,
             borderRadius: radius.sm,
-            border: `1px solid ${theme.bubbleBorder}`,
-            background: theme.bubbleBg,
+            border: "1px solid rgba(255,255,255,0.12)",
+            background: "rgba(255,255,255,0.06)",
             color: neutral.textPrimary,
             cursor: "pointer",
-            boxShadow: `0 2px 14px rgba(0,0,0,0.35), 0 0 10px ${theme.glow}`,
+            boxShadow: `0 2px 14px rgba(0,0,0,0.35), 0 0 10px ${neutralGlow}`,
           }}
         >
           <ThreeBarsIcon size={iconSize.sm} />
@@ -2384,11 +2684,11 @@ export default function App() {
             display: "flex", alignItems: "center", justifyContent: "center",
             width: controlSize.md, height: controlSize.md,
             borderRadius: radius.sm,
-            border: `1px solid ${theme.bubbleBorder}`,
-            background: theme.bubbleBg,
+            border: "1px solid rgba(255,255,255,0.12)",
+            background: "rgba(255,255,255,0.06)",
             color: neutral.textPrimary,
             cursor: "pointer",
-            boxShadow: `0 2px 14px rgba(0,0,0,0.35), 0 0 10px ${theme.glow}`,
+            boxShadow: `0 2px 14px rgba(0,0,0,0.35), 0 0 10px ${neutralGlow}`,
           }}
         >
           <SearchIcon size={iconSize.sm} />
@@ -2416,8 +2716,12 @@ export default function App() {
           desktop, so mobile naturally gets drawer behavior for free). */}
       {rightPanelOpen && (
         <div className="right-panel hide-scrollbar" style={{
-          background: "rgba(6, 8, 14, 0.92)",
-          borderLeft: `1px solid ${theme.bubbleBorder}`,
+          // Canvas tier, not rail tier — the right sidebar fuses with
+          // the canvas rather than getting its own color (JuanJo's call
+          // 2026-08-31, matching what every source reviewed tonight
+          // agreed on: right sidebar is canvas-local, not a separate zone).
+          background: canvasBg,
+          borderLeft: "1px solid rgba(255,255,255,0.08)",
           fontFamily,
         }}>
           {/* Horizontal resize — same mechanics as the left sidebar's
@@ -2459,7 +2763,7 @@ export default function App() {
                   style={{
                     display: "flex", alignItems: "center", gap: 4,
                     padding: `4px ${spacing.xs}px`, borderRadius: radius.xs,
-                    border: `1px solid ${openPanel === "connections" ? theme.bubbleBorder : "rgba(255,255,255,0.12)"}`,
+                    border: "1px solid rgba(255,255,255,0.12)",
                     background: openPanel === "connections" ? "rgba(255,255,255,0.06)" : "transparent",
                     color: neutral.textMuted, cursor: "pointer", fontSize: fontSize.xxs, fontFamily,
                   }}
@@ -2469,35 +2773,16 @@ export default function App() {
                 </button>
               </div>
             ) : (
-            <div style={{ display: "flex", alignItems: "flex-end", gap: sidebarTab.gap }}>
-              {(["sources", "files"] as const).map(tab => {
-                const active = rightActiveTab === tab;
-                return (
-                  <button
-                    key={tab}
-                    onClick={() => setRightActiveTab(tab)}
-                    className={`sidebar-tab${active ? " sidebar-tab-active" : ""}`}
-                    style={{
-                      display: "flex", alignItems: "center", gap: spacing.xs,
-                      padding: `${sidebarTab.paddingV}px ${sidebarTab.paddingH}px`,
-                      height: sidebarTab.height, boxSizing: "border-box",
-                      borderRadius: `${sidebarTab.radius}px ${sidebarTab.radius}px 0 0`,
-                      fontSize: sidebarTab.fontSize, cursor: "pointer",
-                      fontFamily, fontWeight: sidebarTab.fontWeight,
-                      color: active ? sidebarTab.activeColor : sidebarTab.inactiveColor,
-                      background: active ? sidebarTab.activeBg : "transparent",
-                      border: "none",
-                      borderBottom: active
-                        ? `${sidebarTab.underlineThickness}px solid ${sidebarTab.underlineColor}`
-                        : `${sidebarTab.underlineThickness}px solid transparent`,
-                    }}
-                  >
-                    {tab === "sources" ? <SearchIcon size={12} /> : <FileDirectoryIcon size={12} />}
-                    {tab === "sources" ? "Sources" : "Files"}
-                  </button>
-                );
-              })}
-            </div>
+            // Files moved to the left sidebar (2026-08-31) — Sources is
+            // now the right panel's only tool, so this is a plain label
+            // like Agent Work's above, not a tab strip with one tab.
+            <span style={{
+              padding: `${sidebarTab.paddingV}px ${sidebarTab.paddingH}px`,
+              fontSize: sidebarTab.fontSize, fontWeight: sidebarTab.fontWeight, fontFamily,
+              letterSpacing: "0.04em", color: sidebarTab.activeColor,
+            }}>
+              SOURCES
+            </span>
             )}
             <button
               aria-label="Close sources panel"
@@ -2538,19 +2823,18 @@ export default function App() {
           <Group orientation="vertical" style={{ flex: 1, minHeight: 0 }}>
           <Panel id="right-tab-content" defaultSize={260} minSize={100}>
           <div className="hide-scrollbar" style={{ height: "100%", overflowY: "auto", display: "flex", flexDirection: "column" }}>
-          {rightActiveTab === "sources" && (
           <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
               <div style={{ padding: `${spacing.md}px ${spacing.lg}px 0` }}>
                 <div style={{
                   display: "flex", flexWrap: "wrap", gap: 5, alignItems: "center",
                   padding: 6, borderRadius: radius.lg + 2,
-                  background: neutral.surface, border: `1px solid ${theme.bubbleBorder}`,
+                  background: neutral.surface, border: "1px solid rgba(255,255,255,0.12)",
                 }}>
                   {sourceChips.map((chip, i) => (
                     <div key={chip} style={{
                       display: "flex", alignItems: "center", gap: 4,
                       padding: "3px 5px 3px 8px", borderRadius: radius.xs + 3,
-                      background: theme.bubbleBg, border: `1px solid ${theme.bubbleBorder}`,
+                      background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)",
                       color: neutral.textPrimary, fontSize: 12,
                     }}>
                       {chip}
@@ -2588,9 +2872,9 @@ export default function App() {
                     fontWeight: fontWeight.medium, fontFamily,
                     cursor: sourceChips.length ? "pointer" : "not-allowed",
                     color: sourceChips.length ? neutral.textPrimary : neutral.textFaint,
-                    background: sourceChips.length ? theme.bubbleBg : "rgba(4,8,18,0.3)",
-                    border: sourceChips.length ? `1px solid ${neutral.dotNeutral}` : "1px solid rgba(255,255,255,0.1)",
-                    boxShadow: sourceChips.length ? `0 2px 16px rgba(0,0,0,0.4), 0 0 8px ${theme.glow}` : "none",
+                    background: sourceChips.length ? "rgba(255,255,255,0.1)" : "rgba(4,8,18,0.3)",
+                    border: sourceChips.length ? "1px solid rgba(255,255,255,0.18)" : "1px solid rgba(255,255,255,0.1)",
+                    boxShadow: "none",
                   }}
                 >
                   Batch Dispatch
@@ -2621,7 +2905,7 @@ export default function App() {
                         return (
                           <div key={s.title} style={{
                             display: "flex", alignItems: "center", gap: spacing.sm,
-                            padding: "7px 8px", borderRadius: radius.xs + 1, background: "rgba(255,255,255,0.03)",
+                            padding: "7px 8px", borderRadius: radius.xs + 1, background: "rgba(255,255,255,0.06)",
                           }}>
                             <div
                               onClick={() => handleSourceTickAttempt(i, checked)}
@@ -2670,212 +2954,7 @@ export default function App() {
                 </div>
               </div>
             </div>
-          )}
 
-          {/* FILES tab — vertical drill-in: clicking a folder swaps the
-              whole view to that folder's contents at full column width
-              instead of indenting a tree, since a narrow sidebar can't
-              afford indentation without squeezing names down to a
-              sliver. Breadcrumb row is the way back out. Mock tree —
-              real filesystem access is dispatcher/backend work. */}
-          {rightActiveTab === "files" && (
-            <div
-              onDragOver={e => { e.preventDefault(); setFileDragOver(true); }}
-              onDragLeave={() => setFileDragOver(false)}
-              onDrop={e => {
-                e.preventDefault();
-                setFileDragOver(false);
-                if (e.dataTransfer.files.length) addRealFiles(e.dataTransfer.files);
-              }}
-              style={{
-                display: "flex", flexDirection: "column", flex: 1, minHeight: 0,
-                outline: fileDragOver ? `2px dashed ${sidebarBreadcrumb.ancestorColor}` : "none",
-                outlineOffset: -2,
-              }}
-            >
-              <div style={{
-                display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.sm,
-                padding: `${spacing.sm}px ${spacing.lg}px`, flexShrink: 0,
-              }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap", minWidth: 0 }}>
-                {/* Ancestors get real link affordance (accent color,
-                    underline on hover — see .sidebar-breadcrumb-link)
-                    so they read as clickable at a glance, not just gray
-                    label text indistinguishable from the current
-                    location. The current segment is the opposite:
-                    bold/full-brightness so "where am I" is obvious, but
-                    never link-styled — it's not a click target. */}
-                <button
-                  onClick={() => setFilePath(p => p.slice(0, -1))}
-                  disabled={filePath.length === 0}
-                  style={{
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    width: 20, height: 20, borderRadius: radius.xs, border: "none",
-                    background: "transparent", cursor: filePath.length ? "pointer" : "default",
-                    color: filePath.length ? sidebarBreadcrumb.ancestorColor : neutral.textFaint,
-                    marginRight: 2,
-                  }}
-                >
-                  <ChevronLeftIcon size={12} />
-                </button>
-                <span
-                  onClick={() => setFilePath([])}
-                  className={filePath.length ? "sidebar-breadcrumb-link" : undefined}
-                  style={{
-                    fontSize: sidebarBreadcrumb.fontSize,
-                    fontWeight: filePath.length ? fontWeight.regular : sidebarBreadcrumb.currentWeight,
-                    color: filePath.length ? sidebarBreadcrumb.ancestorColor : sidebarBreadcrumb.currentColor,
-                    cursor: filePath.length ? "pointer" : "default",
-                  }}
-                >
-                  Home
-                </span>
-                {filePath.map((segment, i) => {
-                  const isCurrent = i === filePath.length - 1;
-                  return (
-                    <span key={i} style={{ display: "flex", alignItems: "center", gap: sidebarBreadcrumb.gap }}>
-                      <span style={{ fontSize: sidebarBreadcrumb.fontSize, color: sidebarBreadcrumb.separatorColor }}>/</span>
-                      <span
-                        onClick={() => !isCurrent && setFilePath(filePath.slice(0, i + 1))}
-                        className={isCurrent ? undefined : "sidebar-breadcrumb-link"}
-                        style={{
-                          fontSize: sidebarBreadcrumb.fontSize,
-                          cursor: isCurrent ? "default" : "pointer",
-                          fontWeight: isCurrent ? sidebarBreadcrumb.currentWeight : fontWeight.regular,
-                          color: isCurrent ? sidebarBreadcrumb.currentColor : sidebarBreadcrumb.ancestorColor,
-                        }}
-                      >
-                        {segment}
-                      </span>
-                    </span>
-                  );
-                })}
-              </div>
-
-                <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
-                  <button
-                    aria-label="Search in directory"
-                    title="Search in directory"
-                    onClick={() => setFileSearchOpen(o => { const next = !o; if (!next) setFileSearchQuery(""); return next; })}
-                    style={{
-                      width: 22, height: 22, borderRadius: radius.xs,
-                      border: "none", cursor: "pointer",
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      background: fileSearchOpen ? sidebarTab.activeBg : "transparent",
-                      color: fileSearchOpen ? sidebarBreadcrumb.ancestorColor : neutral.textMuted,
-                    }}
-                  >
-                    <SearchIcon size={13} />
-                  </button>
-                  <button
-                    aria-label="Add directory"
-                    title="Add directory"
-                    onClick={() => { setAddingDirectory(o => !o); setNewDirectoryName(""); }}
-                    style={{
-                      width: 22, height: 22, borderRadius: radius.xs,
-                      border: "none", cursor: "pointer",
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      background: addingDirectory ? sidebarTab.activeBg : "transparent",
-                      color: addingDirectory ? sidebarBreadcrumb.ancestorColor : neutral.textMuted,
-                    }}
-                  >
-                    <PlusIcon size={13} />
-                  </button>
-                  <button
-                    aria-label="Import a real file"
-                    title="Import a real file"
-                    onClick={() => importFileInputRef.current?.click()}
-                    style={{
-                      width: 22, height: 22, borderRadius: radius.xs,
-                      border: "none", cursor: "pointer", background: "transparent", color: neutral.textMuted,
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                    }}
-                  >
-                    <UploadIcon size={13} />
-                  </button>
-                  <input
-                    ref={importFileInputRef}
-                    type="file"
-                    multiple
-                    onChange={e => { if (e.target.files?.length) addRealFiles(e.target.files); e.target.value = ""; }}
-                    style={{ display: "none" }}
-                  />
-                </div>
-              </div>
-
-              {fileSearchOpen && (
-                <div style={{ padding: `0 ${spacing.lg}px ${spacing.sm}px`, flexShrink: 0 }}>
-                  <input
-                    autoFocus
-                    placeholder="Search this folder…"
-                    value={fileSearchQuery}
-                    onChange={e => setFileSearchQuery(e.target.value)}
-                    style={{
-                      width: "100%", background: neutral.surface, border: `1px solid ${theme.bubbleBorder}`,
-                      borderRadius: radius.xs + 2, outline: "none", color: neutral.textPrimary,
-                      fontSize: 12.5, padding: "5px 8px", fontFamily,
-                    }}
-                  />
-                </div>
-              )}
-
-              {addingDirectory && (
-                <div style={{ padding: `0 ${spacing.lg}px ${spacing.sm}px`, display: "flex", gap: spacing.xs, flexShrink: 0 }}>
-                  <input
-                    autoFocus
-                    placeholder="New folder name…"
-                    value={newDirectoryName}
-                    onChange={e => setNewDirectoryName(e.target.value)}
-                    onKeyDown={e => {
-                      if (e.key === "Enter" && newDirectoryName.trim()) {
-                        addDirectory(newDirectoryName);
-                        setAddingDirectory(false);
-                      }
-                      if (e.key === "Escape") setAddingDirectory(false);
-                    }}
-                    style={{
-                      flex: 1, background: neutral.surface, border: `1px solid ${theme.bubbleBorder}`,
-                      borderRadius: radius.xs + 2, outline: "none", color: neutral.textPrimary,
-                      fontSize: 12.5, padding: "5px 8px", fontFamily,
-                    }}
-                  />
-                </div>
-              )}
-
-              <div className="hide-scrollbar" style={{
-                flex: 1, overflowY: "auto", padding: `0 ${spacing.sm}px ${spacing.sm}px`,
-                display: "flex", flexDirection: "column", gap: 1,
-              }}>
-                {visibleFolderContents.length === 0 ? (
-                  <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted, padding: `${spacing.sm}px ${spacing.sm}px` }}>
-                    {fileSearchQuery ? "No matches." : "Empty folder."}
-                  </div>
-                ) : visibleFolderContents.map(node => (
-                  <div
-                    key={node.name}
-                    onClick={() => { if (node.type === "folder") setFilePath(p => [...p, node.name]); else openFile(node); }}
-                    className="sidebar-row"
-                    style={{
-                      display: "flex", alignItems: "center", gap: sidebarRow.gap,
-                      padding: `${sidebarRow.paddingV}px ${sidebarRow.paddingH}px`, borderRadius: sidebarRow.radius,
-                      cursor: "pointer",
-                    }}
-                  >
-                    {node.type === "folder"
-                      ? <FileDirectoryIcon size={sidebarRow.iconSize} fill={neutral.textMuted} />
-                      : <FileIcon size={sidebarRow.iconSize} fill={neutral.textFaint} />}
-                    <span style={{
-                      flex: 1, fontSize: 12.5, color: node.type === "folder" ? neutral.textPrimary : neutral.textMuted,
-                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                    }}>
-                      {node.name}
-                    </span>
-                    {node.type === "folder" && <ChevronRightIcon size={12} />}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
           </div>
           </Panel>
           {openDocument && (
@@ -2889,13 +2968,11 @@ export default function App() {
           </Group>
           )}
 
-          {/* persistent footer disclaimer — Sources-specific, only
-              shown on that tab. activeCanvas check added alongside the
-              existing rightActiveTab one: that state doesn't reset when
-              switching canvases, so without it this leaked into Agent
-              Work's panel too (its rightActiveTab was just sitting at
-              the unused default). */}
-          {activeCanvas === "chat" && rightActiveTab === "sources" && !viewerExpanded && (
+          {/* persistent footer disclaimer — Sources-specific. Right
+              panel only ever shows Sources now (Files moved to the left
+              sidebar), so this just needs the activeCanvas check —
+              Agent Work's panel doesn't render Sources at all. */}
+          {activeCanvas === "chat" && !viewerExpanded && (
             <div style={{
               padding: `${spacing.sm + 2}px ${spacing.lg}px`, borderTop: "1px solid rgba(255,255,255,0.08)",
               display: "flex", gap: 7, alignItems: "flex-start", flexShrink: 0,
@@ -2986,7 +3063,7 @@ export default function App() {
       {activeCanvas === "agentWork" && (
         <div style={{
           position: "absolute", inset: 0, left: "var(--outer-rail-width, 0px)",
-          zIndex: 20, background: "#171412",
+          zIndex: 20, background: "#080808",
           display: "flex", alignItems: "center", justifyContent: "center",
         }}>
           <div style={{ textAlign: "center", color: neutral.textFaint, maxWidth: 360 }}>
@@ -3005,8 +3082,8 @@ export default function App() {
             {agentWorkChatOpen ? (
               <div style={{
                 width: 320, height: 400, display: "flex", flexDirection: "column",
-                background: "rgba(10,12,18,0.95)", border: `1px solid ${theme.bubbleBorder}`,
-                borderRadius: radius.lg, boxShadow: `0 8px 30px rgba(0,0,0,0.5), 0 0 20px ${theme.glow}`,
+                background: "rgba(10,12,18,0.95)", border: "1px solid rgba(255,255,255,0.12)",
+                borderRadius: radius.lg, boxShadow: "0 8px 30px rgba(0,0,0,0.5)",
                 overflow: "hidden",
               }}>
                 <div style={{
@@ -3040,10 +3117,10 @@ export default function App() {
                 onClick={() => setAgentWorkChatOpen(true)}
                 style={{
                   width: controlSize.md + 6, height: controlSize.md + 6, borderRadius: "50%",
-                  border: `1px solid ${theme.bubbleBorder}`, background: theme.bubbleBg,
+                  border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.06)",
                   color: neutral.textPrimary, cursor: "pointer",
                   display: "flex", alignItems: "center", justifyContent: "center",
-                  boxShadow: `0 4px 18px rgba(0,0,0,0.4), 0 0 14px ${theme.glow}`,
+                  boxShadow: "0 4px 18px rgba(0,0,0,0.4)",
                 }}
               >
                 <CommentDiscussionIcon size={iconSize.md} />
@@ -3068,7 +3145,7 @@ export default function App() {
       {activeCanvas === "devSlate" && (
         <div style={{
           position: "absolute", inset: 0, left: "var(--outer-rail-width, 0px)",
-          zIndex: 20, background: "#171412",
+          zIndex: 20, background: "#080808",
         }}>
           <Group orientation="horizontal" style={{ width: "100%", height: "100%" }}>
             <Panel id="dev-slate-chat" defaultSize="22%" minSize="15%" maxSize="35%">
@@ -3140,7 +3217,7 @@ export default function App() {
                 whiteSpace: "nowrap",
                 background: active ? t.bubbleBg : "transparent",
                 color: active ? neutral.textPrimary : neutral.textInactive,
-                boxShadow: active ? `0 2px 14px rgba(0,0,0,0.35), 0 0 14px ${t.glow}` : "none",
+                boxShadow: active ? `0 2px 14px rgba(0,0,0,0.35), 0 0 20px ${t.glow}` : "none",
                 transition: "all 0.3s cubic-bezier(0.22, 1, 0.36, 1)",
               }}
             >
@@ -3162,15 +3239,17 @@ export default function App() {
             display: "flex", alignItems: "center", gap: spacing.xs,
             padding: `${spacing.xs}px ${spacing.md}px`,
             borderRadius: radius.sm,
-            border: `1px solid ${theme.bubbleBorder}`,
-            background: theme.bubbleBg,
+            // Neutral now, not mode-colored (2026-08-31) — this is a
+            // control, not content; the mode tabs above it are where
+            // mode-identity belongs, this button doesn't need to repeat it.
+            border: "1px solid rgba(255,255,255,0.12)",
+            background: "rgba(255,255,255,0.06)",
             color: neutral.textPrimary,
             cursor: "pointer",
             fontSize: fontSize.xxs,
             fontFamily,
             fontWeight: fontWeight.medium,
             whiteSpace: "nowrap",
-            boxShadow: `0 2px 14px rgba(0,0,0,0.35), 0 0 10px ${theme.glow}`,
           }}
         >
           <CpuIcon size={12} />
@@ -3194,7 +3273,7 @@ export default function App() {
             style={{
               display: "flex", alignItems: "center", gap: spacing.xs,
               padding: `${spacing.xs}px ${spacing.md}px`, marginLeft: spacing.xs,
-              borderRadius: radius.sm, border: `1px solid ${theme.bubbleBorder}`,
+              borderRadius: radius.sm, border: "1px solid rgba(255,255,255,0.12)",
               background: "transparent", color: neutral.textMuted, cursor: "pointer",
               fontSize: fontSize.xxs, fontFamily, whiteSpace: "nowrap",
               maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis",
@@ -3241,7 +3320,7 @@ export default function App() {
               color: neutral.textMuted,
               background: theme.bubbleBg,
               border: `1px solid ${theme.bubbleBorder}`,
-              boxShadow: `0 4px 18px rgba(0,0,0,0.35), 0 0 14px ${theme.glow}`,
+              boxShadow: `0 4px 18px rgba(0,0,0,0.35), 0 0 20px ${theme.glow}`,
             }}>
               {pendingStep}
             </div>
@@ -3281,7 +3360,7 @@ export default function App() {
                   ? `1px solid ${theme.bubbleBorder}`
                   : `1px solid ${neutral.userBubbleBorder}`,
                 boxShadow: m.role === "navi"
-                  ? `0 4px 18px rgba(0,0,0,0.35), 0 0 14px ${theme.glow}`
+                  ? `0 4px 18px rgba(0,0,0,0.35), 0 0 20px ${theme.glow}`
                   : `0 4px 18px rgba(0,0,0,0.35), 0 0 14px ${neutral.userBubbleGlow}`,
               }}>
                 <StreamingMessageText
@@ -3386,6 +3465,7 @@ export default function App() {
               model, not app-wide navigation. */}
           {([
             { key: "models", icon: <CpuIcon size={iconSize.sm} />, label: "Today's models" },
+            { key: "commands", icon: <CommandPaletteIcon size={iconSize.sm} />, label: "Commands" },
           ] as const).map(({ key, icon, label }) => {
             const panelActive = openPanel === key;
             return (
@@ -3396,20 +3476,20 @@ export default function App() {
                 title={label}
                 onClick={e => togglePanel(key, e.currentTarget)}
                 style={{
+                  // Neutral now (2026-08-31) — a control/trigger, not
+                  // content; mode-color stays on the tabs and NAVI's
+                  // own reply bubbles only.
                   display: "flex", alignItems: "center", gap: spacing.xs, flexShrink: 0,
                   padding: `${spacing.sm}px ${spacing.md}px`,
                   borderRadius: radius.sm, // squared-with-rounded-corners, matches bubbles/input
-                  border: `1px solid ${theme.bubbleBorder}`,
-                  background: theme.bubbleBg,
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  background: panelActive ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.06)",
                   color: neutral.textPrimary,
                   cursor: "pointer",
                   fontSize: fontSize.xs,
                   fontFamily,
                   fontWeight: fontWeight.medium,
                   whiteSpace: "nowrap",
-                  boxShadow: panelActive
-                    ? `0 2px 20px rgba(0,0,0,0.5), 0 0 16px ${theme.glow}, inset 0 0 12px ${theme.glow}`
-                    : `0 2px 20px rgba(0,0,0,0.45), 0 0 10px ${theme.glow}, inset 0 0 8px ${theme.glow}`,
                   outline: panelActive ? `1px solid ${neutral.textPrimary}` : "none",
                   outlineOffset: -1,
                   transition: "all 0.35s ease",
@@ -3457,8 +3537,8 @@ export default function App() {
               // guess only for the one frame before ResizeObserver's
               // first measurement lands.
               height: menuSectionHeight ?? 280,
-              background: theme.bubbleBg,
-              borderLeft: `1px solid ${theme.bubbleBorder}`,
+              background: neutral.surface,
+              borderLeft: "1px solid rgba(255,255,255,0.08)",
               // No glow here — that's the right call for a floating
               // popover drawing attention to itself, but this is
               // structural sidebar furniture now, not a transient
@@ -3474,10 +3554,10 @@ export default function App() {
               width: Math.min(POPOVER_WIDTH, window.innerWidth - POPOVER_MARGIN * 2), // same width for all five panels
               maxHeight: "70vh", overflowY: "auto",
               zIndex: 36, // above the sidebar (30) and its own overlay (35) above
-              background: theme.bubbleBg,
-              border: `1px solid ${theme.bubbleBorder}`,
+              background: "rgba(10,12,18,0.95)",
+              border: "1px solid rgba(255,255,255,0.12)",
               borderRadius: radius.lg,
-              boxShadow: `0 8px 30px rgba(0,0,0,0.5), 0 0 16px ${theme.glow}`,
+              boxShadow: "0 8px 30px rgba(0,0,0,0.5)",
               padding: spacing.md,
               color: neutral.textPrimary,
               fontFamily,
@@ -3827,25 +3907,14 @@ export default function App() {
         )}
 
         <div style={{
+          // Neutral now (2026-08-31) — the input bar is a tool, not
+          // content; it shouldn't repeat the mode-identity the tabs
+          // above it already carry.
           display: "flex", alignItems: "flex-end", gap: spacing.sm, marginTop: spacing.lg,
           padding: spacing.sm, borderRadius: radius.xl,
           background: neutral.surface,
-          border: `1px solid ${theme.bubbleBorder}`,
-          boxShadow: `0 0 14px ${theme.glow}`,
+          border: "1px solid rgba(255,255,255,0.12)",
         }}>
-          <button
-            aria-label="Commands"
-            title="Commands"
-            onClick={e => togglePanel("commands", e.currentTarget)}
-            style={{
-              width: controlSize.md, height: controlSize.md, flexShrink: 0,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              borderRadius: radius.md, border: "none", cursor: "pointer",
-              background: "transparent", color: neutral.textMuted,
-            }}
-          >
-            <CommandPaletteIcon size={iconSize.md} />
-          </button>
           <textarea
             ref={textareaRef}
             value={draft}
@@ -3870,9 +3939,8 @@ export default function App() {
             style={{
               width: controlSize.md, height: controlSize.md, flexShrink: 0,
               display: "flex", alignItems: "center", justifyContent: "center",
-              borderRadius: radius.md, border: `1px solid ${theme.bubbleBorder}`, cursor: "pointer",
-              background: theme.bubbleBg, color: neutral.textPrimary,
-              boxShadow: `0 0 12px ${theme.glow}`,
+              borderRadius: radius.md, border: "1px solid rgba(255,255,255,0.12)", cursor: "pointer",
+              background: "rgba(255,255,255,0.06)", color: neutral.textPrimary,
               transition: "all 0.3s ease",
             }}
           >
@@ -3898,8 +3966,8 @@ export default function App() {
           {mobileCanvasMenuOpen && (activeCanvas === "chat" || activeCanvas === "devSlate" || activeCanvas === "agentWork") && (
             <div style={{
               position: "fixed", left: spacing.md, right: spacing.md, bottom: MOBILE_BAR_HEIGHT + spacing.sm,
-              zIndex: 41, background: theme.bubbleBg, border: `1px solid ${theme.bubbleBorder}`,
-              borderRadius: radius.lg, boxShadow: `0 8px 30px rgba(0,0,0,0.5), 0 0 16px ${theme.glow}`,
+              zIndex: 41, background: "rgba(10,12,18,0.95)", border: "1px solid rgba(255,255,255,0.12)",
+              borderRadius: radius.lg, boxShadow: "0 8px 30px rgba(0,0,0,0.5)",
               display: "flex", flexDirection: "column", gap: spacing.xxs,
             }}>
               {activeCanvas === "chat" && (
@@ -3970,8 +4038,8 @@ export default function App() {
           {mobileAccountMenuOpen && (
             <div style={{
               position: "fixed", left: spacing.md, right: spacing.md, bottom: MOBILE_BAR_HEIGHT + spacing.sm,
-              zIndex: 41, background: theme.bubbleBg, border: `1px solid ${theme.bubbleBorder}`,
-              borderRadius: radius.lg, boxShadow: `0 8px 30px rgba(0,0,0,0.5), 0 0 16px ${theme.glow}`,
+              zIndex: 41, background: "rgba(10,12,18,0.95)", border: "1px solid rgba(255,255,255,0.12)",
+              borderRadius: radius.lg, boxShadow: "0 8px 30px rgba(0,0,0,0.5)",
               display: "flex", flexDirection: "column", gap: spacing.xxs,
             }}>
               {([
@@ -3995,7 +4063,7 @@ export default function App() {
           <div style={{
             flexShrink: 0, height: MOBILE_BAR_HEIGHT, position: "relative",
             zIndex: 40, display: "flex", alignItems: "center", justifyContent: "space-around",
-            background: "rgba(6, 8, 14, 0.95)", borderTop: `1px solid ${theme.bubbleBorder}`,
+            background: sidebarBg, borderTop: "1px solid rgba(255,255,255,0.08)",
           }}>
             <button
               title="Project"

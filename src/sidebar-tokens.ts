@@ -24,7 +24,6 @@ import { spacing, radius, fontSize, fontWeight, neutral } from "./tokens";
 // neutral calm blue) would still make it that mode's color structurally.
 const ACCENT = "rgb(120, 165, 235)";
 const ACCENT_HOVER = "rgb(160, 195, 255)";
-const ACCENT_BG = "rgba(120, 165, 235, 0.14)";
 const ACCENT_BORDER = "rgba(120, 165, 235, 0.35)";
 
 export const sidebarTab = {
@@ -41,11 +40,15 @@ export const sidebarTab = {
   // legible (textMuted, not textFaint) — a tab strip where the
   // inactive options are barely visible fails "recognition over
   // recall": the user shouldn't have to remember Files exists.
+  // The original *colored* pill-fill got dropped 2026-08-31 for reading
+  // "cartoon"/goofy — but text-contrast alone then turned out to be too
+  // quiet on its own (caught live, same session). Restored as a fill,
+  // just neutral this time, not zone-colored — same lift as the sidebar
+  // "card" backgrounds (Knowledge items, source rows), so an active tab
+  // reads as a consistent, restrained "raised" surface, not a bright pill.
   activeColor: neutral.textPrimary,
-  activeBg: ACCENT_BG,
+  activeBg: "rgba(255,255,255,0.06)",
   activeBorder: ACCENT_BORDER,
-  underlineColor: ACCENT,
-  underlineThickness: 2,
   inactiveColor: neutral.textMuted,
 } as const;
 
