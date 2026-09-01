@@ -19,6 +19,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # .gitattributes tracks most binary types (png, fonts, etc.)
+          # via Git LFS; without this, checkout leaves them as raw LFS
+          # pointer text instead of the real file, which then gets
+          # copied verbatim into dist/ and deployed as-is — e.g.
+          # icon-192.png/icon-512.png were being served as a 130-byte
+          # text pointer, not a real image (JuanJo, 2026-09-01: PWA
+          # install showed no icon).
+          lfs: true
       - uses: actions/setup-node@v4
         with:
           node-version: 20
