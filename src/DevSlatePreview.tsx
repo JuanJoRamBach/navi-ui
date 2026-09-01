@@ -178,46 +178,43 @@ export function DevSlatePreview() {
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", fontFamily }}>
-      <div style={{
-        display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.xs,
-        padding: `${spacing.xxs}px ${spacing.sm}px`, borderBottom: "1px solid rgba(255,255,255,0.08)", flexShrink: 0,
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, color: neutral.textFaint, fontSize: fontSize.xxs }}>
-          <GlobeIcon size={14} fill={accent} /> {mode === "editor" ? "Visual editor — GrapesJS" : "Preview"}
-        </div>
-        <div style={{ display: "flex", gap: spacing.xs }}>
-          {mode === "editor" && (
-            <button
-              onClick={() => void save()}
-              disabled={!dirty || saving}
-              style={{
-                padding: `2px ${spacing.xs}px`, borderRadius: radius.xs, border: "none",
-                background: dirty ? accent : "rgba(255,255,255,0.06)",
-                color: dirty ? "#08110d" : neutral.textFaint,
-                cursor: dirty && !saving ? "pointer" : "default",
-                fontSize: fontSize.xxs, fontWeight: fontWeight.medium, fontFamily,
-              }}
-            >
-              {saving ? "Saving…" : dirty ? "Save changes" : "Saved"}
-            </button>
-          )}
-          {!showEmptyState && (
+      {/* No header row anymore — dockview's own tab already says
+          "Preview" (JuanJo, 2026-09-01: the in-pane label was
+          redundant with the tab above it). Controls are a small
+          floating overlay instead, only shown once there's something
+          to act on. */}
+      <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
+        {!showEmptyState && (
+          <div style={{ position: "absolute", top: spacing.xs, right: spacing.xs, zIndex: 3, display: "flex", gap: spacing.xs }}>
+            {mode === "editor" && (
+              <button
+                onClick={() => void save()}
+                disabled={!dirty || saving}
+                style={{
+                  padding: `2px ${spacing.xs}px`, borderRadius: radius.xs, border: "none",
+                  background: dirty ? accent : "rgba(8,8,10,0.85)",
+                  color: dirty ? "#08110d" : neutral.textFaint,
+                  cursor: dirty && !saving ? "pointer" : "default",
+                  fontSize: fontSize.xxs, fontWeight: fontWeight.medium, fontFamily,
+                }}
+              >
+                {saving ? "Saving…" : dirty ? "Save changes" : "Saved"}
+              </button>
+            )}
             <button
               onClick={() => setMode(m => m === "editor" ? "preview" : "editor")}
               style={{
                 display: "flex", alignItems: "center", gap: 4,
                 padding: `2px ${spacing.xs}px`, borderRadius: radius.xs,
-                border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.03)",
+                border: "1px solid rgba(255,255,255,0.1)", background: "rgba(8,8,10,0.85)",
                 color: neutral.textMuted, cursor: "pointer", fontSize: fontSize.xxs, fontFamily,
               }}
             >
               {mode === "editor" ? <><EyeIcon size={12} /> Back to preview</> : <><PencilIcon size={12} /> Open visual editor</>}
             </button>
-          )}
-        </div>
-      </div>
+          </div>
+        )}
 
-      <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
         {showEmptyState && (
           <div style={{
             position: "absolute", inset: 0, zIndex: 2, background: "#080808",

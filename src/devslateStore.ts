@@ -16,6 +16,17 @@ export interface TerminalLine {
   text: string;
 }
 
+export interface DevSlateTaskState {
+  goal: string;
+  decisions: string[];
+  built: string[];
+}
+
+export interface ChangeHistoryEntry {
+  path: string;
+  timestamp: number;
+}
+
 interface DevSlateState {
   activeFilePath: string | null;
   activeFileContent: string;
@@ -25,6 +36,17 @@ interface DevSlateState {
   // auto-accepted) so the Files pane knows to re-list instead of
   // showing a stale tree until the user happens to click around.
   fsVersion: number;
+  // Server-side task_state (update_task_state tool, dispatcher/
+  // devslate_chat.py) mirrored here for the right sidebar's Task State
+  // section — kept in sync by re-fetching after every assistant_message
+  // (see DevSlateChat.tsx), since a task_state change is always driven
+  // by a tool call within the turn that just completed.
+  taskState: DevSlateTaskState | null;
+  // Real accepted writes, not a placeholder — every notifyFileWritten
+  // call appends here too. Right sidebar's Change History section reads
+  // straight off this; capped so a very long session doesn't grow it
+  // unbounded.
+  changeHistory: ChangeHistoryEntry[];
 }
 
 let state: DevSlateState = {
@@ -33,6 +55,8 @@ let state: DevSlateState = {
   pendingWrite: null,
   terminalLines: [],
   fsVersion: 0,
+  taskState: null,
+  changeHistory: [],
 };
 let onWriteDecision: ((accepted: boolean) => void) | null = null;
 
@@ -90,7 +114,18 @@ export function decideWriteReview(accepted: boolean): void {
 // place both paths funnel through, so Code/Files/Preview all update the
 // same way regardless of which path produced the write.
 export function notifyFileWritten(path: string, content: string): void {
-  setState({ activeFilePath: path, activeFileContent: content, pendingWrite: null, fsVersion: state.fsVersion + 1 });
+  setState({
+    activeFilePath: path, activeFileContent: content, pendingWrite: null,
+    fsVersion: state.fsVersion + 1,
+    changeHistory: [...state.changeHistory, { path, timestamp: Date.now() }].slice(-200),
+  });
+}
+
+// Refreshed by DevSlateChat.tsx after every assistant_message — see the
+// taskState field's own comment above for why a full push-on-change
+// mechanism isn't needed here.
+export function setTaskState(taskState: DevSlateTaskState | null): void {
+  setState({ taskState });
 }
 
 export function appendTerminalLine(level: TerminalLine["level"], text: string): void {

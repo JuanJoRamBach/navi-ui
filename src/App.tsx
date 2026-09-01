@@ -16,6 +16,8 @@ import {
   BellIcon,
   BellFillIcon,
   ThreeBarsIcon,
+  SidebarCollapseIcon,
+  SidebarExpandIcon,
   XIcon,
   GearIcon,
   SearchIcon,
@@ -37,7 +39,7 @@ import {
   // SearchIcon, SyncIcon
 } from "@primer/octicons-react";
 import {
-  type Mode, type ChatMode, MODE_THEME, CANVAS_ACCENT,
+  type Mode, type ChatMode, MODE_THEME, CANVAS_ACCENT, OKLCH_HUE,
   spacing, radius, fontSize, fontWeight, lineHeight, iconSize, controlSize,
   fontFamily, neutral, layout,
 } from "./tokens";
@@ -58,11 +60,8 @@ import { isTextLike } from "./fileFormats";
 const DocumentViewer = lazy(() => import("./DocumentViewer").then(m => ({ default: m.DocumentViewer })));
 import { NAVI_BACKEND_URL } from "./config";
 import { getPushStatus, subscribeToPush, type PushStatus } from "./push";
-import { DevSlateChat } from "./DevSlateChat";
-import { DevSlateFiles } from "./DevSlateFiles";
-import { DevSlateCode } from "./DevSlateCode";
-import { DevSlateTerminal } from "./DevSlateTerminal";
-import { DevSlatePreview } from "./DevSlatePreview";
+import { DevSlateDockview } from "./DevSlateDockview";
+import { useDevSlateState } from "./devslateStore";
 
 const DOT_SIZE = 8;
 
@@ -936,6 +935,11 @@ export default function App() {
   // now — the other three canvases don't exist yet, shown disabled.
   type CanvasKey = "chat" | "agentWork" | "devSlate" | "dashboard";
   const [activeCanvas, setActiveCanvas] = useState<CanvasKey>("chat");
+  // Dev Slate's right sidebar (Task State / Change History, built below)
+  // reads straight off the same shared store its own panes already use
+  // — real data, not placeholder content, so no separate fetch/state
+  // duplicated here.
+  const devSlateState = useDevSlateState();
   // Three-tier fixed elevation stack, JuanJo's final call 2026-08-31 —
   // no zone-hue-following anywhere in chrome, full stop. Darkest for
   // rail/left sidebar (receding, peripheral), mid for the canvas itself
@@ -1071,6 +1075,23 @@ export default function App() {
       "--left-panel-width", isDesktopSidebar && leftPanelOpen ? "var(--sidebar-width)" : "0px"
     );
   }, [isDesktopSidebar, leftPanelOpen]);
+  // Reversal of the 2026-08-30 call above ("sidebars never auto-hide
+  // themselves") — JuanJo, 2026-09-01: switching canvases now closes
+  // both. Scoped to the canvas-switch action specifically, not a
+  // standing "always closed" rule — the user can still reopen either
+  // one by hand and it stays open until the next switch. Skips its
+  // first run (the mount itself isn't a "switch") so the app doesn't
+  // start with both forced closed regardless of leftPanelOpen's own
+  // default-true.
+  const skipFirstCanvasEffectRef = useRef(true);
+  useEffect(() => {
+    if (skipFirstCanvasEffectRef.current) {
+      skipFirstCanvasEffectRef.current = false;
+      return;
+    }
+    setLeftPanelOpen(false);
+    setRightPanelOpen(false);
+  }, [activeCanvas]);
   // Local file placement (Windows-Explorer-style drag/place, not the
   // deferred cross-user transfer — see the file-transfer memory).
   // Vertical drill-in instead of a horizontal column browser or an
@@ -1898,7 +1919,9 @@ export default function App() {
             onClick={e => togglePanel("projects", e.currentTarget)}
             style={{
               display: "flex", alignItems: "center", gap: spacing.sm, width: "100%",
-              height: OUTER_RAIL_ROW_HEIGHT + spacing.md, boxSizing: "border-box",
+              // 48px — matches the sidebars' own header-row height so
+              // this masthead lines up with them (JuanJo, 2026-09-01).
+              height: 48, boxSizing: "border-box",
               padding: `0 ${spacing.md}px`, flexShrink: 0,
               border: "none", borderBottom: "1px solid rgba(255,255,255,0.14)",
               background: openPanel === "projects" ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.055)",
@@ -2115,6 +2138,92 @@ export default function App() {
                 </button>
               </>
             )}
+
+            {/* Sidebar toggles — canvas-independent, always the last
+                thing in the middle zone regardless of which canvas is
+                active. Replaces the old floating "open sidebar"/"open
+                sources panel" buttons entirely: those were positioned at
+                a fixed screen coordinate that inevitably collided with
+                some canvas's own content (found live in Dev Slate,
+                2026-09-01). Researched before building this — VS Code's
+                own answer to "where do multiple panel toggles live" is
+                a small grouped cluster in persistent chrome (its title
+                bar's Layout Controls), not floating over content or
+                pinned to each panel's own edge; the outer rail is
+                NAVI's equivalent of that persistent chrome. JuanJo's
+                refinement: two separate one-click toggles here, not a
+                combined cluster/popover — even collapsed to icon-only,
+                each stays a single tap. */}
+            <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: spacing.xxs, paddingTop: spacing.sm }}>
+              {/* Pressed-state color follows whichever canvas is
+                  currently active (same accent.color/accent.glow
+                  treatment the canvas-switcher buttons above already
+                  use) rather than a flat neutral highlight — JuanJo,
+                  2026-09-01. Dashboard has no accent yet (not
+                  `available` in the switcher above either), so this
+                  falls back to the same neutral highlight only in that
+                  one case. */}
+              {(() => {
+                const railAccent = activeCanvas in CANVAS_ACCENT ? CANVAS_ACCENT[activeCanvas as keyof typeof CANVAS_ACCENT] : null;
+                return (
+              <>
+              <button
+                className="sidebar-menu-btn"
+                title={leftPanelOpen ? "Close left sidebar" : "Open left sidebar"}
+                onClick={() => setLeftPanelOpen(o => !o)}
+                style={{
+                  display: "flex", alignItems: "center", gap: spacing.sm,
+                  height: OUTER_RAIL_ROW_HEIGHT, boxSizing: "border-box",
+                  padding: `0 ${spacing.sm}px`,
+                  borderRadius: radius.sm,
+                  border: leftPanelOpen && railAccent ? `1px solid ${railAccent.glow}` : "1px solid transparent",
+                  background: leftPanelOpen ? (railAccent ? railAccent.glow : "rgba(255,255,255,0.06)") : "transparent",
+                  color: leftPanelOpen && railAccent ? railAccent.color : neutral.textPrimary,
+                  cursor: "pointer", textAlign: "left",
+                  fontSize: fontSize.xs, fontFamily, fontWeight: fontWeight.medium,
+                }}
+              >
+                {/* Real "toggle sidebar" glyphs (SidebarCollapse/
+                    SidebarExpand), not borrowed icons that already mean
+                    something else in this app — a hamburger means "open
+                    a menu," a magnifying glass means "search," neither
+                    actually says "sidebar" (JuanJo, 2026-09-01). Icon
+                    shows the action a click will take, not the current
+                    state — open shows the collapse glyph, closed shows
+                    expand. */}
+                {leftPanelOpen ? <SidebarCollapseIcon size={iconSize.sm} /> : <SidebarExpandIcon size={iconSize.sm} />}
+                <span className="sidebar-menu-btn-label">{leftPanelOpen ? "Close left sidebar" : "Open left sidebar"}</span>
+              </button>
+              <button
+                className="sidebar-menu-btn"
+                title={rightPanelOpen ? "Close right sidebar" : "Open right sidebar"}
+                onClick={() => setRightPanelOpen(o => !o)}
+                style={{
+                  display: "flex", alignItems: "center", gap: spacing.sm,
+                  height: OUTER_RAIL_ROW_HEIGHT, boxSizing: "border-box",
+                  padding: `0 ${spacing.sm}px`,
+                  borderRadius: radius.sm,
+                  border: rightPanelOpen && railAccent ? `1px solid ${railAccent.glow}` : "1px solid transparent",
+                  background: rightPanelOpen ? (railAccent ? railAccent.glow : "rgba(255,255,255,0.06)") : "transparent",
+                  color: rightPanelOpen && railAccent ? railAccent.color : neutral.textPrimary,
+                  cursor: "pointer", textAlign: "left",
+                  fontSize: fontSize.xs, fontFamily, fontWeight: fontWeight.medium,
+                }}
+              >
+                {/* Same glyph, mirrored (scaleX(-1)) — Octicons only
+                    ships one sidebar-collapse/-expand pair, drawn for a
+                    left-side panel; flipping it reads as the right side
+                    instead of reusing an icon that visually contradicts
+                    which panel this button actually controls. */}
+                <span style={{ display: "flex", transform: "scaleX(-1)" }}>
+                  {rightPanelOpen ? <SidebarCollapseIcon size={iconSize.sm} /> : <SidebarExpandIcon size={iconSize.sm} />}
+                </span>
+                <span className="sidebar-menu-btn-label">{rightPanelOpen ? "Close right sidebar" : "Open right sidebar"}</span>
+              </button>
+              </>
+                );
+              })()}
+            </div>
           </div>
 
           {/* bottom zone — "account stuff": genuinely global regardless
@@ -2195,7 +2304,11 @@ export default function App() {
       <div ref={sidebarRef} className={`sidebar${sidebarOpen ? " open" : ""}`} style={{
         display: "flex", flexDirection: "column",
         background: sidebarBg,
-        borderRight: "1px solid rgba(255,255,255,0.08)",
+        // Same color as the project masthead's own bottom border in the
+        // outer rail (JuanJo, 2026-09-01) — this is the edge that faces
+        // the canvas, so it gets the rail's separator color, not the
+        // dimmer default border.
+        borderRight: "1px solid rgba(255,255,255,0.14)",
         fontFamily,
       }}>
         {/* Horizontal resize handle — desktop only (see .sidebar-toggle-
@@ -2225,7 +2338,14 @@ export default function App() {
             tabs above the actual content. One row, tabs left/close right. */}
         <div style={{
           display: "flex", alignItems: "center", justifyContent: "space-between",
-          padding: `${spacing.lg}px ${spacing.sm}px ${spacing.md}px ${spacing.lg}px`,
+          // Fixed-height row (JuanJo, 2026-09-01: "the tabs part still
+          // has too much height... where activity and sources top bar
+          // titles are" — the earlier sidebarTab.height fix only
+          // shrunk the tab BUTTONS, this outer row's own generous
+          // padding was the real source of the extra height. First
+          // tried 32px, bumped to 48px live to compare). Tighter
+          // horizontal padding too, not just vertical.
+          height: 48, boxSizing: "border-box", padding: `0 ${spacing.sm}px 0 ${spacing.md}px`,
           borderBottom: "1px solid rgba(255,255,255,0.08)",
         }}>
           {/* minWidth:0 lets this row actually shrink below its content
@@ -2242,6 +2362,12 @@ export default function App() {
               const active = leftPanelTab === tab;
               const label = tab === "activity" ? "ACTIVITY" : tab === "knowledge" ? "KNOWLEDGE" : "FILES";
               const Icon = tab === "activity" ? PulseIcon : tab === "knowledge" ? BookIcon : FileDirectoryIcon;
+              // Active tab glows with whichever canvas is currently
+              // active — same accent.color/accent.glow the left rail's
+              // own canvas-switcher buttons use (JuanJo, 2026-09-01:
+              // "glow with the color of the Canvas, like the left
+              // rail"), replacing the earlier deliberately-neutral fill.
+              const tabAccent = activeCanvas in CANVAS_ACCENT ? CANVAS_ACCENT[activeCanvas as keyof typeof CANVAS_ACCENT] : null;
               return (
                 <button
                   key={tab}
@@ -2258,9 +2384,15 @@ export default function App() {
                     cursor: "pointer",
                     fontSize: sidebarTab.fontSize, fontWeight: sidebarTab.fontWeight, fontFamily,
                     letterSpacing: "0.04em",
-                    color: active ? sidebarTab.activeColor : sidebarTab.inactiveColor,
-                    background: active ? sidebarTab.activeBg : "transparent",
+                    color: active ? (tabAccent?.color ?? sidebarTab.activeColor) : sidebarTab.inactiveColor,
+                    background: active ? (tabAccent?.glow ?? sidebarTab.activeBg) : "transparent",
+                    boxShadow: active && tabAccent ? `0 0 12px ${tabAccent.glow}` : "none",
                     border: "none",
+                    // Same spring-like easing the Chat mode-tabs use for
+                    // their own press animation (JuanJo, 2026-09-01:
+                    // "that animation is beautiful") — this tab strip
+                    // had no transition at all before.
+                    transition: "all 0.3s cubic-bezier(0.22, 1, 0.36, 1)",
                   }}
                 >
                   <Icon size={13} />
@@ -2644,42 +2776,22 @@ export default function App() {
         <ThreeBarsIcon size={iconSize.sm} />
       </button>
 
-      {/* Left sidebar OPEN trigger — desktop only, same shape/position
-          as the right panel's own open trigger below (mirrored to the
-          left edge, offset past the outer rail so it never sits under
-          it). Only rendered while closed — the panel's own close button
-          (inside its header, above) handles the other direction. */}
-      {isDesktopSidebar && !leftPanelOpen && (
-        <button
-          aria-label="Open sidebar"
-          onClick={() => setLeftPanelOpen(true)}
-          style={{
-            position: "absolute", top: spacing.xl, left: `calc(var(--outer-rail-width) + ${spacing.xl}px)`, zIndex: 31,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            width: controlSize.md, height: controlSize.md,
-            borderRadius: radius.sm,
-            border: "1px solid rgba(255,255,255,0.12)",
-            background: "rgba(255,255,255,0.06)",
-            color: neutral.textPrimary,
-            cursor: "pointer",
-            boxShadow: `0 2px 14px rgba(0,0,0,0.35), 0 0 10px ${neutralGlow}`,
-          }}
-        >
-          <ThreeBarsIcon size={iconSize.sm} />
-        </button>
-      )}
+      {/* Left sidebar's OPEN trigger moved into the outer rail's middle
+          zone (2026-09-01) — a floating button pinned to a fixed screen
+          coordinate inevitably collided with some canvas's own content
+          (found live in Dev Slate). Desktop-only concern entirely (the
+          rail itself is desktop-only), so nothing needed for mobile
+          here — mobile already has its own separate hamburger→drawer
+          flow (sidebarOpen, above) untouched by this. */}
 
-      {/* Right sidebar OPEN trigger — top-right, opposite the hamburger.
-          Only rendered while closed: once the panel's open, closing it
-          is handled by a button living inside the panel's own header
-          (see below) instead of this floating one — a separate floating
-          button positioned by a fixed viewport offset drifted out of
-          alignment with the header's own content whenever the panel's
-          (now fluid) width changed, reading as disconnected from the
-          panel it was supposedly part of. No longer desktop-only — the
-          panel itself now renders as an overlay drawer on mobile too
-          (see .right-panel below), so this needs to be reachable there. */}
-      {!rightPanelOpen && (
+      {/* Right sidebar OPEN trigger — mobile only now (desktop's moved
+          into the outer rail's middle zone alongside the left sidebar's,
+          same reasoning: a fixed-position floating button collides with
+          canvas content eventually). Still needed here for mobile,
+          where the panel renders as an overlay drawer with no
+          rail-equivalent chrome to live in instead (see .right-panel
+          below). */}
+      {!isDesktopSidebar && !rightPanelOpen && (
         <button
           aria-label="Open sources panel"
           onClick={() => setRightPanelOpen(true)}
@@ -2725,7 +2837,10 @@ export default function App() {
           // 2026-08-31, matching what every source reviewed tonight
           // agreed on: right sidebar is canvas-local, not a separate zone).
           background: canvasBg,
-          borderLeft: "1px solid rgba(255,255,255,0.08)",
+          // Same color as the project masthead's own bottom border in
+          // the outer rail (JuanJo, 2026-09-01) — matches the Left
+          // Sidebar's own canvas-facing edge above.
+          borderLeft: "1px solid rgba(255,255,255,0.14)",
           fontFamily,
         }}>
           {/* Horizontal resize — same mechanics as the left sidebar's
@@ -2748,7 +2863,9 @@ export default function App() {
               width. */}
           <div style={{
             display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.xs,
-            padding: `${spacing.lg}px ${spacing.lg}px ${spacing.md}px`,
+            // Same fixed-height treatment as the left sidebar's tab
+            // row — JuanJo, 2026-09-01.
+            height: 48, boxSizing: "border-box", padding: `0 ${spacing.md}px`,
             borderBottom: "1px solid rgba(255,255,255,0.08)", flexShrink: 0,
           }}>
             {activeCanvas === "agentWork" ? (
@@ -2776,6 +2893,14 @@ export default function App() {
                   Connections
                 </button>
               </div>
+            ) : activeCanvas === "devSlate" ? (
+              // Same plain-label shape as Agent Work above — Task
+              // State/Change History are two stacked sections (like
+              // Schedule/Run History), not tabs, so there's nothing to
+              // switch between up here.
+              <span style={{ fontSize: sidebarTab.fontSize, fontWeight: sidebarTab.fontWeight, color: sidebarTab.activeColor, fontFamily }}>
+                Dev Slate
+              </span>
             ) : (
             // Files moved to the left sidebar (2026-08-31) — Sources is
             // now the right panel's only tool, so this is a plain label
@@ -2817,6 +2942,78 @@ export default function App() {
               <div style={{ height: 1, background: "rgba(255,255,255,0.08)", flexShrink: 0 }} />
               <div style={{ flex: 3, minHeight: 0 }}>
                 {devSlatePane(<HistoryIcon size={18} fill={CANVAS_ACCENT.agentWork.color} />, "Run History", "Recent runs across this project's workflows. Experimental inclusion — not wired up yet.")}
+              </div>
+            </div>
+          ) : activeCanvas === "devSlate" ? (
+            /* Task State (primary) over Change History (secondary) —
+               same shape as Agent Work's Schedule/Run History split
+               above, but real content, not devSlatePane placeholders:
+               task_state is the model's own running summary
+               (update_task_state, dispatcher/devslate_chat.py), Change
+               History is every write_file that's actually landed on
+               disk this session (devslateStore.ts's changeHistory,
+               appended in notifyFileWritten — the one place every
+               accepted write funnels through regardless of review-vs-
+               auto-accept). */
+            <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+              <div style={{ flex: 7, minHeight: 0, padding: spacing.lg, overflowY: "auto" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, marginBottom: spacing.sm }}>
+                  <BookIcon size={16} fill={CANVAS_ACCENT.devSlate.color} />
+                  <span style={{ fontSize: fontSize.sm, fontWeight: fontWeight.medium, color: neutral.textPrimary }}>Task State</span>
+                </div>
+                {!devSlateState.taskState?.goal ? (
+                  <div style={{ fontSize: fontSize.xs, color: neutral.textFaint, lineHeight: lineHeight.base }}>
+                    Nothing yet — this fills in once the model calls update_task_state for this Slate.
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: spacing.md }}>
+                    <div>
+                      <div style={{ fontSize: fontSize.xxs, color: neutral.textFaint, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 }}>Goal</div>
+                      <div style={{ fontSize: fontSize.xs, color: neutral.textPrimary, lineHeight: lineHeight.base }}>{devSlateState.taskState.goal}</div>
+                    </div>
+                    {devSlateState.taskState.decisions.length > 0 && (
+                      <div>
+                        <div style={{ fontSize: fontSize.xxs, color: neutral.textFaint, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 }}>Decisions</div>
+                        <ul style={{ margin: 0, paddingLeft: spacing.md, display: "flex", flexDirection: "column", gap: 4 }}>
+                          {devSlateState.taskState.decisions.map((d, i) => (
+                            <li key={i} style={{ fontSize: fontSize.xs, color: neutral.textMuted, lineHeight: lineHeight.base }}>{d}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {devSlateState.taskState.built.length > 0 && (
+                      <div>
+                        <div style={{ fontSize: fontSize.xxs, color: neutral.textFaint, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 }}>Built so far</div>
+                        <ul style={{ margin: 0, paddingLeft: spacing.md, display: "flex", flexDirection: "column", gap: 4 }}>
+                          {devSlateState.taskState.built.map((b, i) => (
+                            <li key={i} style={{ fontSize: fontSize.xs, color: neutral.textMuted, lineHeight: lineHeight.base }}>{b}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div style={{ height: 1, background: "rgba(255,255,255,0.08)", flexShrink: 0 }} />
+              <div style={{ flex: 3, minHeight: 0, padding: spacing.lg, overflowY: "auto" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, marginBottom: spacing.sm }}>
+                  <HistoryIcon size={16} fill={CANVAS_ACCENT.devSlate.color} />
+                  <span style={{ fontSize: fontSize.sm, fontWeight: fontWeight.medium, color: neutral.textPrimary }}>Change History</span>
+                </div>
+                {devSlateState.changeHistory.length === 0 ? (
+                  <div style={{ fontSize: fontSize.xs, color: neutral.textFaint, lineHeight: lineHeight.base }}>
+                    No accepted changes yet this session.
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: spacing.xs }}>
+                    {[...devSlateState.changeHistory].reverse().map((entry, i) => (
+                      <div key={i} style={{ display: "flex", alignItems: "baseline", gap: spacing.xs, fontSize: fontSize.xxs }}>
+                        <span style={{ color: neutral.textFaint, flexShrink: 0 }}>{formatTime(entry.timestamp)}</span>
+                        <span style={{ color: neutral.textMuted, fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{entry.path}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           ) : viewerExpanded && openDocument ? (
@@ -3138,48 +3335,18 @@ export default function App() {
           Agent Work above (sits above chat, left/right sidebars stay
           exactly as the user left them, reachable the whole time —
           that's where Files/Activity/version-history live for this
-          canvas too, reused as-is, not rebuilt here). Shell only: the
-          layout itself is real (three horizontally-resizable panes,
-          the code column further split into a file-tree+editor row
-          over a terminal drawer), but every zone is a placeholder —
-          nothing wired to Nodepod/Monaco/GrapesJS/Onlook yet. Built
-          this way on purpose so wiring in the real pieces later only
-          means swapping what's inside a pane, not restructuring the
-          layout around them. */}
+          canvas too, reused as-is, not rebuilt here). Layout is a real
+          movable canvas now (dockview, 2026-09-01) — the earlier fixed
+          Group/Panel tree only resized within a set structure; this
+          drags to any edge, docks, tabs, collapses. See
+          DevSlateDockview.tsx for the panel registration/default
+          layout/persistence. */}
       {activeCanvas === "devSlate" && (
         <div style={{
           position: "absolute", inset: 0, left: "var(--outer-rail-width, 0px)",
           zIndex: 20, background: "#080808",
         }}>
-          <Group orientation="horizontal" style={{ width: "100%", height: "100%" }}>
-            <Panel id="dev-slate-chat" defaultSize="22%" minSize="15%" maxSize="35%">
-              <DevSlateChat />
-            </Panel>
-            <Separator className="dev-slate-column-separator" />
-            <Panel id="dev-slate-code" defaultSize="46%" minSize="25%">
-              <Group orientation="vertical" style={{ width: "100%", height: "100%" }}>
-                <Panel id="dev-slate-editor-row" defaultSize="75%" minSize="40%">
-                  <Group orientation="horizontal" style={{ width: "100%", height: "100%" }}>
-                    <Panel id="dev-slate-files" defaultSize="22%" minSize="12%" maxSize="40%">
-                      <DevSlateFiles />
-                    </Panel>
-                    <Separator className="dev-slate-column-separator" />
-                    <Panel id="dev-slate-editor" minSize="30%">
-                      <DevSlateCode />
-                    </Panel>
-                  </Group>
-                </Panel>
-                <Separator className="sidebar-vertical-separator" />
-                <Panel id="dev-slate-terminal" defaultSize="25%" minSize="12%" maxSize="50%">
-                  <DevSlateTerminal />
-                </Panel>
-              </Group>
-            </Panel>
-            <Separator className="dev-slate-column-separator" />
-            <Panel id="dev-slate-preview" defaultSize="32%" minSize="20%">
-              <DevSlatePreview />
-            </Panel>
-          </Group>
+          <DevSlateDockview />
         </div>
       )}
 
@@ -3231,38 +3398,11 @@ export default function App() {
         })}
       </div>
 
-      {/* Model picker — shows the model actually in effect for the
-          current mode (manual pick, or the auto-routed default), opens
-          the same "Today's models" popover but with rows made
-          selectable. Same zIndex-over-chat-column reasoning as the mode
-          selector above. */}
+      {/* Model picker moved below the input (2026-09-01) — see the
+          compact button next to the input pill further down, matching
+          Dev Slate's own ModelBadge position/size. This row now only
+          ever holds the "Branched from X" pill. */}
       <div className="centered-col" style={{ position: "absolute", top: 64, zIndex: 10 }}>
-        <button
-          onClick={e => togglePanel("models", e.currentTarget)}
-          style={{
-            display: "flex", alignItems: "center", gap: spacing.xs,
-            padding: `${spacing.xs}px ${spacing.md}px`,
-            borderRadius: radius.sm,
-            // Neutral now, not mode-colored (2026-08-31) — this is a
-            // control, not content; the mode tabs above it are where
-            // mode-identity belongs, this button doesn't need to repeat it.
-            border: "1px solid rgba(255,255,255,0.12)",
-            background: "rgba(255,255,255,0.06)",
-            color: neutral.textPrimary,
-            cursor: "pointer",
-            fontSize: fontSize.xxs,
-            fontFamily,
-            fontWeight: fontWeight.medium,
-            whiteSpace: "nowrap",
-          }}
-        >
-          <CpuIcon size={12} />
-          <span style={{ color: neutral.textMuted }}>{effectiveModel.provider} · </span>
-          {effectiveModel.model}
-          {!modelOverride[chatMode] && <span style={{ color: neutral.textMuted }}> (auto)</span>}
-          <ChevronDownIcon size={12} />
-        </button>
-
         {/* "Branched from X" — the branch-awareness piece that's the
             actual gap in Claude's own product (real branches exist
             there, but stay invisible behind tiny pagination arrows).
@@ -3468,8 +3608,8 @@ export default function App() {
               per JuanJo's call, since it's about the current conversation's
               model, not app-wide navigation. */}
           {([
-            { key: "models", icon: <CpuIcon size={iconSize.sm} />, label: "Today's models" },
-            { key: "commands", icon: <CommandPaletteIcon size={iconSize.sm} />, label: "Commands" },
+            { key: "models", icon: <CpuIcon size={10} />, label: "Today's models" },
+            { key: "commands", icon: <CommandPaletteIcon size={10} />, label: "Commands" },
           ] as const).map(({ key, icon, label }) => {
             const panelActive = openPanel === key;
             return (
@@ -3483,14 +3623,18 @@ export default function App() {
                   // Neutral now (2026-08-31) — a control/trigger, not
                   // content; mode-color stays on the tabs and NAVI's
                   // own reply bubbles only.
-                  display: "flex", alignItems: "center", gap: spacing.xs, flexShrink: 0,
-                  padding: `${spacing.sm}px ${spacing.md}px`,
+                  // Trimmed 2026-09-01 from the original 8px/12px
+                  // padding, 6px gap, 14px icon — a straight 50% cut
+                  // ("halved") went too far the other way, so this
+                  // lands roughly 3/4 of the original size instead.
+                  display: "flex", alignItems: "center", gap: 4, flexShrink: 0,
+                  padding: "6px 9px",
                   borderRadius: radius.sm, // squared-with-rounded-corners, matches bubbles/input
                   border: "1px solid rgba(255,255,255,0.12)",
                   background: panelActive ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.06)",
                   color: neutral.textPrimary,
                   cursor: "pointer",
-                  fontSize: fontSize.xs,
+                  fontSize: 12,
                   fontFamily,
                   fontWeight: fontWeight.medium,
                   whiteSpace: "nowrap",
@@ -3943,12 +4087,58 @@ export default function App() {
             style={{
               width: controlSize.md, height: controlSize.md, flexShrink: 0,
               display: "flex", alignItems: "center", justifyContent: "center",
-              borderRadius: radius.md, border: "1px solid rgba(255,255,255,0.12)", cursor: "pointer",
-              background: "rgba(255,255,255,0.06)", color: neutral.textPrimary,
-              transition: "all 0.3s ease",
+              borderRadius: radius.md,
+              // Glows with the current mode's own color — a step
+              // brighter than the mode's base accent (75%/0.14 vs the
+              // mode tabs' 65%/0.12), not just a re-use of it (JuanJo,
+              // 2026-09-01: "glow with the same color as the Chat mode
+              // in here, but a bit brighter than the selected mode
+              // color"). Reverses the 2026-08-31 "neutral, not
+              // mode-colored" call for this specific button.
+              border: `1px solid oklch(75% 0.14 ${OKLCH_HUE[chatMode]} / 0.5)`,
+              cursor: "pointer",
+              background: `oklch(75% 0.14 ${OKLCH_HUE[chatMode]} / 0.18)`,
+              color: `oklch(75% 0.14 ${OKLCH_HUE[chatMode]})`,
+              boxShadow: `0 0 14px oklch(75% 0.14 ${OKLCH_HUE[chatMode]} / 0.35)`,
+              transition: "all 0.3s cubic-bezier(0.22, 1, 0.36, 1)",
             }}
           >
             <PaperAirplaneIcon size={iconSize.md} />
+          </button>
+        </div>
+
+        {/* Model picker — moved here from a floating position near the
+            mode tabs (2026-09-01), restyled small to match Dev Slate's
+            own ModelBadge shape/size/position (below the input) rather
+            than the app's separate earlier treatment for this control. */}
+        <div style={{ marginTop: spacing.xs, display: "flex", justifyContent: "flex-end" }}>
+          <button
+            onClick={e => togglePanel("models", e.currentTarget)}
+            style={{
+              display: "flex", alignItems: "center", gap: 3,
+              // Shrunk further (JuanJo, 2026-09-01: "the buttons over
+              // the chat's input, make them smaller too") — text itself
+              // is already at fontSize.xxs, the app's accessibility
+              // floor (14px minimum), so padding/icon/max-width are the
+              // only room left to trim without going below that floor.
+              padding: `1px ${spacing.xxs}px`, borderRadius: radius.sm,
+              border: "1px solid rgba(255,255,255,0.1)",
+              background: "rgba(255,255,255,0.04)",
+              color: neutral.textMuted,
+              cursor: "pointer",
+              fontSize: fontSize.xxs,
+              fontFamily,
+              whiteSpace: "nowrap",
+              maxWidth: 180, overflow: "hidden",
+            }}
+          >
+            <CpuIcon size={10} />
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+              <span style={{ color: neutral.textFaint }}>{effectiveModel.provider} · </span>
+              {effectiveModel.model}
+              {!modelOverride[chatMode] && <span style={{ color: neutral.textFaint }}> (auto)</span>}
+            </span>
+            <ChevronDownIcon size={10} />
           </button>
         </div>
       </div>

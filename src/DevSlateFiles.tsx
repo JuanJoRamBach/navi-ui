@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { FileIcon, FileDirectoryIcon, ChevronLeftIcon } from "@primer/octicons-react";
-import { spacing, radius, fontSize, iconSize, neutral, fontFamily, CANVAS_ACCENT } from "./tokens";
+import { spacing, radius, fontSize, iconSize, neutral, fontFamily, CANVAS_ACCENT, tintedGlow } from "./tokens";
 import { connectFolder, getConnectedFolderName, hasLocalFsSupport, listLocalDirectory, type FileTreeEntry } from "./devslateFs";
 import { openDevSlateFile, useDevSlateState } from "./devslateStore";
 
@@ -45,7 +45,7 @@ export function DevSlateFiles() {
         <FileDirectoryIcon size={22} fill={accent} />
         {hasLocalFsSupport() ? (
           <button onClick={handleConnect} style={{
-            padding: `${spacing.xs}px ${spacing.md}px`, borderRadius: radius.sm, border: `1px solid ${accent}66`,
+            padding: `${spacing.xs}px ${spacing.md}px`, borderRadius: radius.sm, border: `1px solid ${tintedGlow(CANVAS_ACCENT.devSlate.hue, 0.4)}`,
             background: "transparent", color: accent, cursor: "pointer", fontSize: fontSize.xs, fontFamily,
           }}>
             Connect a project folder

@@ -1,15 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDownIcon, CheckIcon, PaperclipIcon, XIcon, FileIcon, PencilIcon, ZapIcon } from "@primer/octicons-react";
-import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT } from "./tokens";
+import { ChevronDownIcon, CheckIcon, PaperclipIcon, XIcon, FileIcon, PencilIcon, ZapIcon, PaperAirplaneIcon } from "@primer/octicons-react";
+import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, tintedSurface, tintedGlow } from "./tokens";
 import {
   connectDevSlate, createSlate, fetchModelCatalog, loadSlateHistory, setPinnedModel,
   type DevSlateConnection, type DevSlateMessage, type ModelCatalog,
 } from "./devslate";
 import { connectFolder, getConnectedFolderName, hasLocalFsSupport, listAllFiles, readLocalFile } from "./devslateFs";
-import { requestWriteReview, useDevSlateState } from "./devslateStore";
+import { requestWriteReview, setTaskState, useDevSlateState } from "./devslateStore";
 import { DevSlateDotGrid } from "./DevSlateDotGrid";
 
 const accent = CANVAS_ACCENT.devSlate.color;
+
+// Approximate height of the floating bottom cluster (connection row +
+// input pill + edit-mode/model row, plus gaps) — reserved as bottom
+// padding on the scrollable message list so the last message never
+// sits underneath the overlay. Not pixel-exact (the cluster's real
+// height varies with wrapped rows / attached-file chips), just generous
+// enough to clear it in the common case.
+const FLOAT_CLUSTER_RESERVE = 132;
 
 // Reads/writes the current Slate id from sessionStorage — a Root Slate
 // per browser session for now (sub-Slates / a real Slate switcher aren't
@@ -280,12 +288,22 @@ export function DevSlateChat() {
     if (!conversationId) return;
     let cancelled = false;
 
-    loadSlateHistory(conversationId).then(({ messages: history }) => {
-      if (!cancelled) setMessages(history);
+    loadSlateHistory(conversationId).then(({ messages: history, task_state }) => {
+      if (cancelled) return;
+      setMessages(history);
+      setTaskState(task_state);
     });
 
+    // Re-fetched after every reply rather than pushed by the server —
+    // a task_state change is always driven by a tool call within the
+    // turn that just completed, so this stays correct without a new
+    // WebSocket frame type just for this.
+    const refreshTaskState = () => {
+      loadSlateHistory(conversationId).then(({ task_state }) => setTaskState(task_state));
+    };
+
     const conn = connectDevSlate(conversationId, {
-      onMessage: (msg) => { setActivity(null); setMessages(m => [...m, msg]); },
+      onMessage: (msg) => { setActivity(null); setMessages(m => [...m, msg]); refreshTaskState(); },
       onStatusChange: setStatus,
       onActivity: setActivity,
       getAutoAccept: () => autoAcceptRef.current,
@@ -334,58 +352,20 @@ export function DevSlateChat() {
   const reversedMessages = useMemo(() => [...messages].reverse(), [messages]);
 
   return (
-    // minWidth is a hard floor, not a suggestion — react-resizable-panels'
-    // Panel sizing is percentage-based and doesn't stop the user dragging
-    // this pane narrower than its content can sit comfortably in (JuanJo,
-    // 2026-09-01: "I can squash elements so much it deforms the UI").
-    // Below this width the pane scrolls horizontally instead of squashing
-    // its rows.
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", minWidth: 220, overflowX: "auto", fontFamily, position: "relative" }}>
-      {/* Left-padded — the app-wide floating "open left sidebar" button
-          (position:absolute, top:spacing.xl, width:controlSize.md,
-          zIndex:31) floats over whatever's in that corner regardless of
-          canvas; Dev Slate's Chat pane is just the first one to put
-          real content there. Shifting this row clear of it keeps the
-          button a true floating overlay (no reserved dead space
-          elsewhere in the canvas — that was tried and looked bad,
-          JuanJo 2026-09-01). 52px ≈ spacing.xl(20) + controlSize.md(38). */}
-      <div style={{
-        display: "flex", alignItems: "center", gap: spacing.xs,
-        padding: spacing.sm, paddingLeft: 52,
-        borderBottom: "2px solid rgba(255,255,255,0.08)", flexShrink: 0, zIndex: 1,
-      }}>
-        <span style={{
-          width: 6, height: 6, borderRadius: 9999, flexShrink: 0,
-          background: status === "open" ? "#3ecf8e" : status === "connecting" ? "#e0b94a" : "#e05a4a",
-        }} title={status} />
-      </div>
-
-      {!folderName && (
-        <div style={{ padding: spacing.sm, borderBottom: "2px solid rgba(255,255,255,0.08)" }}>
-          {hasLocalFsSupport() ? (
-            <button onClick={handleConnectFolder} style={{
-              width: "100%", padding: spacing.xs, borderRadius: radius.sm, border: `1px solid ${accent}66`,
-              background: "transparent", color: accent, cursor: "pointer", fontSize: fontSize.xs, fontFamily,
-            }}>
-              Connect a project folder
-            </button>
-          ) : (
-            <div style={{ fontSize: fontSize.xxs, color: neutral.textFaint }}>
-              Local file access needs Chrome, Edge, or Opera — this browser doesn't support it yet.
-            </div>
-          )}
-        </div>
-      )}
-      {folderName && (
-        <div style={{ padding: `${spacing.xxs}px ${spacing.sm}px`, fontSize: fontSize.xxs, color: neutral.textFaint, borderBottom: "2px solid rgba(255,255,255,0.08)" }}>
-          Connected: {folderName}
-        </div>
-      )}
-
+    // No fixed minWidth/overflowX floor anymore — squashing now reflows
+    // internal rows (flexWrap) and truncates labels instead of forcing
+    // an outer horizontal scrollbar on the whole pane (JuanJo, 2026-09-01:
+    // "make things just overflow to inside of the container" rather than
+    // scroll the pane itself).
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", fontFamily, position: "relative" }}>
       <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
         <DevSlateDotGrid />
         <div className="hide-scrollbar message-fade-top" style={{
           position: "relative", zIndex: 1, height: "100%", overflowY: "auto", padding: spacing.sm,
+          // paddingBottom clears the floating input cluster below (it's
+          // an overlay now, not a layout sibling — see FLOAT_CLUSTER_
+          // RESERVE) so the last message never sits underneath it.
+          paddingBottom: FLOAT_CLUSTER_RESERVE,
           display: "flex", flexDirection: "column-reverse", gap: spacing.sm,
         }}>
           {activity && (
@@ -400,7 +380,7 @@ export function DevSlateChat() {
           {pendingWrite && (
             <div style={{
               alignSelf: "flex-start", display: "flex", alignItems: "center", gap: spacing.xs,
-              border: `1px solid ${accent}55`, borderRadius: radius.sm, padding: spacing.xs,
+              border: `1px solid ${tintedGlow(CANVAS_ACCENT.devSlate.hue, 0.33)}`, borderRadius: radius.sm, padding: spacing.xs,
               fontSize: fontSize.xxs, color: neutral.textMuted, fontFamily: "monospace",
             }}>
               <CheckIcon size={12} />
@@ -410,68 +390,131 @@ export function DevSlateChat() {
           {reversedMessages.map((m, i) => (
             <div key={reversedMessages.length - i} style={{
               alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "90%",
-              background: m.role === "user" ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.03)",
-              borderRadius: radius.sm, padding: spacing.xs, fontSize: fontSize.sm, color: neutral.textPrimary,
-              whiteSpace: "pre-wrap",
+              // Same bubble treatment as the main Chat canvas — heavier
+              // blur/glow carries legibility instead of a solid fill,
+              // NAVI's replies fully carry this canvas's own tint (teal,
+              // not Normal mode's blue — JuanJo, 2026-09-01: "respecting
+              // the color of the canvas"), the user's own messages stay
+              // neutral (chrome stays stable, content shifts).
+              background: m.role === "user" ? neutral.userBubbleBg : tintedSurface(CANVAS_ACCENT.devSlate.hue, 15, 0.04),
+              border: m.role === "user"
+                ? `1px solid ${neutral.userBubbleBorder}`
+                : `1px solid oklch(65% 0.12 ${CANVAS_ACCENT.devSlate.hue} / 0.35)`,
+              boxShadow: m.role === "user"
+                ? `0 4px 18px rgba(0,0,0,0.35), 0 0 14px ${neutral.userBubbleGlow}`
+                : `0 4px 18px rgba(0,0,0,0.35), 0 0 20px ${CANVAS_ACCENT.devSlate.glow}`,
+              borderRadius: radius.lg, padding: `${spacing.sm}px ${spacing.md}px`,
+              fontSize: fontSize.sm, color: neutral.textPrimary, whiteSpace: "pre-wrap",
             }}>
               {m.text}
             </div>
           ))}
         </div>
-      </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: spacing.xs, padding: spacing.sm, borderTop: "2px solid rgba(255,255,255,0.08)" }}>
-        {attachedPaths.length > 0 && (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: spacing.xxs }}>
-            {attachedPaths.map(path => (
-              <span key={path} style={{
-                display: "flex", alignItems: "center", gap: 4, padding: `2px ${spacing.xxs}px`,
-                borderRadius: radius.xs, background: "rgba(255,255,255,0.06)",
-                fontSize: fontSize.xxs, color: neutral.textMuted, fontFamily: "monospace",
-              }}>
-                {path}
-                <button
-                  onClick={() => setAttachedPaths(paths => paths.filter(p => p !== path))}
-                  style={{ display: "flex", background: "none", border: "none", color: neutral.textFaint, cursor: "pointer", padding: 0 }}
-                >
-                  <XIcon size={10} />
-                </button>
+        {/* Floating over the background, not a docked bottom bar — no
+            enclosing bar/border behind this cluster, the dot grid shows
+            through around it (JuanJo, 2026-09-01: "it must be floating
+            over the background, not be a bottom bar"). */}
+        <div style={{
+          position: "absolute", left: 0, right: 0, bottom: 0, zIndex: 2,
+          display: "flex", flexDirection: "column", gap: spacing.xs, padding: spacing.sm,
+        }}>
+          {/* Connection status — the status dot used to sit alone in its
+              own header row, disconnected from anything it actually
+              described ("drifting on top, lost in Jupiter" — JuanJo,
+              2026-09-01). It belongs right next to the thing it reports
+              on, so it's paired with the connect-folder control here
+              instead. Same compact sizing as "Review changes" below, not
+              the old full-width banner. */}
+          <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, flexWrap: "wrap", minWidth: 0 }}>
+            <span style={{
+              width: 6, height: 6, borderRadius: 9999, flexShrink: 0,
+              background: status === "open" ? "#3ecf8e" : status === "connecting" ? "#e0b94a" : "#e05a4a",
+            }} title={`Connection ${status}`} />
+            {folderName ? (
+              <span style={{ fontSize: fontSize.xxs, color: neutral.textFaint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                Connected: {folderName}
               </span>
-            ))}
+            ) : hasLocalFsSupport() ? (
+              <button onClick={handleConnectFolder} style={{
+                padding: `${spacing.xxs}px ${spacing.xs}px`, borderRadius: radius.sm,
+                border: `1px solid ${tintedGlow(CANVAS_ACCENT.devSlate.hue, 0.4)}`, background: "rgba(8,8,10,0.6)", color: accent,
+                cursor: "pointer", fontSize: fontSize.xxs, fontFamily,
+              }}>
+                Connect a project folder
+              </button>
+            ) : (
+              <span style={{ fontSize: fontSize.xxs, color: neutral.textFaint }}>
+                Local file access needs Chrome, Edge, or Opera.
+              </span>
+            )}
           </div>
-        )}
-        <div style={{ display: "flex", gap: spacing.xs }}>
-          {folderName && (
-            <AttachFilePicker
-              attached={attachedPaths}
-              onAttach={(path) => setAttachedPaths(paths => paths.includes(path) ? paths : [...paths, path])}
-            />
-          )}
-          <input
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }}
-            placeholder="Ask for a change…"
-            style={{
-              flex: 1, minWidth: 0, padding: spacing.xs, borderRadius: radius.sm, border: "1px solid rgba(255,255,255,0.1)",
-              background: "rgba(255,255,255,0.03)", color: neutral.textPrimary, fontSize: fontSize.sm, fontFamily,
-            }}
-          />
-          <button onClick={() => void send()} disabled={status !== "open"} style={{
-            flexShrink: 0, padding: `${spacing.xs}px ${spacing.md}px`, borderRadius: radius.sm, border: "none",
-            background: accent, color: "#08110d", cursor: status === "open" ? "pointer" : "default",
-            fontSize: fontSize.sm, fontWeight: fontWeight.medium, fontFamily, opacity: status === "open" ? 1 : 0.5,
-          }}>
-            Send
-          </button>
-        </div>
 
-        {/* "Kind of edition" (review-vs-auto-accept) at bottom-left,
-            model selector at bottom-right — both compact, both under
-            the input, JuanJo's layout call 2026-09-01. */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.xs, minWidth: 0 }}>
-          <EditModeSelector autoAccept={autoAccept} onChange={setAutoAccept} />
-          {conversationId && <ModelBadge conversationId={conversationId} />}
+          {attachedPaths.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: spacing.xxs }}>
+              {attachedPaths.map(path => (
+                <span key={path} style={{
+                  display: "flex", alignItems: "center", gap: 4, padding: `2px ${spacing.xxs}px`,
+                  borderRadius: radius.xs, background: "rgba(8,8,10,0.8)", border: "1px solid rgba(255,255,255,0.1)",
+                  fontSize: fontSize.xxs, color: neutral.textMuted, fontFamily: "monospace",
+                }}>
+                  {path}
+                  <button
+                    onClick={() => setAttachedPaths(paths => paths.filter(p => p !== path))}
+                    style={{ display: "flex", background: "none", border: "none", color: neutral.textFaint, cursor: "pointer", padding: 0 }}
+                  >
+                    <XIcon size={10} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* One pill container (input + buttons inside it), same shape
+              as the main Chat canvas's own input bar. */}
+          <div style={{
+            display: "flex", alignItems: "flex-end", gap: spacing.xs,
+            padding: spacing.xs, borderRadius: radius.xl,
+            background: neutral.surface, border: "1px solid rgba(255,255,255,0.12)",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+          }}>
+            {folderName && (
+              <AttachFilePicker
+                attached={attachedPaths}
+                onAttach={(path) => setAttachedPaths(paths => paths.includes(path) ? paths : [...paths, path])}
+              />
+            )}
+            <input
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }}
+              placeholder="Ask for a change…"
+              style={{
+                flex: 1, minWidth: 0, background: "transparent", border: "none", outline: "none",
+                color: neutral.textPrimary, fontSize: fontSize.sm, fontFamily,
+                padding: `${spacing.xs}px ${spacing.xs}px`,
+              }}
+            />
+            <button onClick={() => void send()} disabled={status !== "open"} aria-label="Send" title="Send" style={{
+              flexShrink: 0, width: 30, height: 30,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              borderRadius: radius.md, border: `1px solid ${tintedGlow(CANVAS_ACCENT.devSlate.hue, 0.4)}`,
+              background: tintedGlow(CANVAS_ACCENT.devSlate.hue, 0.15), color: accent,
+              cursor: status === "open" ? "pointer" : "default", opacity: status === "open" ? 1 : 0.5,
+            }}>
+              <PaperAirplaneIcon size={14} />
+            </button>
+          </div>
+
+          {/* "Kind of edition" (review-vs-auto-accept) at bottom-left,
+              model selector at bottom-right — both compact, both under
+              the input, JuanJo's layout call 2026-09-01. flexWrap so a
+              squashed pane wraps these onto their own line instead of
+              forcing horizontal scroll or squashing them illegibly. */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.xs, flexWrap: "wrap", minWidth: 0 }}>
+            <EditModeSelector autoAccept={autoAccept} onChange={setAutoAccept} />
+            {conversationId && <ModelBadge conversationId={conversationId} />}
+          </div>
         </div>
       </div>
     </div>

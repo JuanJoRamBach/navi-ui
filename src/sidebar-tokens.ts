@@ -27,7 +27,9 @@ const ACCENT_HOVER = "rgb(160, 195, 255)";
 const ACCENT_BORDER = "rgba(120, 165, 235, 0.35)";
 
 export const sidebarTab = {
-  height: 30,
+  // 32px, down from an already-close 30px — JuanJo, 2026-09-01: "as of
+  // now they use a lot of space. looks ugly."
+  height: 32,
   gap: spacing.xs,
   paddingV: spacing.xs,
   paddingH: spacing.sm + 2,

@@ -1,0 +1,23 @@
+/* Re-skins dockview's built-in "abyss" theme (a real dark VS Code-style
+   base) to match Dev Slate's own near-black/teal palette — dockview
+   exposes this as real CSS custom properties (--dv-*), so this is
+   values-only, not fighting the library's own CSS. Scoped under
+   .devslate-dockview so nothing leaks outside this one canvas. */
+
+.devslate-dockview.dockview-theme-abyss {
+  --dv-color-abyss-dark: #080808;
+  --dv-color-abyss: #0d0d10;
+  --dv-color-abyss-light: #111318;
+  --dv-color-abyss-accent: oklch(65% 0.12 200);
+  --dv-color-abyss-primary-text: rgba(246, 246, 246, 0.95);
+  --dv-color-abyss-secondary-text: rgba(246, 246, 246, 0.62);
+  --dv-tabs-and-actions-container-font-size: 11px;
+  /* JuanJo, 2026-09-01: thinner tabs — down from the abyss theme's
+     default 35px (already trimmed to 32px once) to 26px. */
+  --dv-tabs-and-actions-container-height: 26px;
+}
+
+.devslate-dockview {
+  width: 100%;
+  height: 100%;
+}

@@ -7,7 +7,7 @@
 // shape, not a variant of the same thing.
 import { NAVI_BACKEND_URL } from "./config";
 import { handleDevSlateToolCall, readLocalFile, writeLocalFile } from "./devslateFs";
-import { notifyFileWritten } from "./devslateStore";
+import { notifyFileWritten, type DevSlateTaskState } from "./devslateStore";
 
 export interface PendingWrite {
   path: string;
@@ -49,7 +49,7 @@ export async function createSlate(parentId?: string): Promise<{ id: string; pare
   return res.json();
 }
 
-export async function loadSlateHistory(conversationId: string): Promise<{ messages: DevSlateMessage[]; task_state: unknown }> {
+export async function loadSlateHistory(conversationId: string): Promise<{ messages: DevSlateMessage[]; task_state: DevSlateTaskState | null }> {
   const res = await fetch(`${NAVI_BACKEND_URL}/devslate/conversations/${conversationId}/messages`);
   const data = await res.json();
   return {
