@@ -166,6 +166,23 @@ async function* walkFiles(dir: FileSystemDirectoryHandle, prefix: string): Async
   }
 }
 
+const LIST_ALL_MAX_FILES = 300;
+
+// Flat recursive file listing — backs the chat's "attach a file" picker
+// (the user explicitly handing the model a file's content, distinct
+// from read_file, which is the model deciding on its own to pull one
+// in). Same skip-list as grepLocal/walkFiles, capped so a huge repo
+// doesn't hang the picker open.
+export async function listAllFiles(): Promise<string[]> {
+  const root = await requireRoot();
+  const paths: string[] = [];
+  for await (const { path } of walkFiles(root, "")) {
+    if (paths.length >= LIST_ALL_MAX_FILES) break;
+    paths.push(path);
+  }
+  return paths;
+}
+
 // Plain substring/regex search across the connected folder — deliberately
 // simple (no ripgrep-style binary, no gitignore parsing) given the
 // light-coding scope Dev Slate targets. path_glob is matched as a plain
