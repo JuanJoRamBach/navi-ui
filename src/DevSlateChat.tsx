@@ -7,7 +7,7 @@ import {
 } from "./devslate";
 import { connectFolder, getConnectedFolderName, hasLocalFsSupport, listAllFiles, readLocalFile } from "./devslateFs";
 import { requestWriteReview, useDevSlateState } from "./devslateStore";
-import "./devslate-chat-bg.css";
+import { DevSlateDotGrid } from "./DevSlateDotGrid";
 
 const accent = CANVAS_ACCENT.devSlate.color;
 
@@ -383,10 +383,7 @@ export function DevSlateChat() {
       )}
 
       <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
-        <div className="devslate-chat-bg">
-          <div className="devslate-chat-bg-dots" />
-          <div className="devslate-chat-bg-glow" />
-        </div>
+        <DevSlateDotGrid />
         <div className="hide-scrollbar message-fade-top" style={{
           position: "relative", zIndex: 1, height: "100%", overflowY: "auto", padding: spacing.sm,
           display: "flex", flexDirection: "column-reverse", gap: spacing.sm,
