@@ -8,6 +8,12 @@
   --dv-color-abyss-dark: #080808;
   --dv-color-abyss: #0d0d10;
   --dv-color-abyss-light: #111318;
+  /* Feeds --dv-separator-border/--dv-tab-divider-color/--dv-paneview-
+     header-border-color. Dockview's own abyss theme defaults this to
+     #2b2b4a — a purple-blue "abyss" tint that doesn't match Dev Slate's
+     palette at all (JuanJo, 2026-09-01). Match every other border in
+     the app instead. */
+  --dv-color-abyss-lighter: rgba(255, 255, 255, 0.08);
   --dv-color-abyss-accent: oklch(65% 0.12 200);
   --dv-color-abyss-primary-text: rgba(246, 246, 246, 0.95);
   --dv-color-abyss-secondary-text: rgba(246, 246, 246, 0.62);
