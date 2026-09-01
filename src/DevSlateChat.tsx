@@ -199,6 +199,7 @@ export function DevSlateChat() {
   const [autoAccept, setAutoAccept] = useState(false);
   const [folderName, setFolderName] = useState<string | null>(null);
   const [attachedPaths, setAttachedPaths] = useState<string[]>([]);
+  const [activity, setActivity] = useState<string | null>(null);
   const connRef = useRef<DevSlateConnection | null>(null);
   const autoAcceptRef = useRef(autoAccept);
   autoAcceptRef.current = autoAccept;
@@ -217,8 +218,9 @@ export function DevSlateChat() {
     });
 
     const conn = connectDevSlate(conversationId, {
-      onMessage: (msg) => setMessages(m => [...m, msg]),
+      onMessage: (msg) => { setActivity(null); setMessages(m => [...m, msg]); },
       onStatusChange: setStatus,
+      onActivity: setActivity,
       autoAccept: false, // read fresh via onWriteRequest below instead of a stale closure
       onWriteRequest: (write) => {
         if (autoAcceptRef.current) return Promise.resolve(true);
@@ -262,10 +264,24 @@ export function DevSlateChat() {
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", fontFamily }}>
       <div style={{
-        display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.xs,
+        display: "flex", flexDirection: "column", gap: spacing.xxs,
         padding: spacing.sm, borderBottom: "1px solid rgba(255,255,255,0.08)", flexShrink: 0,
       }}>
-        {conversationId ? <ModelBadge conversationId={conversationId} /> : <span />}
+        {/* Left-padded on this row only — the app-wide floating "open
+            left sidebar" button (position:absolute, top:spacing.xl,
+            width:controlSize.md, zIndex:31) floats over whatever's in
+            that corner regardless of canvas; Dev Slate's Chat pane is
+            just the first one to put real content there. Shifting this
+            one row clear of it keeps the button a true floating overlay
+            (no reserved dead space elsewhere in the canvas — that was
+            tried and looked bad, JuanJo 2026-09-01) at the cost of the
+            badge starting a little right of the pane's own edge. 52px ≈
+            spacing.xl(20) + controlSize.md(38), same footprint as
+            before, just scoped to this one row instead of the whole
+            canvas. */}
+        <div style={{ paddingLeft: 52, display: "flex" }}>
+          {conversationId ? <ModelBadge conversationId={conversationId} /> : <span />}
+        </div>
         <div style={{ display: "flex", alignItems: "center", gap: spacing.xs }}>
           <span style={{
             width: 6, height: 6, borderRadius: 9999,
@@ -319,6 +335,15 @@ export function DevSlateChat() {
           }}>
             <CheckIcon size={12} />
             Reviewing a change to {pendingWrite.path} — see the Code pane
+          </div>
+        )}
+        {activity && (
+          <div style={{
+            alignSelf: "flex-start", display: "flex", alignItems: "center", gap: spacing.xs,
+            padding: `${spacing.xxs}px ${spacing.xs}px`, fontSize: fontSize.xxs, color: neutral.textFaint, fontFamily,
+          }}>
+            <span className="step-pulse" style={{ width: 6, height: 6, borderRadius: 9999, background: accent }} />
+            <span className="step-pulse">{activity}</span>
           </div>
         )}
       </div>

@@ -101,7 +101,19 @@ export interface DevSlateHandlers {
   // when autoAccept is on, since there's nothing to ask.
   onWriteRequest?: (write: PendingWrite) => Promise<boolean>;
   autoAccept?: boolean;
+  // Fired the moment a user_message is sent and again on every relayed
+  // tool call, so the UI has something concrete to show while a turn is
+  // in flight — otherwise a slow (or silently failing) reply just looks
+  // frozen. Cleared by the caller once assistant_message arrives.
+  onActivity?: (status: string) => void;
 }
+
+const TOOL_ACTIVITY_LABEL: Record<string, (args: Record<string, unknown>) => string> = {
+  read_file: (args) => `Reading ${args.path ?? "a file"}…`,
+  write_file: (args) => `Proposing a change to ${args.path ?? "a file"}…`,
+  grep: (args) => `Searching for "${args.pattern ?? ""}"…`,
+  update_task_state: () => "Updating Slate notes…",
+};
 
 export function connectDevSlate(conversationId: string, handlers: DevSlateHandlers): DevSlateConnection {
   const ws = new WebSocket(wsUrl(conversationId));
@@ -126,6 +138,7 @@ export function connectDevSlate(conversationId: string, handlers: DevSlateHandle
     if (frame.type === "tool_request") {
       const name = frame.name as string;
       const args = frame.arguments as Record<string, unknown>;
+      handlers.onActivity?.((TOOL_ACTIVITY_LABEL[name] ?? (() => `Running ${name}…`))(args));
 
       // write_file gets the review treatment (default mode is "accept
       // changes" — the user approves each diff, per JuanJo's explicit
@@ -154,6 +167,7 @@ export function connectDevSlate(conversationId: string, handlers: DevSlateHandle
   return {
     send(text: string) {
       if (ws.readyState === WebSocket.OPEN) {
+        handlers.onActivity?.("Thinking…");
         ws.send(JSON.stringify({ type: "user_message", text }));
       }
     },

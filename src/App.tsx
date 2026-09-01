@@ -3150,16 +3150,6 @@ export default function App() {
         <div style={{
           position: "absolute", inset: 0, left: "var(--outer-rail-width, 0px)",
           zIndex: 20, background: "#080808",
-          // Reserves the same top-left band the floating left-sidebar
-          // open-trigger button (position:absolute, top:spacing.xl,
-          // height:controlSize.md) occupies app-wide — without this,
-          // Dev Slate's own Chat pane header (model badge, connect-
-          // folder prompt) starts flush in that exact corner and visibly
-          // collides with the button. Found live, JuanJo 2026-09-01.
-          // 64px = spacing.xl(20) + controlSize.md(38) + a little
-          // breathing room, not itself a token since it's derived from
-          // two others specifically to clear a third element's footprint.
-          paddingTop: 64, boxSizing: "border-box",
         }}>
           <Group orientation="horizontal" style={{ width: "100%", height: "100%" }}>
             <Panel id="dev-slate-chat" defaultSize="22%" minSize="15%" maxSize="35%">
