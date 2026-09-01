@@ -29,7 +29,6 @@ import {
   CodeIcon,
   PulseIcon,
   HomeIcon,
-  TerminalIcon,
   CalendarIcon,
   HistoryIcon,
   LinkIcon,
@@ -59,6 +58,11 @@ import { isTextLike } from "./fileFormats";
 const DocumentViewer = lazy(() => import("./DocumentViewer").then(m => ({ default: m.DocumentViewer })));
 import { NAVI_BACKEND_URL } from "./config";
 import { getPushStatus, subscribeToPush, type PushStatus } from "./push";
+import { DevSlateChat } from "./DevSlateChat";
+import { DevSlateFiles } from "./DevSlateFiles";
+import { DevSlateCode } from "./DevSlateCode";
+import { DevSlateTerminal } from "./DevSlateTerminal";
+import { DevSlatePreview } from "./DevSlatePreview";
 
 const DOT_SIZE = 8;
 
@@ -3149,7 +3153,7 @@ export default function App() {
         }}>
           <Group orientation="horizontal" style={{ width: "100%", height: "100%" }}>
             <Panel id="dev-slate-chat" defaultSize="22%" minSize="15%" maxSize="35%">
-              {devSlatePane(<CommentDiscussionIcon size={22} fill={CANVAS_ACCENT.devSlate.color} />, "Chat", "This session's own chat — drives generation for whichever track this project is set to.")}
+              <DevSlateChat />
             </Panel>
             <Separator className="dev-slate-column-separator" />
             <Panel id="dev-slate-code" defaultSize="46%" minSize="25%">
@@ -3157,23 +3161,23 @@ export default function App() {
                 <Panel id="dev-slate-editor-row" defaultSize="75%" minSize="40%">
                   <Group orientation="horizontal" style={{ width: "100%", height: "100%" }}>
                     <Panel id="dev-slate-files" defaultSize="22%" minSize="12%" maxSize="40%">
-                      {devSlatePane(<FileDirectoryIcon size={20} fill={CANVAS_ACCENT.devSlate.color} />, "Files", "Project file tree — reuses the existing Files panel, not rebuilt.")}
+                      <DevSlateFiles />
                     </Panel>
                     <Separator className="dev-slate-column-separator" />
                     <Panel id="dev-slate-editor" minSize="30%">
-                      {devSlatePane(<CodeIcon size={22} fill={CANVAS_ACCENT.devSlate.color} />, "Code", "Monaco — also hosts the diff view when reviewing an AI-proposed change.")}
+                      <DevSlateCode />
                     </Panel>
                   </Group>
                 </Panel>
                 <Separator className="sidebar-vertical-separator" />
                 <Panel id="dev-slate-terminal" defaultSize="25%" minSize="12%" maxSize="50%">
-                  {devSlatePane(<TerminalIcon size={20} fill={CANVAS_ACCENT.devSlate.color} />, "Terminal", "Build/install output — xterm.js, paired with whichever execution engine gets picked.")}
+                  <DevSlateTerminal />
                 </Panel>
               </Group>
             </Panel>
             <Separator className="dev-slate-column-separator" />
             <Panel id="dev-slate-preview" defaultSize="32%" minSize="20%">
-              {devSlatePane(<GlobeIcon size={22} fill={CANVAS_ACCENT.devSlate.color} />, "Preview", "Live preview — GrapesJS or Onlook's own canvas docks here, per the project's track.")}
+              <DevSlatePreview />
             </Panel>
           </Group>
         </div>
