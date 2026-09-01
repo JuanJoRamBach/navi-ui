@@ -1,52 +1,44 @@
-# Handoff — navi-pwa, 2026-08-30
+# Handoff — navi-pwa, 2026-09-01
 
-Written because this chat is about to hit its context-compaction limit. Read this in the new chat instead of re-deriving context from scratch. Repo: `JuanJoRamBach/navi-ui`, working dir `C:\Users\juanj\Proyectos IA\navi-pwa`.
+Written to close out this session. Read this instead of re-deriving context from scratch. Repo: `JuanJoRamBach/navi-ui`, working dir `C:\Users\juanj\Proyectos IA\navi-pwa`, branch `v3-ui` (main stays untouched — standing rule).
 
-## What just shipped (this session, verified via `tsc --noEmit` + `npm run build`, both clean)
+This session's navi-pwa work was small relative to the NAVI backend work covered in the sibling repo's own `HANDOFF.md` — one focused pass on shared design tokens, not a new feature. `git pull`/`checkout` isn't needed if you're already on `v3-ui`; the commit is `7c0a20d`.
 
-### 1. Sub-chats as "branches" (one Main Chat per project)
-- **Model**: exactly one Main Chat per project. Everything else is a *branch* off it (or off another branch) — never a second independent top-level chat, never version control (no diff/merge/rebase).
-- `src/storage.ts`:
-  - `Conversation.parentId?: string` — set only on a branch, absent on Main Chat.
-  - `createConversation(mode, parentId?)` — on the very first parentId-less conversation ever created, writes its id to a new `meta` key `"mainId"`.
-  - `getMainConversationId()` — reads that key.
-  - `listBranches()` → `BranchListItem[]` — every conversation with a `parentId`, flat (not a nested tree; deliberate — see rationale in the code comment), each carrying its direct parent's title.
-- `src/App.tsx`:
-  - `branchConversation()` — prompts for a name via `window.prompt`, seeds the new conversation with the current `messages`, switches to it.
-  - `jumpToMainChat()` — loads `mainChatId` and opens it. Exists because the in-chat "Branched from X" pill only shows the *immediate* parent — a branch nested several levels deep otherwise has no one-click path back to the true root.
-  - `mainChatId` state, loaded once via `getMainConversationId()`.
-  - **Outer rail's middle zone (Chat canvas)** now shows exactly three items, in this order, per JuanJo's explicit spec: **Main Chat** → **New Branch Chat** → **Branches** (opens a flat browse-all panel, `openPanel === "branches"`).
-  - Removed: the old two-item "New conversation"/"Past conversations" rail buttons, the `newConvo` confirmation popover, `startNewConversation` (dead — the mount-bootstrap effect at ~line 720 already creates Main Chat if none exists).
-  - In-chat UI unchanged: "Branched from X" pill + "Branch this chat" icon button, both still live near the model-picker row.
+## What shipped this session (committed + pushed to `v3-ui`, `tsc --noEmit` clean)
 
-### 2. Left sidebar close/open button (just added, also verified clean)
-- JuanJo: *"we also need a button to close the left sidebar."*
-- New `leftPanelOpen` state (desktop-only concept, defaults `true`, mirrors the existing `rightPanelOpen` pattern for the right/Sources panel).
-- Desktop: the whole `.sidebar` div now only renders when `leftPanelOpen` is true. A close (X) button lives in its header (same button mobile already had, now also wired for desktop — branches its `onClick` between `setLeftPanelOpen(false)` and `setSidebarOpen(false)` depending on `isDesktopSidebar`). A floating open-trigger (hamburger icon) appears top-left, offset past `var(--outer-rail-width)`, when closed on desktop — mirrors the right panel's own open-trigger exactly.
-- Mobile behavior is untouched — still the same slide-in drawer via `.sidebar.open` + `sidebarOpen` state, `leftPanelOpen` doesn't apply there.
-- `index.css`: new CSS var `--left-panel-width` (defaults to `var(--sidebar-width)`, overridden by a React effect to `"0px"` when the user closes the panel on desktop). `.chat-column`/`.centered-col`'s left-floor calc now reads `--left-panel-width` instead of `--sidebar-width` directly, so the chat re-centers into the freed space when the sidebar is closed — same mechanism that already existed for the right panel via the `right-panel-open` body class, just done as a CSS var instead since the right panel used a body class + hardcoded 0 in the "not open" case implicitly (right panel's floor doesn't need a var since it isn't in the *left* floor calc at all).
-- **Not yet browser-verified** — per standing project rule (see `feedback-user-tests.md` in memory: JuanJo tests UI changes himself, I don't run browser verification loops). Typecheck and production build are both clean; visual confirmation is on him.
+All changes are in `src/tokens.ts`, `src/sidebar-tokens.ts`, and incidental global-token consumers in `src/App.tsx` — no canvas-specific logic (Chat/Agent Work/Dev Slate) was touched.
 
-## Standing architecture decisions (agreed, not all built yet)
+### 1. Neutral near-white text tokens (was a real accessibility bug)
+- `neutral.textPrimary/textMuted/textFaint/textInactive` rebased from a warm-cream tint to a genuinely neutral `#F6F6F6` (R=G=B, zero hue bias) so text never fights whichever zone/mode accent color happens to be nearby.
+- **Real bug caught, not a style preference**: `textFaint` was failing WCAG AA contrast (~3:1, under the 4.5:1 floor for body text) against the near-black background. The background had gone through several rounds of getting darker across earlier sessions (warm gray → neutral gray → pure black → `#0F0F0F`) without these text alphas ever being rechecked against the new darkness. All four tokens now derive from the same `#F6F6F6` base at different alphas (0.95/0.62/0.48/0.55).
 
-Full detail lives in memory (`navi-planner-and-completion-rate.md`, project-type). Highlights relevant to what's next:
+### 2. Sidebar tab active-state restored as a fill (not a bug — a design iteration that overcorrected)
+- History: original colored pill-fill → dropped for reading "cartoon"/goofy → text-contrast-only turned out too quiet on its own (caught live, same session it was tried) → restored as a fill, but **neutral** this time (`rgba(255,255,255,0.06)`), not zone-colored — same subtle "raised" treatment as sidebar card backgrounds (Knowledge items, source rows), not a bright colored pill.
+- `sidebar-tokens.ts`: `ACCENT_BG` and the underline (`underlineColor`/`underlineThickness`) were removed entirely — the fill replaces both.
 
-- **Project** is the real top-level container — sits *above* the entire canvas switcher (Chat / Agent Work / Codex / Dashboard), team-shared (multi-user DB, shared files). This is a B2B-driving decision, not yet built at all — no multi-project data model exists yet (IndexedDB schema is implicitly single-project).
-- Entry flow: **both** a dedicated Project Selector screen on app open, **and** a persistent compact project-switcher pinned above the canvas-switcher at the rail's top. Neither built yet.
-- **Left sidebar = project-wide tools, right sidebar = canvas-dependent tools.** Knowledge (left) and Sources (right) already fit this split. **Files' placement is still unconfirmed** — flagged as likely wanting to move left (project-wide), not yet decided by JuanJo.
-- **"Codex" needs a rename** (OpenAI trademark/copyright concern) — flagged, no replacement name chosen, still used as the internal key/label everywhere in code.
-- Outer rail's full intended order: project switcher (not built) → canvas switcher (Chat/Agent Work/Codex[rename pending]/Dashboard) → contextual middle zone (canvas-dependent; Chat's is now the three-item branch spec above) → account-stuff bottom zone (Usage/Routing/Models/Settings).
+### 3. OKLCH hue system as the single calibrated source (fixes a real color bug)
+- New `tokens.ts` exports: `tintedSurface(hue, lightness=9, chroma=0.015)`, `tintedGlow(hue, alpha=0.16)`, and `OKLCH_HUE: Record<ChatMode, number>` (normal=250 blue, research=145 green, brainstorm=305 purple — these are OKLCH-space landmark values, calibrated separately from the pre-existing `MODE_THEME[...].hueBase`).
+- **Real bug this fixes**: `MODE_THEME`'s `hueBase` values (e.g. 130 for research) are tuned for the *old* HSL-based particle system — a completely different hue mapping than OKLCH. Reusing `hueBase` directly inside an `oklch(...)` string produced a yellow-tinted green instead of true green (caught live). `OKLCH_HUE` is the correct, separately-calibrated set to use inside any `oklch(...)` call from now on — never pass `MODE_THEME[mode].hueBase` into `tintedSurface`/`tintedGlow`.
+- `CANVAS_ACCENT` (Chat/Agent Work/Dev Slate's outer-rail accent colors) gained an explicit `hue` field per entry and its glow alpha was cut from 0.35 to 0.16 — a toned-down accent, not full removal.
+- Chat's three mode bubble backgrounds (`MODE_THEME[mode].bubbleBg`) switched from translucent `rgba(...)` to solid `oklch(...)` built from `OKLCH_HUE` — the translucency existed to let an animated particle background show through; that background is gone (removed in an earlier session), so the rgba blend wasn't doing anything but risking a washed-out look. Lightness/chroma bumped from 11%/0.03 to 15%/0.04, glow alpha from 0.16 to 0.24, per a later "more glowy" request in the same session — text contrast re-checked (`textPrimary` at 0.95 alpha against 15% lightness stays comfortably >4.5:1).
+
+## Design decisions agreed, not yet built
+
+Carried forward unchanged from the prior handoff (2026-08-30) — nothing below was touched or decided this session, listed here only so a fresh session doesn't have to dig up the older file to find it:
+
+- **Project** as the real top-level container (sits above the whole canvas switcher, team-shared, multi-user DB) — not built, no multi-project data model exists yet.
+- Entry flow: dedicated Project Selector screen + persistent compact project-switcher pinned above the canvas switcher. Neither built.
+- **Left sidebar = project-wide tools, right sidebar = canvas-dependent tools.** Files' placement (currently right, likely wants to move left) still unconfirmed.
+- Outer rail's full intended order: project switcher (not built) → canvas switcher (Chat/Agent Work/Dev Slate/Dashboard) → contextual middle zone → account-stuff bottom zone.
+- **Dev Slate and Agent Work have no backend at all** — confirmed again this session (clarified directly with JuanJo after a mix-up in the NAVI-backend thread about whether either maps to a real routed task; they don't, not even a name/routing decision was made for either in this session). Both canvases render placeholder-only shells; `App.tsx` comments say so explicitly ("Dev Slate's execution engine and storage aren't built").
 
 ## Not in scope right now (explicitly deferred)
 
-- Building the actual Project Selector screen or rail-top project switcher.
-- Renaming Codex.
-- Rescoping Sources/Knowledge/Files to true project-level shared resources; deciding Files' sidebar side.
-- Real multi-user/team database sharing (backend-gated — see "V3 UI before backend" in memory).
-- Agent Work canvas and Dashboard canvas are placeholders only; only Chat has real middle-zone rail actions.
+- Same list as before — Project Selector, real multi-user sharing, Agent Work/Dev Slate real functionality. Nothing added or removed from this list this session.
 
 ## Process notes for whoever picks this up
 
-- **Ask before code changes** — propose the edit, wait for go-ahead, even for small/safe changes. (Got this wrong once earlier this session — jumped into `storage.ts`/`App.tsx` edits mid-*design discussion* before the design was actually agreed; JuanJo corrected it directly.)
-- **Don't run browser verification loops** — JuanJo tests in-browser himself. `tsc --noEmit` + `npm run build` clean is the bar for "done" from this side.
-- Route all V3 colors/spacing through `tokens.ts`, never hardcode (separate but related standing rule, applies repo-wide not just this feature).
+- **Ask before code changes** — propose the edit, wait for go-ahead, even for small/safe changes.
+- **Don't run browser verification loops** — JuanJo tests in-browser himself. `tsc --noEmit` clean is the bar for "done" from this side (no `npm run build` run this session, unlike the prior handoff's session — worth running before the next commit if build-time errors are a concern).
+- **Route all V3 colors/spacing through `tokens.ts`, never hardcode.** This session's whole point was fixing places where that rule had already quietly been violated (HSL hue reused in OKLCH context, alpha values never rechecked after a background color change) — a good reminder that "route through tokens" alone doesn't prevent drift; the *values inside* the token file still need periodic re-verification against what they're actually rendering next to.
+- When touching hue-based color anywhere, use `OKLCH_HUE`, never `MODE_THEME[...].hueBase` — they are not interchangeable despite both being 0–360 numbers.
