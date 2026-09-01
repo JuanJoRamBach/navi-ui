@@ -129,7 +129,10 @@ export const neutral = {
   textFaint: "rgba(246, 246, 246, 0.48)",
   textInactive: "rgba(246, 246, 246, 0.55)",
   surface: "rgba(10, 12, 18, 0.6)",
-  userBubbleBg: "rgba(6, 6, 8, 0.52)",
+  // Bumped from 0.52 (JuanJo, 2026-09-01: "still too transparent") —
+  // reads fine over the main Chat's flatter background but nearly
+  // vanished over Dev Slate's brighter dot-grid canvas.
+  userBubbleBg: "rgba(6, 6, 8, 0.78)",
   userBubbleBorder: "rgba(255, 255, 255, 0.14)",
   userBubbleGlow: "rgba(255, 255, 255, 0.08)",
   // Solid (not translucent) fallback for status dots that aren't tied

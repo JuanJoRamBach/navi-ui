@@ -125,17 +125,33 @@ function splitPath(path: string): { dirSegments: string[]; filename: string } {
 }
 
 export async function readLocalFile(path: string): Promise<string> {
-  const root = await requireRoot();
   const { dirSegments, filename } = splitPath(path);
   if (!filename) return `Error: '${path}' isn't a file path.`;
   try {
+    const root = await requireRoot();
     const dir = await resolveDirectory(root, dirSegments, false);
     const fileHandle = await dir.getFileHandle(filename);
     const file = await fileHandle.getFile();
     return await file.text();
   } catch {
+    // Was previously only catching the read itself — requireRoot()'s
+    // own failure (e.g. a File System Access permission that hasn't
+    // re-confirmed yet right after a page refresh) fell through
+    // uncaught, and callers that DO rely on this string fallback
+    // (DevSlatePreview) had no way to tell a real error apart from
+    // real file content — see isLocalFileError below.
     return `Error: couldn't read '${path}' — it may not exist.`;
   }
+}
+
+// readLocalFile never throws — every failure (including a not-yet-
+// re-granted File System Access permission right after reload) comes
+// back as this string instead. Callers that feed the result straight
+// into something that renders raw content (DevSlatePreview's iframe)
+// need to check for this before treating it as real file content, or
+// the error text itself gets rendered as if it were the page.
+export function isLocalFileError(content: string): boolean {
+  return content.startsWith("Error: couldn't read '") || content.startsWith("Error: '");
 }
 
 export async function writeLocalFile(path: string, content: string): Promise<string> {

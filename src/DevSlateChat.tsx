@@ -396,15 +396,22 @@ export function DevSlateChat() {
               // not Normal mode's blue — JuanJo, 2026-09-01: "respecting
               // the color of the canvas"), the user's own messages stay
               // neutral (chrome stays stable, content shifts).
-              background: m.role === "user" ? neutral.userBubbleBg : tintedSurface(CANVAS_ACCENT.devSlate.hue, 15, 0.04),
+              // Lightness bumped 15→21 and text below dropped off
+              // full-white (JuanJo, 2026-09-01: "contrast... causes eye
+              // strain") — the near-black bubble against 0.95-opacity
+              // white text was too harsh a jump; this narrows it while
+              // keeping the teal tint and legibility.
+              background: m.role === "user" ? neutral.userBubbleBg : tintedSurface(CANVAS_ACCENT.devSlate.hue, 21, 0.045),
               border: m.role === "user"
                 ? `1px solid ${neutral.userBubbleBorder}`
-                : `1px solid oklch(65% 0.12 ${CANVAS_ACCENT.devSlate.hue} / 0.35)`,
+                : `1px solid oklch(65% 0.12 ${CANVAS_ACCENT.devSlate.hue} / 0.3)`,
               boxShadow: m.role === "user"
                 ? `0 4px 18px rgba(0,0,0,0.35), 0 0 14px ${neutral.userBubbleGlow}`
-                : `0 4px 18px rgba(0,0,0,0.35), 0 0 20px ${CANVAS_ACCENT.devSlate.glow}`,
+                : `0 4px 18px rgba(0,0,0,0.35), 0 0 14px ${CANVAS_ACCENT.devSlate.glow}`,
               borderRadius: radius.lg, padding: `${spacing.sm}px ${spacing.md}px`,
-              fontSize: fontSize.sm, color: neutral.textPrimary, whiteSpace: "pre-wrap",
+              fontSize: fontSize.sm,
+              color: m.role === "user" ? neutral.textPrimary : "rgba(246, 246, 246, 0.85)",
+              whiteSpace: "pre-wrap",
             }}>
               {m.text}
             </div>

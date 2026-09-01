@@ -5,8 +5,8 @@ import "grapesjs/dist/css/grapes.min.css";
 import "./devslate-grapesjs-theme.css";
 import { GlobeIcon, PencilIcon, EyeIcon } from "@primer/octicons-react";
 import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT } from "./tokens";
-import { readLocalFile, writeLocalFile } from "./devslateFs";
-import { appendTerminalLine, notifyFileWritten, useDevSlateState } from "./devslateStore";
+import { isLocalFileError, readLocalFile, writeLocalFile } from "./devslateFs";
+import { appendTerminalLine, notifyFileWritten, openDevSlateFile, useDevSlateState } from "./devslateStore";
 
 const accent = CANVAS_ACCENT.devSlate.color;
 
@@ -97,7 +97,15 @@ export function DevSlatePreview() {
 
   const isHtml = activeFilePath?.toLowerCase().endsWith(".html") ?? false;
   const isPendingThisFile = pendingWrite?.path === activeFilePath;
-  const showEmptyState = !activeFilePath || !isHtml || isPendingThisFile;
+  // A failed read (most commonly: File System Access permission hasn't
+  // re-confirmed yet right after a page refresh) comes back as a plain
+  // string, not a thrown error — see isLocalFileError. Without this
+  // check that string used to get fed straight into the iframe as if
+  // it were the page's HTML, rendering as unstyled text on the
+  // iframe's default white background (JuanJo, 2026-09-01: "the
+  // preview is white" after a refresh).
+  const readFailed = !isPendingThisFile && isLocalFileError(activeFileContent);
+  const showEmptyState = !activeFilePath || !isHtml || isPendingThisFile || readFailed;
 
   // Plain preview's content — computed regardless of which mode is
   // active, so switching to "preview" never shows stale content.
@@ -172,9 +180,11 @@ export function DevSlatePreview() {
 
   const emptyMessage = !activeFilePath
     ? "Select an HTML file to preview it here."
-    : !isHtml
-      ? "Preview only renders HTML files — open one from the Files pane."
-      : "Reviewing a proposed change — see the Code pane. This pane updates once it's accepted.";
+    : readFailed
+      ? "Couldn't read this file — the connected folder's permission may need a moment to reconnect after a refresh."
+      : !isHtml
+        ? "Preview only renders HTML files — open one from the Files pane."
+        : "Reviewing a proposed change — see the Code pane. This pane updates once it's accepted.";
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", fontFamily }}>
@@ -223,6 +233,18 @@ export function DevSlatePreview() {
           }}>
             <GlobeIcon size={22} fill={accent} />
             <div style={{ fontSize: fontSize.xs }}>{emptyMessage}</div>
+            {readFailed && (
+              <button
+                onClick={() => void openDevSlateFile(activeFilePath!)}
+                style={{
+                  padding: `${spacing.xs}px ${spacing.sm}px`, borderRadius: radius.xs,
+                  border: `1px solid ${accent}`, background: "transparent",
+                  color: accent, cursor: "pointer", fontSize: fontSize.xxs, fontWeight: fontWeight.medium, fontFamily,
+                }}
+              >
+                Retry
+              </button>
+            )}
           </div>
         )}
 
