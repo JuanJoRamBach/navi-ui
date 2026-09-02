@@ -9,6 +9,8 @@ import { XIcon, PlusIcon } from "@primer/octicons-react";
 import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, tintedGlow, tintedSurface } from "./tokens";
 import { NODE_KIND_LIST, NODE_KINDS, type NodeKindId } from "./agentWorkNodeKinds";
 import { AGENT_WORK_NODE_TYPES, type AgentWorkNodeData } from "./AgentWorkGraphNode";
+import { convertGraphToBackend } from "./agentWorkGraphConvert";
+import { createWorkflow, WORKFLOW_CREATED_EVENT } from "./agentWork";
 
 const accent = CANVAS_ACCENT.agentWork.color;
 let nodeCounter = 0;
@@ -157,6 +159,9 @@ function GraphCanvas({ onClose }: { onClose: () => void }) {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<AgentWorkNodeData>>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [workflowName, setWorkflowName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveErrors, setSaveErrors] = useState<string[]>([]);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition } = useReactFlow();
 
@@ -191,40 +196,84 @@ function GraphCanvas({ onClose }: { onClose: () => void }) {
     setSelectedId(null);
   };
 
-  // Backend not wired yet (2026-09-02: "just make the nodes, later we
-  // can do the 'backend' of them") — this exists so the flow is
-  // complete end-to-end visually, and to say so honestly rather than
-  // pretend a save happened.
-  const handleSave = () => {
-    // eslint-disable-next-line no-console
-    console.log("Agent Work graph (not yet saved to NAVI):", { nodes, edges });
-    alert(`${nodes.length} node(s), ${edges.length} connection(s) — logged to the console. Saving to NAVI isn't wired up yet.`);
+  // Real save (2026-09-02) — converts the canvas into storage/
+  // agent_work.py's own graph shape and POSTs it through the same
+  // /agent/workflows route the chat-created path already uses.
+  // Node kinds without backend support yet (apiCall, sendMail,
+  // choosePath, Discord) are caught by convertGraphToBackend and
+  // reported here rather than silently accepted.
+  const handleSave = async () => {
+    setSaveErrors([]);
+    if (!workflowName.trim()) {
+      setSaveErrors(["Name this workflow before saving."]);
+      return;
+    }
+    const { graph, errors } = convertGraphToBackend(nodes, edges);
+    if (errors.length > 0 || !graph) {
+      setSaveErrors(errors);
+      return;
+    }
+    setSaving(true);
+    try {
+      await createWorkflow(workflowName.trim(), null, graph, { type: "manual" });
+      window.dispatchEvent(new Event(WORKFLOW_CREATED_EVENT));
+      onClose();
+    } catch {
+      setSaveErrors(["Couldn't save — NAVI may be unreachable. Try again."]);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <div style={{
-        display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.sm,
+        display: "flex", flexDirection: "column", gap: spacing.xs,
         padding: `${spacing.sm}px ${spacing.md}px`, borderBottom: "1px solid rgba(255,255,255,0.08)", flexShrink: 0,
       }}>
-        <span style={{ fontSize: fontSize.sm, fontWeight: fontWeight.medium, color: neutral.textPrimary }}>
-          Visual Workflow Builder
-        </span>
-        <div style={{ display: "flex", alignItems: "center", gap: spacing.xs }}>
-          <button
-            onClick={handleSave}
-            style={{
-              display: "flex", alignItems: "center", gap: 4, padding: `${spacing.xxs}px ${spacing.sm}px`,
-              borderRadius: radius.xs, border: `1px solid ${accent}55`, background: tintedGlow(CANVAS_ACCENT.agentWork.hue, 0.12),
-              color: accent, cursor: "pointer", fontSize: fontSize.xs, fontWeight: fontWeight.medium, fontFamily,
-            }}
-          >
-            <PlusIcon size={11} /> Save as Agent/Workflow
-          </button>
-          <button onClick={onClose} aria-label="Close" style={{ display: "flex", background: "none", border: "none", color: neutral.textFaint, cursor: "pointer", padding: spacing.xxs }}>
-            <XIcon size={16} />
-          </button>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.sm }}>
+          <div style={{ display: "flex", alignItems: "center", gap: spacing.sm, minWidth: 0, flex: 1 }}>
+            <span style={{ fontSize: fontSize.sm, fontWeight: fontWeight.medium, color: neutral.textPrimary, flexShrink: 0 }}>
+              Visual Workflow Builder
+            </span>
+            <input
+              value={workflowName} onChange={e => setWorkflowName(e.target.value)}
+              placeholder="Name this workflow…"
+              style={{
+                flex: 1, minWidth: 0, maxWidth: 260, background: "rgba(255,255,255,0.04)",
+                border: "1px solid rgba(255,255,255,0.12)", borderRadius: radius.xs,
+                color: neutral.textPrimary, fontSize: fontSize.xs, fontFamily,
+                padding: `${spacing.xxs}px ${spacing.xs}px`, boxSizing: "border-box",
+              }}
+            />
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, flexShrink: 0 }}>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              style={{
+                display: "flex", alignItems: "center", gap: 4, padding: `${spacing.xxs}px ${spacing.sm}px`,
+                borderRadius: radius.xs, border: `1px solid ${accent}55`, background: tintedGlow(CANVAS_ACCENT.agentWork.hue, 0.12),
+                color: accent, cursor: saving ? "default" : "pointer", opacity: saving ? 0.6 : 1,
+                fontSize: fontSize.xs, fontWeight: fontWeight.medium, fontFamily,
+              }}
+            >
+              <PlusIcon size={11} /> {saving ? "Saving…" : "Save as Agent/Workflow"}
+            </button>
+            <button onClick={onClose} aria-label="Close" style={{ display: "flex", background: "none", border: "none", color: neutral.textFaint, cursor: "pointer", padding: spacing.xxs }}>
+              <XIcon size={16} />
+            </button>
+          </div>
         </div>
+        {saveErrors.length > 0 && (
+          <div style={{
+            display: "flex", flexDirection: "column", gap: 2, padding: `${spacing.xs}px ${spacing.sm}px`,
+            borderRadius: radius.xs, border: "1px solid #e05a4a55", background: "#e05a4a15",
+            fontSize: fontSize.xxs, color: "#e08a7a",
+          }}>
+            {saveErrors.map((err, i) => <div key={i}>{err}</div>)}
+          </div>
+        )}
       </div>
       <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
         <NodePalette />
