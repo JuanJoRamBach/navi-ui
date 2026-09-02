@@ -191,6 +191,12 @@ async function waitForServer(onStatus: (msg: string) => void): Promise<boolean> 
 interface AgentWorkMessage {
   role: "user" | "navi";
   text: string;
+  at: number; // epoch ms — captured client-side when the message is added, not persisted
+  usageNote?: string; // navi replies only, when the provider reported one (tokens or Cloudflare Neurons)
+}
+
+function formatMessageTime(epochMs: number): string {
+  return new Date(epochMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 // Real server-side conversation memory (2026-09-01 — see
@@ -226,14 +232,19 @@ export function AgentWorkChat({ onClose }: { onClose: () => void }) {
     if (!id) return;
     fetch(`${NAVI_BACKEND_URL}/devslate/conversations/${encodeURIComponent(id)}/messages`)
       .then(res => res.json())
-      .then((data: { messages?: { role: string; content: string }[] }) => {
+      .then((data: { messages?: { role: string; content: string; created_at?: number }[] }) => {
         // Backend (storage/conversations.py, via dispatcher/chat.py's
         // append_message calls) stores the assistant's own role as
         // "navi", not "assistant" — matching that here (2026-09-02 fix;
         // the mismatch was why only user messages survived a refresh).
+        // No usage_note for restored messages — that's a per-call fact
+        // from the provider's response, never persisted to storage.
         const restored = (data.messages ?? [])
           .filter(m => m.role === "user" || m.role === "navi")
-          .map(m => ({ role: m.role === "user" ? "user" as const : "navi" as const, text: m.content }));
+          .map(m => ({
+            role: m.role === "user" ? "user" as const : "navi" as const,
+            text: m.content, at: (m.created_at ?? Date.now() / 1000) * 1000,
+          }));
         if (restored.length) setMessages(restored);
       })
       .catch(() => {});
@@ -276,14 +287,14 @@ export function AgentWorkChat({ onClose }: { onClose: () => void }) {
     window.addEventListener("pointerup", onUp);
   }, [size]);
 
-  const revealText = useCallback(async (fullText: string) => {
+  const revealText = useCallback(async (fullText: string, usageNote?: string) => {
     setPending(null);
     setStreamingText("");
     for (let i = 1; i <= fullText.length; i++) {
       setStreamingText(fullText.slice(0, i));
       await sleep(fullText[i - 1] === "." ? STREAM_CHAR_DELAY_MS + STREAM_PERIOD_PAUSE_MS : STREAM_CHAR_DELAY_MS);
     }
-    setMessages(m => [...m, { role: "navi", text: fullText }]);
+    setMessages(m => [...m, { role: "navi", text: fullText, at: Date.now(), usageNote }]);
     setStreamingText(null);
   }, []);
 
@@ -292,7 +303,7 @@ export function AgentWorkChat({ onClose }: { onClose: () => void }) {
     if (!text || sendingRef.current) return;
     sendingRef.current = true;
     setInput("");
-    setMessages(m => [...m, { role: "user", text }]);
+    setMessages(m => [...m, { role: "user", text, at: Date.now() }]);
     setPending("Thinking…");
 
     const post = () => fetch(`${NAVI_BACKEND_URL}/chat/send`, {
@@ -305,14 +316,14 @@ export function AgentWorkChat({ onClose }: { onClose: () => void }) {
     }).then(res => res.json());
 
     try {
-      let data: { reply?: string; error?: string; conversation_id?: string };
+      let data: { reply?: string; error?: string; conversation_id?: string; usage_note?: string };
       try {
         data = await post();
       } catch {
         setPending("Waking up NAVI…");
         const awake = await waitForServer(setPending);
         if (!awake) {
-          setMessages(m => [...m, { role: "navi", text: "Couldn't reach NAVI after a while — it may be down. Try again shortly." }]);
+          setMessages(m => [...m, { role: "navi", text: "Couldn't reach NAVI after a while — it may be down. Try again shortly.", at: Date.now() }]);
           return;
         }
         data = await post();
@@ -321,14 +332,14 @@ export function AgentWorkChat({ onClose }: { onClose: () => void }) {
         conversationIdRef.current = data.conversation_id;
         sessionStorage.setItem(AGENT_WORK_CONVERSATION_ID_KEY, data.conversation_id);
       }
-      await revealText(data.reply ?? data.error ?? "(empty reply)");
+      await revealText(data.reply ?? data.error ?? "(empty reply)", data.usage_note);
       // Tool calls (create_workflow, run_workflow) happen entirely
       // server-side — this popup has no visibility into which ones fired,
       // so refresh the sidebar's workflow/run lists unconditionally after
       // every reply rather than trying to detect specific tool calls.
       window.dispatchEvent(new Event(WORKFLOW_CREATED_EVENT));
     } catch {
-      setMessages(m => [...m, { role: "navi", text: "That message failed to send — try again." }]);
+      setMessages(m => [...m, { role: "navi", text: "That message failed to send — try again.", at: Date.now() }]);
     } finally {
       setPending(null);
       sendingRef.current = false;
@@ -434,20 +445,33 @@ export function AgentWorkChat({ onClose }: { onClose: () => void }) {
           )}
           {reversedMessages.map((m, i) => (
             <div key={reversedMessages.length - i} style={{
+              display: "flex", flexDirection: "column", gap: 3,
               alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "90%",
-              background: m.role === "user" ? neutral.userBubbleBg : tintedSurface(CANVAS_ACCENT.agentWork.hue, 21, 0.045),
-              border: m.role === "user"
-                ? `1px solid ${neutral.userBubbleBorder}`
-                : `1px solid oklch(65% 0.12 ${CANVAS_ACCENT.agentWork.hue} / 0.3)`,
-              boxShadow: m.role === "user"
-                ? `0 4px 18px rgba(0,0,0,0.35), 0 0 14px ${neutral.userBubbleGlow}`
-                : `0 4px 18px rgba(0,0,0,0.35), 0 0 14px ${CANVAS_ACCENT.agentWork.glow}`,
-              borderRadius: radius.lg, padding: `${spacing.sm}px ${spacing.md}px`,
-              fontSize: fontSize.sm,
-              color: m.role === "user" ? neutral.textPrimary : "rgba(246, 246, 246, 0.85)",
-              whiteSpace: "pre-wrap",
             }}>
-              {m.text}
+              <div style={{
+                background: m.role === "user" ? neutral.userBubbleBg : tintedSurface(CANVAS_ACCENT.agentWork.hue, 21, 0.045),
+                border: m.role === "user"
+                  ? `1px solid ${neutral.userBubbleBorder}`
+                  : `1px solid oklch(65% 0.12 ${CANVAS_ACCENT.agentWork.hue} / 0.3)`,
+                boxShadow: m.role === "user"
+                  ? `0 4px 18px rgba(0,0,0,0.35), 0 0 14px ${neutral.userBubbleGlow}`
+                  : `0 4px 18px rgba(0,0,0,0.35), 0 0 14px ${CANVAS_ACCENT.agentWork.glow}`,
+                borderRadius: radius.lg, padding: `${spacing.sm}px ${spacing.md}px`,
+                fontSize: fontSize.sm,
+                color: m.role === "user" ? neutral.textPrimary : "rgba(246, 246, 246, 0.85)",
+                whiteSpace: "pre-wrap",
+              }}>
+                {m.text}
+              </div>
+              {/* Metadata line — outside the bubble, not part of the
+                  reply's own text (2026-09-02, JuanJo: "not inside the
+                  bubble, just below it... 'date · X tokens were used'"). */}
+              <div style={{
+                fontSize: fontSize.xxs, color: neutral.textFaint, padding: `0 ${spacing.xxs}px`,
+                alignSelf: m.role === "user" ? "flex-end" : "flex-start",
+              }}>
+                {formatMessageTime(m.at)}{m.usageNote ? ` · ${m.usageNote}` : ""}
+              </div>
             </div>
           ))}
         </div>
