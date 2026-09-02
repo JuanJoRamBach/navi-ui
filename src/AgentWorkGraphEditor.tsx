@@ -30,13 +30,13 @@ let nodeCounter = 0;
 // higher than the original overly-cautious starting point for that
 // reason, but pulled back from 50% since that number was only ever
 // actually seen on the busier star shape, never tested on a bare dot.
-// Bumped to 16px dots / 64px spacing (2026-09-02, JuanJo: "the 100%
-// makes the dots too small") — at actual size (zoom=1), the original
-// 20px/2px pairing read as barely-there. snapGrid stays tied to this
-// same constant, so the visible spacing and where nodes actually lock
-// never drift apart.
-const GRID_SIZE = 64;
-const GRID_DOT_RADIUS = 8; // `size` is a RADIUS — 8 gives a 16px-diameter dot
+// 16px/64px ("uff it looks bad") overshot; 8px dots still too big at
+// 24px spacing — settled on 6px dots / 24px spacing (2026-09-03,
+// JuanJo: "the distance is right, the dots are not"). snapGrid stays
+// tied to this same constant, so the visible spacing and where nodes
+// actually lock never drift apart.
+const GRID_SIZE = 24;
+const GRID_DOT_RADIUS = 3; // `size` is a RADIUS — 3 gives a 6px-diameter dot
 const GRID_DOT_COLOR = "rgba(189, 129, 48, 0.4)";
 
 // On-demand menu, not a persistent docked palette (2026-09-02 research
