@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import {
-  ReactFlow, ReactFlowProvider, Background, Controls, MiniMap,
+  ReactFlow, ReactFlowProvider, Background, BackgroundVariant, Controls, MiniMap,
   addEdge, useNodesState, useEdgesState, useReactFlow,
   type Node, type Edge, type Connection,
 } from "@xyflow/react";
@@ -12,6 +12,20 @@ import { AGENT_WORK_NODE_TYPES, type AgentWorkNodeData } from "./AgentWorkGraphN
 
 const accent = CANVAS_ACCENT.agentWork.color;
 let nodeCounter = 0;
+
+// 16px — React Flow's own default gap, and not arbitrary: it's 2x the
+// 8px unit virtually every design tool's layout grid is built on
+// (Figma included). Snap grid and the visible background grid MUST
+// share this exact number, or what you see and what nodes actually
+// lock to would silently disagree (2026-09-02 research pass). Line
+// weight and color both deliberately soft — WCAG's non-text contrast
+// minimum (1.4.11, normally 3:1) explicitly exempts purely decorative
+// graphics, and a snap grid doesn't need to be legible to work, just
+// present — so there's no accessibility floor pushing this brighter,
+// only readability/fatigue pushing it softer. Same low-alpha white
+// overlay every other "restrained surface" in this app already uses
+// (sidebar-tokens.ts's own rule), not a new value invented for this.
+const GRID_SIZE = 16;
 
 // Left rail — drag a kind onto the canvas to create one. Not a click-to-
 // add list on purpose: dragging is what every real node-graph tool uses
@@ -216,10 +230,11 @@ function GraphCanvas({ onClose }: { onClose: () => void }) {
             onNodeClick={(_e, node) => setSelectedId(node.id)}
             onPaneClick={() => setSelectedId(null)}
             nodeTypes={AGENT_WORK_NODE_TYPES}
+            snapToGrid snapGrid={[GRID_SIZE, GRID_SIZE]}
             fitView
             colorMode="dark"
           >
-            <Background color="rgba(255,255,255,0.08)" gap={20} />
+            <Background variant={BackgroundVariant.Lines} color="rgba(255,255,255,0.05)" gap={GRID_SIZE} lineWidth={1} />
             <Controls showInteractive={false} />
             <MiniMap pannable zoomable style={{ background: tintedSurface(CANVAS_ACCENT.agentWork.hue, 12, 0.03) }} />
           </ReactFlow>
