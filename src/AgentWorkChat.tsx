@@ -20,6 +20,16 @@ import { WORKFLOW_CREATED_EVENT } from "./agentWork";
 const accent = CANVAS_ACCENT.agentWork.color;
 const FLOAT_CLUSTER_RESERVE = 104; // input pill + the edit-mode/model row below it
 
+// Simulated streaming (2026-09-02, JuanJo: "be a bit dramatic, add micro
+// delays every period... it gives a suspenseful and time to read"). This
+// is NOT real token streaming — /chat/send is a plain blocking POST, the
+// full reply already exists by the time this runs. It's a client-side
+// typewriter reveal of a reply that already arrived, with an extra pause
+// after each sentence for pacing.
+const STREAM_CHAR_DELAY_MS = 14;
+const STREAM_PERIOD_PAUSE_MS = 200;
+const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+
 function ModelBadge() {
   const [catalog, setCatalog] = useState<ModelCatalog | null>(null);
   const [open, setOpen] = useState(false);
@@ -194,6 +204,7 @@ const AGENT_WORK_CONVERSATION_ID_KEY = "navi-agent-work-conversation-id";
 
 export function AgentWorkChat({ onClose }: { onClose: () => void }) {
   const [messages, setMessages] = useState<AgentWorkMessage[]>([]);
+  const [streamingText, setStreamingText] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState<string | null>(null);
   // Default false ("review") — matches Dev Slate's own default (config/
@@ -216,8 +227,12 @@ export function AgentWorkChat({ onClose }: { onClose: () => void }) {
     fetch(`${NAVI_BACKEND_URL}/devslate/conversations/${encodeURIComponent(id)}/messages`)
       .then(res => res.json())
       .then((data: { messages?: { role: string; content: string }[] }) => {
+        // Backend (storage/conversations.py, via dispatcher/chat.py's
+        // append_message calls) stores the assistant's own role as
+        // "navi", not "assistant" — matching that here (2026-09-02 fix;
+        // the mismatch was why only user messages survived a refresh).
         const restored = (data.messages ?? [])
-          .filter(m => m.role === "user" || m.role === "assistant")
+          .filter(m => m.role === "user" || m.role === "navi")
           .map(m => ({ role: m.role === "user" ? "user" as const : "navi" as const, text: m.content }));
         if (restored.length) setMessages(restored);
       })
@@ -261,6 +276,17 @@ export function AgentWorkChat({ onClose }: { onClose: () => void }) {
     window.addEventListener("pointerup", onUp);
   }, [size]);
 
+  const revealText = useCallback(async (fullText: string) => {
+    setPending(null);
+    setStreamingText("");
+    for (let i = 1; i <= fullText.length; i++) {
+      setStreamingText(fullText.slice(0, i));
+      await sleep(fullText[i - 1] === "." ? STREAM_CHAR_DELAY_MS + STREAM_PERIOD_PAUSE_MS : STREAM_CHAR_DELAY_MS);
+    }
+    setMessages(m => [...m, { role: "navi", text: fullText }]);
+    setStreamingText(null);
+  }, []);
+
   const send = useCallback(async () => {
     const text = input.trim();
     if (!text || sendingRef.current) return;
@@ -295,7 +321,7 @@ export function AgentWorkChat({ onClose }: { onClose: () => void }) {
         conversationIdRef.current = data.conversation_id;
         sessionStorage.setItem(AGENT_WORK_CONVERSATION_ID_KEY, data.conversation_id);
       }
-      setMessages(m => [...m, { role: "navi", text: data.reply ?? data.error ?? "(empty reply)" }]);
+      await revealText(data.reply ?? data.error ?? "(empty reply)");
       // Tool calls (create_workflow, run_workflow) happen entirely
       // server-side — this popup has no visibility into which ones fired,
       // so refresh the sidebar's workflow/run lists unconditionally after
@@ -307,7 +333,7 @@ export function AgentWorkChat({ onClose }: { onClose: () => void }) {
       setPending(null);
       sendingRef.current = false;
     }
-  }, [input, autoAccept]);
+  }, [input, autoAccept, revealText]);
 
   const reversedMessages = [...messages].reverse();
 
@@ -384,13 +410,26 @@ export function AgentWorkChat({ onClose }: { onClose: () => void }) {
               steps, on demand or on a schedule.
             </div>
           )}
-          {pending && (
+          {pending && streamingText === null && (
             <div style={{
               alignSelf: "flex-start", display: "flex", alignItems: "center", gap: spacing.xs,
               padding: `${spacing.xxs}px ${spacing.xs}px`, fontSize: fontSize.xxs, color: neutral.textFaint, fontFamily,
             }}>
               <span className="step-pulse" style={{ width: 6, height: 6, borderRadius: 9999, background: accent }} />
               <span className="step-pulse">{pending}</span>
+            </div>
+          )}
+          {streamingText !== null && (
+            <div style={{
+              alignSelf: "flex-start", maxWidth: "90%",
+              background: tintedSurface(CANVAS_ACCENT.agentWork.hue, 21, 0.045),
+              border: `1px solid oklch(65% 0.12 ${CANVAS_ACCENT.agentWork.hue} / 0.3)`,
+              boxShadow: `0 4px 18px rgba(0,0,0,0.35), 0 0 14px ${CANVAS_ACCENT.agentWork.glow}`,
+              borderRadius: radius.lg, padding: `${spacing.sm}px ${spacing.md}px`,
+              fontSize: fontSize.sm, color: "rgba(246, 246, 246, 0.85)", whiteSpace: "pre-wrap",
+            }}>
+              {streamingText}
+              <span className="step-pulse" style={{ opacity: 0.7 }}>▍</span>
             </div>
           )}
           {reversedMessages.map((m, i) => (
