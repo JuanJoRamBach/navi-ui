@@ -4,6 +4,7 @@ import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCE
 import { DevSlateDotGrid } from "./DevSlateDotGrid";
 import { fetchModelCatalog, setPinnedModel, type ModelCatalog } from "./devslate";
 import { NAVI_BACKEND_URL } from "./config";
+import { WORKFLOW_CREATED_EVENT } from "./agentWork";
 
 // Same visual template as Dev Slate's own chat (DevSlateChat.tsx) — dot-grid
 // background, bottom-anchored bubbles, floating input pill, model picker +
@@ -202,6 +203,27 @@ export function AgentWorkChat({ onClose }: { onClose: () => void }) {
   const sendingRef = useRef(false);
   const conversationIdRef = useRef<string | null>(sessionStorage.getItem(AGENT_WORK_CONVERSATION_ID_KEY));
 
+  // Hydrate from the server on mount — the id survives a page refresh via
+  // sessionStorage above, but until now the displayed messages didn't:
+  // the server (storage/conversations.py) always had the full history,
+  // the UI just never fetched it back (2026-09-02 bug report). Reuses
+  // the generic /devslate/conversations/{id}/messages route — despite
+  // the "devslate" in the path, get_messages() is mode-agnostic, so no
+  // new backend route is needed just for this.
+  useEffect(() => {
+    const id = conversationIdRef.current;
+    if (!id) return;
+    fetch(`${NAVI_BACKEND_URL}/devslate/conversations/${encodeURIComponent(id)}/messages`)
+      .then(res => res.json())
+      .then((data: { messages?: { role: string; content: string }[] }) => {
+        const restored = (data.messages ?? [])
+          .filter(m => m.role === "user" || m.role === "assistant")
+          .map(m => ({ role: m.role === "user" ? "user" as const : "navi" as const, text: m.content }));
+        if (restored.length) setMessages(restored);
+      })
+      .catch(() => {});
+  }, []);
+
   // Resizable, not native CSS `resize` (JuanJo, 2026-09-01: the native
   // handle sits at the box's bottom-right corner, which is exactly the
   // corner pinned to the screen edge here — dragging it does nothing
@@ -274,6 +296,11 @@ export function AgentWorkChat({ onClose }: { onClose: () => void }) {
         sessionStorage.setItem(AGENT_WORK_CONVERSATION_ID_KEY, data.conversation_id);
       }
       setMessages(m => [...m, { role: "navi", text: data.reply ?? data.error ?? "(empty reply)" }]);
+      // Tool calls (create_workflow, run_workflow) happen entirely
+      // server-side — this popup has no visibility into which ones fired,
+      // so refresh the sidebar's workflow/run lists unconditionally after
+      // every reply rather than trying to detect specific tool calls.
+      window.dispatchEvent(new Event(WORKFLOW_CREATED_EVENT));
     } catch {
       setMessages(m => [...m, { role: "navi", text: "That message failed to send — try again." }]);
     } finally {

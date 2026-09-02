@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ChevronDownIcon, ChevronRightIcon, HistoryIcon } from "@primer/octicons-react";
 import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT } from "./tokens";
-import { getRunSteps, listRuns, type AgentRun, type AgentRunStep } from "./agentWork";
+import { getRunSteps, listRuns, WORKFLOW_CREATED_EVENT, type AgentRun, type AgentRunStep } from "./agentWork";
 
 const accent = CANVAS_ACCENT.agentWork.color;
 
@@ -87,6 +87,14 @@ export function AgentWorkRunHistory() {
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
+  // A run started via the manual form's "Run now" or the chat's
+  // create_workflow+run_workflow tool calls doesn't otherwise show up
+  // here until a manual refresh (2026-09-02 bug report) — same event
+  // AgentWorkWorkflows.tsx already listens to.
+  useEffect(() => {
+    window.addEventListener(WORKFLOW_CREATED_EVENT, refresh);
+    return () => window.removeEventListener(WORKFLOW_CREATED_EVENT, refresh);
+  }, [refresh]);
 
   if (runs === null) {
     return (

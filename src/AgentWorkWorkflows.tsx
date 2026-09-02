@@ -56,6 +56,10 @@ export function AgentWorkWorkflows({ onNewWorkflow }: { onNewWorkflow: (e: React
     try {
       await runWorkflowNow(workflowId);
       refresh();
+      // Also refreshes AgentWorkRunHistory's separate sidebar pane —
+      // same event, not a new one, since it's the same "something
+      // workflow-related just happened" signal.
+      window.dispatchEvent(new Event(WORKFLOW_CREATED_EVENT));
     } finally {
       setRunningId(null);
     }
