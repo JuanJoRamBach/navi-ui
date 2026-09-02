@@ -20,8 +20,8 @@ function formatWhen(epochSeconds: number): string {
 // A real overlay, not an inline "are you sure" row — a stray second click
 // on a spot the row un-expectedly reflows into shouldn't be able to
 // confirm a delete it never meant to.
-function DeleteConfirmDialog({ name, scheduled, deleting, onCancel, onConfirm }: {
-  name: string; scheduled: boolean; deleting: boolean;
+function DeleteConfirmDialog({ name, scheduled, deleting, error, onCancel, onConfirm }: {
+  name: string; scheduled: boolean; deleting: boolean; error: string | null;
   onCancel: () => void; onConfirm: () => void;
 }) {
   return (
@@ -49,6 +49,7 @@ function DeleteConfirmDialog({ name, scheduled, deleting, onCancel, onConfirm }:
           {scheduled && " Its schedule is cancelled immediately — it will not fire again."}
           {" "}Past runs stay in Run History; this can't be undone.
         </div>
+        {error && <div style={{ fontSize: fontSize.xxs, color: "#e05a4a" }}>{error}</div>}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: spacing.xs, marginTop: spacing.xxs }}>
           <button
             onClick={onCancel}
@@ -96,6 +97,7 @@ export function AgentWorkWorkflows({ onNewWorkflow }: { onNewWorkflow: (e: React
   const [runningId, setRunningId] = useState<string | null>(null);
   const [confirmTarget, setConfirmTarget] = useState<{ id: string; name: string; scheduled: boolean } | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
     listWorkflows().then(setWorkflows).catch(() => setWorkflows([]));
@@ -133,8 +135,13 @@ export function AgentWorkWorkflows({ onNewWorkflow }: { onNewWorkflow: (e: React
   const confirmDelete = async () => {
     if (!confirmTarget) return;
     setDeletingId(confirmTarget.id);
+    setDeleteError(null);
     try {
-      await deleteWorkflow(confirmTarget.id);
+      const ok = await deleteWorkflow(confirmTarget.id);
+      if (!ok) {
+        setDeleteError("Couldn't delete it — NAVI may be unreachable. Try again.");
+        return;
+      }
       setConfirmTarget(null);
       refresh();
       window.dispatchEvent(new Event(WORKFLOW_CREATED_EVENT));
@@ -240,7 +247,7 @@ export function AgentWorkWorkflows({ onNewWorkflow }: { onNewWorkflow: (e: React
                   <PlayIcon size={10} /> {runningId === wf.id ? "Starting…" : "Run"}
                 </button>
                 <button
-                  onClick={() => setConfirmTarget({ id: wf.id, name: wf.name, scheduled })}
+                  onClick={() => { setConfirmTarget({ id: wf.id, name: wf.name, scheduled }); setDeleteError(null); }}
                   title="Delete workflow"
                   style={{
                     display: "flex", alignItems: "center", padding: `2px ${spacing.xxs}px`, borderRadius: radius.xs,
@@ -276,7 +283,8 @@ export function AgentWorkWorkflows({ onNewWorkflow }: { onNewWorkflow: (e: React
           name={confirmTarget.name}
           scheduled={confirmTarget.scheduled}
           deleting={deletingId === confirmTarget.id}
-          onCancel={() => setConfirmTarget(null)}
+          error={deleteError}
+          onCancel={() => { setConfirmTarget(null); setDeleteError(null); }}
           onConfirm={confirmDelete}
         />
       )}

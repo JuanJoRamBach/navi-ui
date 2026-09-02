@@ -93,8 +93,16 @@ export async function createWorkflow(
 export const WORKFLOW_CREATED_EVENT = "agent-workflow-created";
 
 export async function deleteWorkflow(workflowId: string): Promise<boolean> {
-  const res = await fetch(`${NAVI_BACKEND_URL}/agent/workflows/${encodeURIComponent(workflowId)}`, { method: "DELETE" });
-  return res.ok;
+  try {
+    const res = await fetch(`${NAVI_BACKEND_URL}/agent/workflows/${encodeURIComponent(workflowId)}`, { method: "DELETE" });
+    return res.ok;
+  } catch {
+    // Network failure (server down, unreachable) — same "return false,
+    // let the caller decide how to surface it" shape as a non-2xx
+    // response, rather than throwing and leaving the confirm dialog in
+    // an ambiguous state.
+    return false;
+  }
 }
 
 export async function runWorkflowNow(workflowId: string): Promise<{ run_id?: string; error?: string }> {
