@@ -66,6 +66,7 @@ import { AgentWorkChat } from "./AgentWorkChat";
 import { AgentWorkWorkflows } from "./AgentWorkWorkflows";
 import { AgentWorkRunHistory } from "./AgentWorkRunHistory";
 import { AgentWorkCalendar } from "./AgentWorkCalendar";
+import { fetchModelCatalog, setPinnedModel, type ModelCatalog } from "./devslate";
 import { AgentWorkNewWorkflowForm } from "./AgentWorkNewWorkflowForm";
 
 const DOT_SIZE = 8;
@@ -859,35 +860,12 @@ export default function App() {
       .catch(() => {}); // panels just show their loading/empty state
   }, []);
 
-  // "Today's models" catalog, grouped by provider, derived from every
-  // (provider, model) pair NAVI is actually configured to use — the
-  // dispatcher roles plus every command's primary/fallback chain. A model
-  // used in more than one place (e.g. a fallback shared across commands)
-  // collects all its usage labels rather than appearing twice.
-  const providerModels = useMemo(() => {
-    if (!routingConfig) return [];
-    const byProvider = new Map<string, Map<string, string[]>>();
-    const add = (entry: ModelEntry | null | undefined, label: string) => {
-      if (!entry) return;
-      const models = byProvider.get(entry.provider) ?? new Map<string, string[]>();
-      const labels = models.get(entry.model) ?? [];
-      labels.push(label);
-      models.set(entry.model, labels);
-      byProvider.set(entry.provider, models);
-    };
-    add(routingConfig.roles.normal_chat, "Normal chat");
-    add(routingConfig.roles.dispatcher_autonomous, "Autonomous jobs");
-    for (const [cmd, routing] of Object.entries(routingConfig.task_routing)) {
-      if (!routing?.primary) continue;
-      const cmdLabel = COMMAND_ROUTING_LABEL[cmd]?.label ?? cmd;
-      add(routing.primary, `/${cmd}`);
-      routing.fallback.forEach(fb => add(fb, `${cmdLabel} fallback`));
-    }
-    return Array.from(byProvider.entries()).map(([provider, models]) => ({
-      provider,
-      models: Array.from(models.entries()).map(([name, labels]) => ({ name, labels })),
-    }));
-  }, [routingConfig]);
+  // "Today's models" picker itself now reads the real ranked-candidate
+  // catalog (chatModelCatalog, see below) instead of this — kept this
+  // comment as a pointer since the old per-role/task_routing grouping
+  // this used to build is exactly what "Routing & fallbacks" already
+  // shows separately (routingChains, below), so it was genuinely
+  // redundant, not just replaced.
 
   // "Routing & fallbacks" chains, one per command that has a primary
   // configured — plus Normal Chat, which comes from the normal_chat
@@ -1617,27 +1595,28 @@ export default function App() {
     const conversation = await loadConversation(mainChatId);
     if (conversation) await openConversation(conversation);
   }, [mainChatId, openConversation]);
-  // Which provider row is expanded in the "Today's models" catalog.
-  const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
-  // Manual model pick per mode — null means "use the auto-routed
-  // default". Scoped per-mode rather than one global override, since
-  // each mode already has its own task/model role.
-  const [modelOverride, setModelOverride] = useState<Record<ChatMode, { provider: string; model: string } | null>>({
-    normal: null, research: null, brainstorm: null,
-  });
-  // The real auto-routed default — the same normal_chat model answers
-  // every mode's free-form chat; only the system prompt and allowed
-  // tools change per mode (see dispatcher/modes/ + dispatcher/chat.py in
-  // NAVI). A typed /research command still uses its own task_routing
-  // model — this pill is about what answers your actual chat messages,
-  // not the slash commands.
-  const autoModelFor = useCallback((_mode: ChatMode): ModelEntry | null => {
-    return routingConfig?.roles.normal_chat ?? null;
-  }, [routingConfig]);
-  // The model actually in effect for the current mode — a manual pick if
-  // one exists, otherwise the real auto-routed default (or a loading
-  // placeholder while /config/routing hasn't resolved yet).
-  const effectiveModel = modelOverride[chatMode] ?? autoModelFor(chatMode) ?? { provider: "—", model: "loading…" };
+  // Real ranked-candidate catalog for normal_chat — the same
+  // fetchModelCatalog/setPinnedModel mechanism Dev Slate/Agent Work's
+  // own model pickers use (2026-09-01: this used to be a client-only,
+  // per-mode "override" that never actually changed anything server-
+  // side, and only ever showed whatever was already assigned to some
+  // role/task_routing entry — not the full candidate pool. One real
+  // role, normal_chat, backs Normal/Research/Brainstorm's chat
+  // uniformly (only the system prompt/tools differ per mode), so this
+  // catalog isn't scoped per-mode the way the old override state was —
+  // there's only one real thing to pick.)
+  const [chatModelCatalog, setChatModelCatalog] = useState<ModelCatalog | null>(null);
+  const [savingChatModel, setSavingChatModel] = useState(false);
+  const refreshChatModelCatalog = useCallback(() => {
+    fetchModelCatalog("normal_chat").then(setChatModelCatalog).catch(() => setChatModelCatalog(null));
+  }, []);
+  const pickChatModel = useCallback(async (provider: string, model: string) => {
+    setSavingChatModel(true);
+    const ok = await setPinnedModel("normal_chat", provider, model);
+    setSavingChatModel(false);
+    if (ok) refreshChatModelCatalog();
+  }, [refreshChatModelCatalog]);
+  useEffect(() => { refreshChatModelCatalog(); }, [refreshChatModelCatalog]);
   // The clicked button's on-screen position at open time, in viewport
   // pixels — the popover renders as position:fixed off of this instead
   // of position:absolute nested inside the button. The toolbar row
@@ -3930,86 +3909,47 @@ export default function App() {
               {openPanel === "models" && (
                 <div>
                   <div style={{ fontSize: fontSize.xs, color: neutral.textMuted, marginBottom: spacing.sm }}>
-                    Today's models — pick one for {MODE_THEME[chatMode].label}
+                    Today's models — Normal/Research/Brainstorm share this one role
                   </div>
-                  {/* A provider catalog, not a per-task assignment table
-                      — that's what Routing & Fallbacks is for. Each
-                      provider expands to its available models, labeled
-                      with where NAVI actually uses each one. Every model
-                      row (plus the Auto row below) is selectable, scoped
-                      to whichever chat mode is active — see
-                      modelOverride/effectiveModel and the picker pill
-                      under the mode selector. Data comes from
-                      /config/routing (routingConfig) — empty until that
-                      fetch resolves. */}
-                  <button
-                    onClick={() => { setModelOverride(o => ({ ...o, [chatMode]: null })); setOpenPanel(null); }}
-                    style={{
-                      display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.xs,
-                      width: "100%", padding: `${spacing.xs}px 0`,
-                      border: "none", background: "transparent", cursor: "pointer",
-                      color: neutral.textPrimary, fontFamily, fontSize: fontSize.xs,
-                      marginBottom: spacing.xs,
-                    }}
-                  >
-                    <span>Auto (recommended)</span>
-                    {!modelOverride[chatMode] && <CheckIcon size={12} />}
-                  </button>
-                  {!routingConfig && (
+                  {/* Real ranked-candidate list (GET /config/models?task=
+                      normal_chat, same jobs/model_ranking.py snapshot Dev
+                      Slate/Agent Work's own model pickers read), not just
+                      whatever happened to already be assigned to a role —
+                      and picking one actually re-pins it server-side
+                      (POST /config/role), same real mechanism those two
+                      use, not a client-only cosmetic override (JuanJo,
+                      2026-09-01: "the list shown... is not the full one,
+                      wire the same kind of list that exist in the chats
+                      in Agent Work and Dev Slate"). */}
+                  {!chatModelCatalog && (
                     <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted }}>Loading…</div>
                   )}
+                  {chatModelCatalog && !chatModelCatalog.candidates.length && (
+                    <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted }}>No ranked candidates cached yet.</div>
+                  )}
                   <div style={{ display: "flex", flexDirection: "column", gap: spacing.xs }}>
-                    {providerModels.map(p => {
-                      const expanded = expandedProvider === p.provider;
+                    {chatModelCatalog?.candidates.map(c => {
+                      const isCurrent = chatModelCatalog.current?.provider === c.provider && chatModelCatalog.current?.model === c.model;
                       return (
-                        <div key={p.provider}>
-                          <button
-                            onClick={() => setExpandedProvider(e => (e === p.provider ? null : p.provider))}
-                            style={{
-                              display: "flex", alignItems: "center", justifyContent: "space-between",
-                              width: "100%", padding: `${spacing.xs}px 0`,
-                              border: "none", background: "transparent", cursor: "pointer",
-                              color: neutral.textPrimary, fontFamily,
-                            }}
-                          >
-                            <span style={{ display: "flex", alignItems: "center", gap: spacing.xs, fontSize: fontSize.xs }}>
-                              {expanded ? <ChevronDownIcon size={12} /> : <ChevronRightIcon size={12} />}
-                              {p.provider}
-                            </span>
-                            <span style={{ fontSize: fontSize.xxs, color: neutral.textMuted }}>
-                              {p.models.length} model{p.models.length === 1 ? "" : "s"}
-                            </span>
-                          </button>
-                          {expanded && (
-                            <div style={{ display: "flex", flexDirection: "column", gap: spacing.sm, paddingLeft: 20, paddingBottom: spacing.xs }}>
-                              {p.models.map(m => {
-                                const isSelected = effectiveModel.provider === p.provider && effectiveModel.model === m.name;
-                                return (
-                                  <button
-                                    key={m.name}
-                                    onClick={() => {
-                                      setModelOverride(o => ({ ...o, [chatMode]: { provider: p.provider, model: m.name } }));
-                                      setOpenPanel(null);
-                                    }}
-                                    style={{
-                                      display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: spacing.xs,
-                                      width: "100%", border: "none", background: "transparent", cursor: "pointer",
-                                      textAlign: "left", padding: 0, fontFamily,
-                                    }}
-                                  >
-                                    <span>
-                                      <div style={{ fontSize: fontSize.xs, color: neutral.textPrimary }}>{m.name}</div>
-                                      <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted, marginTop: 2 }}>
-                                        {m.labels.join(" · ")}
-                                      </div>
-                                    </span>
-                                    {isSelected && <CheckIcon size={12} />}
-                                  </button>
-                                );
-                              })}
+                        <button
+                          key={`${c.provider}/${c.model}`}
+                          disabled={savingChatModel || isCurrent}
+                          onClick={() => void pickChatModel(c.provider, c.model)}
+                          style={{
+                            display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: spacing.xs,
+                            width: "100%", border: "none", background: isCurrent ? "rgba(255,255,255,0.06)" : "transparent",
+                            borderRadius: radius.xs, padding: `${spacing.xs}px`, cursor: isCurrent ? "default" : "pointer",
+                            textAlign: "left", fontFamily,
+                          }}
+                        >
+                          <span>
+                            <div style={{ fontSize: fontSize.xs, color: neutral.textPrimary }}>{c.model}</div>
+                            <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted, marginTop: 2 }}>
+                              {c.provider}{c.context_length ? ` · ${c.context_length.toLocaleString()} ctx` : ""}
                             </div>
-                          )}
-                        </div>
+                          </span>
+                          {isCurrent && <CheckIcon size={12} />}
+                        </button>
                       );
                     })}
                   </div>
@@ -4194,9 +4134,9 @@ export default function App() {
           >
             <CpuIcon size={10} />
             <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-              <span style={{ color: neutral.textFaint }}>{effectiveModel.provider} · </span>
-              {effectiveModel.model}
-              {!modelOverride[chatMode] && <span style={{ color: neutral.textFaint }}> (auto)</span>}
+              {chatModelCatalog?.current ? (
+                <><span style={{ color: neutral.textFaint }}>{chatModelCatalog.current.provider} · </span>{chatModelCatalog.current.model}</>
+              ) : "loading…"}
             </span>
             <ChevronDownIcon size={10} />
           </button>

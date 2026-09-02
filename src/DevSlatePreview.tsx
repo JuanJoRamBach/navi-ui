@@ -1,12 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import grapesjs, { type Editor } from "grapesjs";
 import gjsPresetWebpage from "grapesjs-preset-webpage";
 import "grapesjs/dist/css/grapes.min.css";
 import "./devslate-grapesjs-theme.css";
-import { GlobeIcon, PencilIcon, EyeIcon } from "@primer/octicons-react";
+import { ArrowLeftIcon, ArrowRightIcon, GlobeIcon, PencilIcon, EyeIcon, SyncIcon } from "@primer/octicons-react";
 import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT } from "./tokens";
 import { isLocalFileError, readLocalFile, writeLocalFile } from "./devslateFs";
-import { appendTerminalLine, notifyFileWritten, openDevSlateFile, useDevSlateState } from "./devslateStore";
+import { appendTerminalLine, notifyFileWritten, useDevSlateState } from "./devslateStore";
 
 const accent = CANVAS_ACCENT.devSlate.color;
 
@@ -15,6 +15,15 @@ const accent = CANVAS_ACCENT.devSlate.color;
 // back out, deliberately (sandbox="allow-scripts", no allow-same-origin,
 // so it can't reach window.parent directly or read/write anything
 // outside itself). Bridge script gets inlined into every rendered page.
+// Also intercepts local <a href> clicks (2026-09-01, JuanJo: "add the
+// classic URL, refresh, back and forward actions") — a click on a link
+// that isn't external (no ":" — same convention LOCAL_REF_RE already
+// uses) or an in-page "#" anchor gets prevented and posted up to the
+// parent instead, which resolves it against the currently-previewed
+// file's own directory and treats it as real in-preview navigation
+// (pushes onto history), rather than doing nothing (there's no real URL
+// for a relative link to resolve against inside a sandboxed srcDoc
+// iframe with no allow-same-origin).
 const CONSOLE_BRIDGE = `
 <script>
 (function () {
@@ -30,6 +39,14 @@ const CONSOLE_BRIDGE = `
     console[level] = function () { send(level, arguments); original.apply(console, arguments); };
   });
   window.addEventListener("error", function (e) { send("error", [e.message + " (" + e.filename + ":" + e.lineno + ")"]); });
+  document.addEventListener("click", function (e) {
+    var a = e.target && e.target.closest ? e.target.closest("a[href]") : null;
+    if (!a) return;
+    var href = a.getAttribute("href");
+    if (!href || href.indexOf(":") !== -1 || href.charAt(0) === "#") return;
+    e.preventDefault();
+    try { window.parent.postMessage({ __devslate: true, type: "navigate", href: href }, "*"); } catch (e) {}
+  }, true);
 })();
 </script>
 `;
@@ -95,24 +112,84 @@ export function DevSlatePreview() {
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const isHtml = activeFilePath?.toLowerCase().endsWith(".html") ?? false;
+  // In-preview browsing history — separate from activeFilePath (the
+  // file open in Files/Code/the visual editor). Resets to just the
+  // active file whenever it changes externally (a different file
+  // picked in the Files pane), but can diverge from it via in-preview
+  // navigation (a clicked local link, or typing a path into the
+  // address bar) without touching what's actually open for editing.
+  const [nav, setNav] = useState<{ history: string[]; index: number }>({ history: [], index: -1 });
+  useEffect(() => {
+    if (activeFilePath) setNav({ history: [activeFilePath], index: 0 });
+  }, [activeFilePath]);
+  const previewPath = nav.history[nav.index] ?? null;
+  const canGoBack = nav.index > 0;
+  const canGoForward = nav.index < nav.history.length - 1;
+  const navigateTo = useCallback((path: string) => {
+    setNav(s => ({ history: [...s.history.slice(0, s.index + 1), path], index: s.index + 1 }));
+  }, []);
+  const goBack = useCallback(() => setNav(s => ({ ...s, index: Math.max(0, s.index - 1) })), []);
+  const goForward = useCallback(() => setNav(s => ({ ...s, index: Math.min(s.history.length - 1, s.index + 1) })), []);
+
+  const [urlInput, setUrlInput] = useState("");
+  useEffect(() => { setUrlInput(previewPath ?? ""); }, [previewPath]);
+
+  // Whatever's actually shown in the iframe — mirrors activeFileContent
+  // live (so e.g. typing in Monaco updates the preview without a manual
+  // refresh) as long as previewPath IS the active file; once in-preview
+  // navigation has gone somewhere else, it's fetched independently.
+  const [previewContent, setPreviewContent] = useState("");
+  const [previewLoadFailed, setPreviewLoadFailed] = useState(false);
+  useEffect(() => {
+    if (!previewPath) return;
+    if (previewPath === activeFilePath) {
+      setPreviewContent(activeFileContent);
+      setPreviewLoadFailed(isLocalFileError(activeFileContent));
+      return;
+    }
+    let cancelled = false;
+    readLocalFile(previewPath).then(content => {
+      if (cancelled) return;
+      setPreviewContent(content);
+      setPreviewLoadFailed(isLocalFileError(content));
+    });
+    return () => { cancelled = true; };
+  }, [previewPath, activeFilePath, activeFileContent]);
+
+  // Refresh — a real forced disk re-read regardless of what's cached,
+  // useful specifically as a manual escape hatch for the recurring
+  // "preview went blank" issue (2026-09-01): whatever the underlying
+  // cause turns out to be, this always gives a way to force a clean
+  // reload without navigating away and back.
+  const refresh = useCallback(() => {
+    if (!previewPath) return;
+    readLocalFile(previewPath).then(content => {
+      setPreviewContent(content);
+      setPreviewLoadFailed(isLocalFileError(content));
+    });
+  }, [previewPath]);
+
   const isPendingThisFile = pendingWrite?.path === activeFilePath;
-  // A failed read (most commonly: File System Access permission hasn't
-  // re-confirmed yet right after a page refresh) comes back as a plain
-  // string, not a thrown error — see isLocalFileError. Without this
-  // check that string used to get fed straight into the iframe as if
-  // it were the page's HTML, rendering as unstyled text on the
-  // iframe's default white background (JuanJo, 2026-09-01: "the
-  // preview is white" after a refresh).
-  const readFailed = !isPendingThisFile && isLocalFileError(activeFileContent);
-  const showEmptyState = !activeFilePath || !isHtml || isPendingThisFile || readFailed;
+  const previewIsHtml = previewPath?.toLowerCase().endsWith(".html") ?? false;
+  // Pending-review gating only applies while previewing the file that's
+  // actually under review — in-preview navigation to some other local
+  // file shouldn't get blocked by an unrelated review in progress.
+  const previewIsPendingReview = previewPath === activeFilePath && isPendingThisFile;
+  const showEmptyState = !previewPath || !previewIsHtml || previewIsPendingReview || previewLoadFailed;
+
+  // Editor mode (GrapesJS) stays scoped to activeFilePath regardless of
+  // where in-preview browsing has wandered — editing always targets the
+  // file that's actually open, not whatever Preview happens to be
+  // showing right now.
+  const editorIsHtml = activeFilePath?.toLowerCase().endsWith(".html") ?? false;
+  const editorShowEmptyState = !activeFilePath || !editorIsHtml || isPendingThisFile || isLocalFileError(activeFileContent);
 
   // Plain preview's content — computed regardless of which mode is
   // active, so switching to "preview" never shows stale content.
   useEffect(() => {
-    if (showEmptyState) { setSrcDoc(null); return; }
+    if (showEmptyState || !previewPath) { setSrcDoc(null); return; }
     let cancelled = false;
-    inlineLocalReferences(activeFileContent, activeFilePath!).then((inlined) => {
+    inlineLocalReferences(previewContent, previewPath).then((inlined) => {
       if (cancelled) return;
       const withBridge = inlined.includes("</head>")
         ? inlined.replace("</head>", `${CONSOLE_BRIDGE}</head>`)
@@ -120,17 +197,21 @@ export function DevSlatePreview() {
       setSrcDoc(withBridge);
     });
     return () => { cancelled = true; };
-  }, [showEmptyState, activeFilePath, activeFileContent]);
+  }, [showEmptyState, previewPath, previewContent]);
 
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
-      if (e.data && typeof e.data === "object" && e.data.__devslate) {
-        appendTerminalLine(e.data.level, e.data.text);
+      if (!e.data || typeof e.data !== "object" || !e.data.__devslate) return;
+      if (e.data.type === "navigate" && typeof e.data.href === "string" && previewPath) {
+        const baseDir = previewPath.includes("/") ? previewPath.slice(0, previewPath.lastIndexOf("/")) : "";
+        navigateTo(baseDir ? `${baseDir}/${e.data.href}` : e.data.href);
+        return;
       }
+      appendTerminalLine(e.data.level, e.data.text);
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, []);
+  }, [previewPath, navigateTo]);
 
   // GrapesJS only ever initializes once the user explicitly opens the
   // editor for the first time — never eagerly on mount, since "preview"
@@ -157,7 +238,7 @@ export function DevSlatePreview() {
 
   useEffect(() => {
     const editor = editorRef.current;
-    if (!editor || showEmptyState) return;
+    if (!editor || editorShowEmptyState) return;
     if (loadedPathRef.current === activeFilePath && !dirty) return; // don't clobber in-progress edits on an unrelated re-render
     const { headHtml, bodyHtml, css } = splitHtmlDocument(activeFileContent);
     headHtmlRef.current = headHtml;
@@ -165,7 +246,7 @@ export function DevSlatePreview() {
     editor.setStyle(css);
     loadedPathRef.current = activeFilePath;
     setDirty(false);
-  }, [showEmptyState, activeFilePath, activeFileContent, mode]);
+  }, [editorShowEmptyState, activeFilePath, activeFileContent, mode]);
 
   const save = async () => {
     const editor = editorRef.current;
@@ -178,23 +259,70 @@ export function DevSlatePreview() {
     setDirty(false);
   };
 
-  const emptyMessage = !activeFilePath
+  const emptyMessage = !previewPath
     ? "Select an HTML file to preview it here."
-    : readFailed
+    : previewLoadFailed
       ? "Couldn't read this file — the connected folder's permission may need a moment to reconnect after a refresh."
-      : !isHtml
-        ? "Preview only renders HTML files — open one from the Files pane."
+      : !previewIsHtml
+        ? "Preview only renders HTML files."
         : "Reviewing a proposed change — see the Code pane. This pane updates once it's accepted.";
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", fontFamily }}>
-      {/* No header row anymore — dockview's own tab already says
-          "Preview" (JuanJo, 2026-09-01: the in-pane label was
-          redundant with the tab above it). Controls are a small
-          floating overlay instead, only shown once there's something
-          to act on. */}
+      {/* Classic browser chrome — back/forward/refresh + an address bar
+          (2026-09-01, JuanJo: "add the classic URL, refresh, back and
+          forward actions"). The "URL" is a local file path, not a real
+          web URL — there's nothing else for it to mean here, this pane
+          only ever shows local files — but the affordance (type a path,
+          hit Enter, navigate) is the same. Only shown once there's an
+          active file at all; an empty Dev Slate has nothing to browse. */}
+      {activeFilePath && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: spacing.xs,
+          padding: `${spacing.xxs}px ${spacing.sm}px`, borderBottom: "1px solid rgba(255,255,255,0.08)",
+          flexShrink: 0,
+        }}>
+          <button
+            onClick={goBack} disabled={!canGoBack} title="Back"
+            style={{
+              display: "flex", background: "none", border: "none", padding: 2,
+              color: canGoBack ? neutral.textMuted : neutral.textFaint,
+              cursor: canGoBack ? "pointer" : "default", opacity: canGoBack ? 1 : 0.4,
+            }}
+          >
+            <ArrowLeftIcon size={12} />
+          </button>
+          <button
+            onClick={goForward} disabled={!canGoForward} title="Forward"
+            style={{
+              display: "flex", background: "none", border: "none", padding: 2,
+              color: canGoForward ? neutral.textMuted : neutral.textFaint,
+              cursor: canGoForward ? "pointer" : "default", opacity: canGoForward ? 1 : 0.4,
+            }}
+          >
+            <ArrowRightIcon size={12} />
+          </button>
+          <button
+            onClick={refresh} title="Refresh"
+            style={{ display: "flex", background: "none", border: "none", padding: 2, color: neutral.textMuted, cursor: "pointer" }}
+          >
+            <SyncIcon size={12} />
+          </button>
+          <input
+            value={urlInput}
+            onChange={e => setUrlInput(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter" && urlInput.trim()) navigateTo(urlInput.trim()); }}
+            placeholder="local/file/path.html"
+            style={{
+              flex: 1, minWidth: 0, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)",
+              borderRadius: radius.xs, color: neutral.textPrimary, fontSize: fontSize.xxs, fontFamily: "monospace",
+              padding: `2px ${spacing.xs}px`,
+            }}
+          />
+        </div>
+      )}
       <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
-        {!showEmptyState && (
+        {!editorShowEmptyState && (
           <div style={{ position: "absolute", top: spacing.xs, right: spacing.xs, zIndex: 3, display: "flex", gap: spacing.xs }}>
             {mode === "editor" && (
               <button
@@ -233,9 +361,9 @@ export function DevSlatePreview() {
           }}>
             <GlobeIcon size={22} fill={accent} />
             <div style={{ fontSize: fontSize.xs }}>{emptyMessage}</div>
-            {readFailed && (
+            {previewLoadFailed && (
               <button
-                onClick={() => void openDevSlateFile(activeFilePath!)}
+                onClick={refresh}
                 style={{
                   padding: `${spacing.xs}px ${spacing.sm}px`, borderRadius: radius.xs,
                   border: `1px solid ${accent}`, background: "transparent",
@@ -249,7 +377,7 @@ export function DevSlatePreview() {
         )}
 
         <iframe
-          key={activeFilePath}
+          key={previewPath}
           title="Dev Slate preview"
           srcDoc={srcDoc ?? ""}
           sandbox="allow-scripts"
