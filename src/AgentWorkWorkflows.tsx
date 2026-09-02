@@ -118,6 +118,21 @@ export function AgentWorkWorkflows({ onNewWorkflow }: { onNewWorkflow: (e: React
       {workflows.map(wf => {
         const lastRun = lastRunByWorkflow[wf.id];
         const scheduled = wf.trigger.type === "scheduled";
+        // Wording matters here (2026-09-01, JuanJo: "we must show the
+        // user that those 'jobs' exist... no 'forever' wording") — an
+        // indefinite schedule and a bounded one used to look identical
+        // ("Scheduled" either way), which is exactly the "invisible,
+        // perpetually repeating, wasting resources" risk being flagged
+        // against. "No expiration set" mirrors the same wording the
+        // manual creation form uses for the same field.
+        const trigger = wf.trigger;
+        const triggerLabel = trigger.type !== "scheduled"
+          ? "Manual"
+          : trigger.next_run_at == null
+            ? "Scheduled · done"
+            : trigger.remaining_runs == null
+              ? "Scheduled · no expiration set"
+              : `Scheduled · ${trigger.remaining_runs} left`;
         return (
           <div key={wf.id} style={{
             padding: `${sidebarRow.paddingV}px ${sidebarRow.paddingH}px`, borderRadius: sidebarRow.radius,
@@ -145,7 +160,7 @@ export function AgentWorkWorkflows({ onNewWorkflow }: { onNewWorkflow: (e: React
             <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, fontSize: fontSize.xxs, color: neutral.textFaint }}>
               <span style={{ display: "flex", alignItems: "center", gap: 2 }}>
                 {scheduled && <CalendarIcon size={10} />}
-                {scheduled ? "Scheduled" : "Manual"}
+                {triggerLabel}
               </span>
               {lastRun && (
                 <>

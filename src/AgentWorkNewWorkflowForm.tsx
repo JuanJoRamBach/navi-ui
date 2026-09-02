@@ -35,6 +35,11 @@ export function AgentWorkNewWorkflowForm({ onDone }: { onDone: () => void }) {
   const [steps, setSteps] = useState<StepDraft[]>([newStep()]);
   const [scheduled, setScheduled] = useState(false);
   const [intervalMinutes, setIntervalMinutes] = useState(60);
+  // Blank = null = "no expiration set" (2026-09-01) — keeps firing until
+  // removed. A real count decrements each fire; see
+  // dispatcher/agent_work.py's check_due_workflows for how that's
+  // enforced server-side.
+  const [repeatCountInput, setRepeatCountInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -58,8 +63,13 @@ export function AgentWorkNewWorkflowForm({ onDone }: { onDone: () => void }) {
       nodes: validSteps.map(s => ({ id: s.id, prompt: s.prompt.trim() })),
       edges: validSteps.slice(1).map((s, i) => ({ from: validSteps[i].id, to: s.id })),
     };
+    const repeatCount = repeatCountInput.trim() ? Math.max(1, Number(repeatCountInput) || 1) : null;
     const trigger: WorkflowTrigger = scheduled
-      ? { type: "scheduled", interval_seconds: intervalMinutes * 60, next_run_at: Date.now() / 1000 + intervalMinutes * 60 }
+      ? {
+          type: "scheduled", interval_seconds: intervalMinutes * 60,
+          next_run_at: Date.now() / 1000 + intervalMinutes * 60,
+          remaining_runs: repeatCount,
+        }
       : { type: "manual" };
 
     setSaving(true);
@@ -133,6 +143,18 @@ export function AgentWorkNewWorkflowForm({ onDone }: { onDone: () => void }) {
               style={{ ...inputStyle, width: 70 }}
             />
             minutes, starting now
+          </div>
+        )}
+        {scheduled && (
+          <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, marginTop: spacing.xs, fontSize: fontSize.xxs, color: neutral.textMuted }}>
+            Repeat
+            <input
+              type="number" min={1} value={repeatCountInput}
+              onChange={e => setRepeatCountInput(e.target.value)}
+              placeholder="No expiration set"
+              style={{ ...inputStyle, width: 130 }}
+            />
+            times (blank = no expiration set)
           </div>
         )}
       </div>

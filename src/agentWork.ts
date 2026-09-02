@@ -24,7 +24,15 @@ export interface WorkflowGraph {
 
 export type WorkflowTrigger =
   | { type: "manual" }
-  | { type: "scheduled"; interval_seconds?: number; next_run_at?: number };
+  // remaining_runs: how many more times this fires. null (or the field
+  // absent) means "no expiration set" — keeps firing until removed.
+  // Real prior art for this shape: Quartz Scheduler's SimpleTrigger.
+  // repeatCount (an integer, or a sentinel for unlimited); null here
+  // instead of a magic number is the more idiomatic REST/JSON
+  // convention (e.g. GitLab's own token-expiration API uses null the
+  // same way) — see dispatcher/agent_work.py's check_due_workflows for
+  // the backend side.
+  | { type: "scheduled"; interval_seconds?: number; next_run_at?: number | null; remaining_runs?: number | null };
 
 export interface WorkflowDefinition {
   id: string;
