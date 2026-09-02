@@ -155,13 +155,14 @@ function NodeInspector({ node, onChange, onDelete, onClose }: {
   );
 }
 
-function GraphCanvas({ onClose }: { onClose: () => void }) {
+function GraphCanvas() {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<AgentWorkNodeData>>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [workflowName, setWorkflowName] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveErrors, setSaveErrors] = useState<string[]>([]);
+  const [savedName, setSavedName] = useState<string | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition } = useReactFlow();
 
@@ -215,9 +216,17 @@ function GraphCanvas({ onClose }: { onClose: () => void }) {
     }
     setSaving(true);
     try {
-      await createWorkflow(workflowName.trim(), null, graph, { type: "manual" });
+      const saved = workflowName.trim();
+      await createWorkflow(saved, null, graph, { type: "manual" });
       window.dispatchEvent(new Event(WORKFLOW_CREATED_EVENT));
-      onClose();
+      // No "close" to return to — this canvas IS Agent Work now, not an
+      // overlay opened on top of it (2026-09-02: eliminated the empty-
+      // canvas landing page entirely). Reset to a blank canvas so
+      // building the next workflow starts clean, with a brief
+      // confirmation instead of silently vanishing.
+      setNodes([]); setEdges([]); setSelectedId(null); setWorkflowName("");
+      setSavedName(saved);
+      setTimeout(() => setSavedName(null), 4000);
     } catch {
       setSaveErrors(["Couldn't save — NAVI may be unreachable. Try again."]);
     } finally {
@@ -260,9 +269,6 @@ function GraphCanvas({ onClose }: { onClose: () => void }) {
             >
               <PlusIcon size={11} /> {saving ? "Saving…" : "Save as Agent/Workflow"}
             </button>
-            <button onClick={onClose} aria-label="Close" style={{ display: "flex", background: "none", border: "none", color: neutral.textFaint, cursor: "pointer", padding: spacing.xxs }}>
-              <XIcon size={16} />
-            </button>
           </div>
         </div>
         {saveErrors.length > 0 && (
@@ -272,6 +278,15 @@ function GraphCanvas({ onClose }: { onClose: () => void }) {
             fontSize: fontSize.xxs, color: "#e08a7a",
           }}>
             {saveErrors.map((err, i) => <div key={i}>{err}</div>)}
+          </div>
+        )}
+        {savedName && (
+          <div style={{
+            padding: `${spacing.xs}px ${spacing.sm}px`, borderRadius: radius.xs,
+            border: "1px solid #3ecf8e55", background: "#3ecf8e15",
+            fontSize: fontSize.xxs, color: "#3ecf8e",
+          }}>
+            Saved "{savedName}" — find it in the Workflows sidebar.
           </div>
         )}
       </div>
@@ -310,17 +325,20 @@ function GraphCanvas({ onClose }: { onClose: () => void }) {
   );
 }
 
-// Full-screen overlay, same weight as a real editor taking over the
-// workspace — a node graph needs real canvas space, not a cramped
-// sidebar panel like the manual step-list form gets.
-export function AgentWorkGraphEditor({ onClose }: { onClose: () => void }) {
+// Fills its parent — Agent Work's canvas itself, not an overlay opened
+// on top of it (2026-09-02: previously a position:fixed full-screen
+// takeover, but a right-sidebar entry point animates via CSS transform,
+// which silently makes any descendant's position:fixed relative to THAT
+// sidebar instead of the real viewport — the actual cause of the
+// palette rendering underneath the app's own left rail. Removing the
+// overlay entirely, in favor of the graph editor just BEING Agent
+// Work's default canvas content, sidesteps that class of bug rather
+// than working around it with a portal).
+export function AgentWorkGraphEditor() {
   return (
-    <div style={{
-      position: "fixed", inset: 0, zIndex: 300, background: "rgba(6,7,10,0.97)",
-      display: "flex", flexDirection: "column",
-    }}>
+    <div style={{ height: "100%", background: "rgba(6,7,10,0.97)", display: "flex", flexDirection: "column" }}>
       <ReactFlowProvider>
-        <GraphCanvas onClose={onClose} />
+        <GraphCanvas />
       </ReactFlowProvider>
     </div>
   );

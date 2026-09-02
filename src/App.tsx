@@ -889,14 +889,6 @@ export default function App() {
   const [draft, setDraft] = useState("");
   // Which toolbar popover is open, if any — only one at a time.
   const [openPanel, setOpenPanel] = useState<"branches" | "models" | "routing" | "usage" | "settings" | "commands" | "projects" | "builds" | "agents" | "connections" | null>(null);
-  // Independent of AgentWorkWorkflows' own showGraphEditor state — that
-  // one lives in the right sidebar, which defaults closed (the exact
-  // same discoverability gap "New Workflow" already had here, fixed by
-  // this same empty-canvas fallback pattern; the visual builder button
-  // added later never got the same treatment). Each entry point owns
-  // its own open/close rather than sharing state across two components
-  // that don't otherwise know about each other.
-  const [showAgentWorkGraphEditor, setShowAgentWorkGraphEditor] = useState(false);
   // V3 sidebar (menu drawer on mobile/tablet, persistent column on
   // desktop — see .sidebar in index.css). Only meaningful below
   // layout.sidebarBreakpoint; CSS forces the sidebar visible above it
@@ -3290,46 +3282,14 @@ export default function App() {
         <div style={{
           position: "absolute", inset: 0, left: "var(--outer-rail-width, 0px)",
           zIndex: 20, background: "#080808",
-          display: "flex", alignItems: "center", justifyContent: "center",
         }}>
-          <div style={{ textAlign: "center", color: neutral.textFaint, maxWidth: 360 }}>
-            <RocketIcon size={28} fill={CANVAS_ACCENT.agentWork.color} />
-            <div style={{ fontSize: fontSize.sm, color: neutral.textMuted, marginTop: spacing.md, fontWeight: fontWeight.medium }}>
-              Agent Work canvas
-            </div>
-            <div style={{ fontSize: fontSize.xs, marginTop: spacing.xs, lineHeight: lineHeight.base }}>
-              Describe a workflow in the chat, or build one yourself below —
-              a real node-graph builder lives here eventually, this is the
-              first, simpler version of it.
-            </div>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: spacing.sm, marginTop: spacing.md }}>
-              <button
-                onClick={e => togglePanel("agents", e.currentTarget)}
-                style={{
-                  display: "inline-flex", alignItems: "center", gap: spacing.xs,
-                  padding: `${spacing.sm}px ${spacing.lg}px`, borderRadius: radius.sm,
-                  border: `1px solid ${CANVAS_ACCENT.agentWork.color}`, background: tintedGlow(CANVAS_ACCENT.agentWork.hue, 0.15),
-                  color: CANVAS_ACCENT.agentWork.color, cursor: "pointer",
-                  fontSize: fontSize.xs, fontWeight: fontWeight.medium, fontFamily,
-                }}
-              >
-                <PlusIcon size={iconSize.sm} /> New Workflow
-              </button>
-              <button
-                onClick={() => setShowAgentWorkGraphEditor(true)}
-                style={{
-                  display: "inline-flex", alignItems: "center", gap: spacing.xs,
-                  padding: `${spacing.sm}px ${spacing.lg}px`, borderRadius: radius.sm,
-                  border: "1px solid rgba(255,255,255,0.18)", background: "transparent",
-                  color: neutral.textMuted, cursor: "pointer",
-                  fontSize: fontSize.xs, fontWeight: fontWeight.medium, fontFamily,
-                }}
-              >
-                Visual Builder
-              </button>
-            </div>
-          </div>
-          {showAgentWorkGraphEditor && <AgentWorkGraphEditor onClose={() => setShowAgentWorkGraphEditor(false)} />}
+          {/* The graph editor IS Agent Work's canvas now, not a landing
+              screen with buttons leading to it (2026-09-02, JuanJo:
+              "eliminate the 'landing page'... just the [React Flow]
+              thing"). New Workflow (the manual step-list form) stays
+              reachable from the left rail for anyone who prefers that
+              flat form over the visual graph. */}
+          <AgentWorkGraphEditor />
 
           {/* Chat popup — bottom-right, collapsed by default. Shifts left
               with the right sidebar so it never sits underneath it
