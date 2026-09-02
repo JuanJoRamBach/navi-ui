@@ -11,8 +11,11 @@ export interface AgentWorkNodeData {
 // The node's on-canvas look — compact enough that a graph of 5-10 of
 // these stays readable, but with enough of the actual content (first
 // field's value) visible that you don't have to click every node just
-// to see what it does. Full editing lives in the right sidebar (see
-// AgentWorkGraphEditor.tsx) — clicking here selects, it doesn't inline-edit.
+// to see what it does. Full editing lives in a floating popover under
+// the node (see NodeInspector in AgentWorkGraphEditor.tsx) — clicking
+// here selects, it doesn't inline-edit. Handles are left (target) /
+// right (source), not top/bottom (2026-09-03, JuanJo) — matches n8n's
+// left-in/right-out convention, already this file's own reference point.
 export function AgentWorkGraphNode({ data, selected }: NodeProps & { data: AgentWorkNodeData }) {
   const kind = NODE_KINDS[data.kindId];
   const Icon = kind.icon;
@@ -27,7 +30,7 @@ export function AgentWorkGraphNode({ data, selected }: NodeProps & { data: Agent
       boxShadow: selected ? `0 0 0 3px ${tintedGlow(kind.hue, 0.25)}, 0 4px 16px rgba(0,0,0,0.4)` : "0 4px 16px rgba(0,0,0,0.35)",
       padding: spacing.sm,
     }}>
-      <Handle type="target" position={Position.Top} style={{ background: color, width: 8, height: 8, border: "none" }} />
+      <Handle type="target" position={Position.Left} style={{ background: color, width: 8, height: 8, border: "none" }} />
       <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, minWidth: 0 }}>
         <span style={{ display: "flex", flexShrink: 0, color }}>
           <Icon size={14} />
@@ -47,7 +50,7 @@ export function AgentWorkGraphNode({ data, selected }: NodeProps & { data: Agent
           {preview}
         </div>
       )}
-      <Handle type="source" position={Position.Bottom} style={{ background: color, width: 8, height: 8, border: "none" }} />
+      <Handle type="source" position={Position.Right} style={{ background: color, width: 8, height: 8, border: "none" }} />
     </div>
   );
 }

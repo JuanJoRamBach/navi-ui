@@ -39,6 +39,16 @@ const GRID_SIZE = 24;
 const GRID_DOT_RADIUS = 3; // `size` is a RADIUS — 3 gives a 6px-diameter dot
 const GRID_DOT_COLOR = "rgba(189, 129, 48, 0.4)";
 
+// Edges: 1px default read as too thin, and the amber accent at 60%
+// opacity read as a dim off-white rather than a real color (2026-09-03,
+// JuanJo: "make it 3 pixels, and a more whiter white, not #FFFFFF, but
+// whiter than what it is now"). Reusing neutral.textPrimary rather than
+// inventing a new value — it's the app's own existing "bright but not
+// harsh #FFFFFF" white, used everywhere else text needs to read clearly
+// on dark surfaces.
+const EDGE_COLOR = neutral.textPrimary;
+const EDGE_WIDTH = 3;
+
 // On-demand menu, not a persistent docked palette (2026-09-02 research
 // pass before this was built) — a permanently-visible left-side list is
 // what caused the earlier space-competition/layout bug in the first
@@ -87,12 +97,15 @@ function AddNodeMenu({ onPick, onClose }: { onPick: (kind: NodeKindId) => void; 
   );
 }
 
-// Right sidebar — the selected node's editable fields. Same "click a
-// node, a panel slides in from the right" pattern n8n itself uses
-// (checked before building this), reusing the same right-sidebar chrome
-// Agent Work's Workflows/Run History panes already live in rather than
-// inventing a modal. Every edit here only touches local canvas state —
-// nothing is sent to NAVI until "Save as Agent/Workflow" is pressed.
+// Floating popover anchored under the selected node — not a right
+// sidebar (2026-09-03, JuanJo: "when I click the nodes, it opens a
+// right sidebar. It should open a window under the nodes (like a
+// comment window)"). Position is computed by NodeInspectorAnchor below
+// from the node's own flow-space position plus the live viewport
+// transform, so it tracks the node through pan/zoom rather than sitting
+// in a fixed layout slot. Every edit here only touches local canvas
+// state — nothing is sent to NAVI until "Save as Agent/Workflow" is
+// pressed.
 function NodeInspector({ node, onChange, onDelete, onClose }: {
   node: Node<AgentWorkNodeData>; onChange: (values: Record<string, string>) => void;
   onDelete: () => void; onClose: () => void;
@@ -102,10 +115,14 @@ function NodeInspector({ node, onChange, onDelete, onClose }: {
   const color = `oklch(65% 0.14 ${kind.hue})`;
 
   return (
-    <div style={{ width: 240, flexShrink: 0, borderLeft: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column" }}>
+    <div style={{
+      width: 260, display: "flex", flexDirection: "column", borderRadius: radius.md,
+      border: "1px solid rgba(255,255,255,0.12)", background: "#161616",
+      boxShadow: "0 12px 40px rgba(0,0,0,0.55)", maxHeight: 360,
+    }}>
       <div style={{
         display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.xs,
-        padding: spacing.sm, borderBottom: "1px solid rgba(255,255,255,0.06)",
+        padding: spacing.sm, borderBottom: "1px solid rgba(255,255,255,0.06)", flexShrink: 0,
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, minWidth: 0 }}>
           <span style={{ display: "flex", flexShrink: 0, color }}><Icon size={14} /></span>
@@ -169,6 +186,31 @@ function NodeInspector({ node, onChange, onDelete, onClose }: {
   );
 }
 
+// Computes where NodeInspector renders: node position (flow space) run
+// through the live pan/zoom transform (screen = flow * zoom + offset —
+// the same math React Flow itself uses internally), so the popover
+// tracks its node across pans/zooms instead of sitting in a fixed
+// layout slot. useViewport() subscribes this specifically to viewport
+// changes, since GraphCanvas itself doesn't re-render on pan/zoom alone.
+// Rendered as an absolute child of the same wrapper ReactFlow fills, so
+// its (0,0) already lines up with the flow pane's own — no bounding-rect
+// math needed on top of the viewport transform.
+function NodeInspectorAnchor({ node, onChange, onDelete, onClose }: {
+  node: Node<AgentWorkNodeData>; onChange: (values: Record<string, string>) => void;
+  onDelete: () => void; onClose: () => void;
+}) {
+  const { x, y, zoom } = useViewport();
+  const width = node.measured?.width ?? 200;
+  const height = node.measured?.height ?? 70;
+  const left = node.position.x * zoom + x + (width * zoom) / 2;
+  const top = node.position.y * zoom + y + height * zoom + 8;
+  return (
+    <div style={{ position: "absolute", left, top, transform: "translateX(-50%)", zIndex: 50 }}>
+      <NodeInspector node={node} onChange={onChange} onDelete={onDelete} onClose={onClose} />
+    </div>
+  );
+}
+
 // A live "100%"-style readout — React Flow's own zoom controls have no
 // number on them at all (2026-09-02, JuanJo: "there is no numbers on
 // the zoom buttons"). useViewport() re-renders this on every zoom/pan,
@@ -203,7 +245,7 @@ function GraphCanvas() {
   const { screenToFlowPosition } = useReactFlow();
 
   const onConnect = useCallback((connection: Connection) => {
-    setEdges(eds => addEdge({ ...connection, animated: false, style: { stroke: `${accent}99` } }, eds));
+    setEdges(eds => addEdge({ ...connection, animated: false, style: { stroke: EDGE_COLOR, strokeWidth: EDGE_WIDTH } }, eds));
   }, [setEdges]);
 
   const addNode = useCallback((kindId: NodeKindId, position: { x: number; y: number }) => {
@@ -358,7 +400,7 @@ function GraphCanvas() {
         )}
       </div>
       <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
-        <div ref={wrapperRef} style={{ flex: 1, minWidth: 0 }} onDrop={onDrop} onDragOver={e => e.preventDefault()}>
+        <div ref={wrapperRef} style={{ flex: 1, minWidth: 0, position: "relative" }} onDrop={onDrop} onDragOver={e => e.preventDefault()}>
           <ReactFlow
             nodes={nodes} edges={edges}
             onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect}
@@ -366,6 +408,7 @@ function GraphCanvas() {
             onPaneClick={() => setSelectedId(null)}
             nodeTypes={AGENT_WORK_NODE_TYPES}
             snapToGrid snapGrid={[GRID_SIZE, GRID_SIZE]}
+            defaultEdgeOptions={{ style: { stroke: EDGE_COLOR, strokeWidth: EDGE_WIDTH } }}
             fitView
             colorMode="dark"
             // zoom=1 is the standard 100%/actual-size convention (same
@@ -385,15 +428,15 @@ function GraphCanvas() {
             <Controls showInteractive={false} />
             <ZoomBadge />
           </ReactFlow>
+          {selectedNode && (
+            <NodeInspectorAnchor
+              node={selectedNode}
+              onChange={updateSelectedValues}
+              onDelete={deleteSelected}
+              onClose={() => setSelectedId(null)}
+            />
+          )}
         </div>
-        {selectedNode && (
-          <NodeInspector
-            node={selectedNode}
-            onChange={updateSelectedValues}
-            onDelete={deleteSelected}
-            onClose={() => setSelectedId(null)}
-          />
-        )}
       </div>
     </div>
   );
