@@ -92,6 +92,11 @@ export async function createWorkflow(
 // ongoing shared state.
 export const WORKFLOW_CREATED_EVENT = "agent-workflow-created";
 
+export async function deleteWorkflow(workflowId: string): Promise<boolean> {
+  const res = await fetch(`${NAVI_BACKEND_URL}/agent/workflows/${encodeURIComponent(workflowId)}`, { method: "DELETE" });
+  return res.ok;
+}
+
 export async function runWorkflowNow(workflowId: string): Promise<{ run_id?: string; error?: string }> {
   const res = await fetch(`${NAVI_BACKEND_URL}/agent/workflows/${encodeURIComponent(workflowId)}/run`, { method: "POST" });
   return res.json();
