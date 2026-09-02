@@ -41,7 +41,7 @@ import {
 import {
   type Mode, type ChatMode, MODE_THEME, CANVAS_ACCENT, OKLCH_HUE,
   spacing, radius, fontSize, fontWeight, lineHeight, iconSize, controlSize,
-  fontFamily, neutral, layout,
+  fontFamily, neutral, layout, tintedGlow,
 } from "./tokens";
 import {
   type StoredMessage, type Conversation, type MessageAttachment, type BranchListItem, type Project,
@@ -62,6 +62,11 @@ import { NAVI_BACKEND_URL } from "./config";
 import { getPushStatus, subscribeToPush, type PushStatus } from "./push";
 import { DevSlateDockview } from "./DevSlateDockview";
 import { useDevSlateState } from "./devslateStore";
+import { AgentWorkChat } from "./AgentWorkChat";
+import { AgentWorkWorkflows } from "./AgentWorkWorkflows";
+import { AgentWorkRunHistory } from "./AgentWorkRunHistory";
+import { AgentWorkCalendar } from "./AgentWorkCalendar";
+import { AgentWorkNewWorkflowForm } from "./AgentWorkNewWorkflowForm";
 
 const DOT_SIZE = 8;
 
@@ -709,6 +714,12 @@ export default function App() {
   // depending on it, since a conversation's project never changes once
   // created.
   const activeConversationProjectIdRef = useRef<string>("");
+  // NAVI's server-side conversation id (see storage.ts's Conversation.
+  // serverConversationId) — mirrored into a ref for the same reason as
+  // the two above: the save effect and the /chat/send call both need it
+  // without depending on it. Null until the first plain-chat reply
+  // returns one.
+  const activeServerConversationIdRef = useRef<string | null>(null);
   // Drives the in-chat "Branched from X" pill — id kept alongside the
   // title so clicking it can jump straight to the parent without a
   // second lookup.
@@ -742,6 +753,7 @@ export default function App() {
       activeConversationIdRef.current = conversation.id;
       activeConversationParentIdRef.current = conversation.parentId;
       activeConversationProjectIdRef.current = conversation.projectId;
+      activeServerConversationIdRef.current = conversation.serverConversationId ?? null;
       setMessages(conversation.messages);
       hydratedCountRef.current = conversation.messages.length;
       selectChatMode(conversation.mode);
@@ -766,6 +778,7 @@ export default function App() {
       messages,
       projectId: activeConversationProjectIdRef.current,
       ...(activeConversationParentIdRef.current ? { parentId: activeConversationParentIdRef.current } : {}),
+      ...(activeServerConversationIdRef.current ? { serverConversationId: activeServerConversationIdRef.current } : {}),
     });
   }, [messages]);
 
@@ -967,6 +980,7 @@ export default function App() {
   // doesn't interrupt the canvas work the way a fixed panel would.
   // Shell/mock content for now — this canvas has no real backend yet.
   const [agentWorkChatOpen, setAgentWorkChatOpen] = useState(false);
+  const [agentWorkCalendarOpen, setAgentWorkCalendarOpen] = useState(false);
   // Dev Slate's placeholder pane content — every zone in its shell (see
   // the devSlate canvas render below) uses this same shape so adding a
   // new pane later, or swapping a placeholder for real content, doesn't
@@ -1493,6 +1507,7 @@ export default function App() {
     activeConversationIdRef.current = conversation.id;
     activeConversationParentIdRef.current = conversation.parentId;
     activeConversationProjectIdRef.current = conversation.projectId;
+    activeServerConversationIdRef.current = conversation.serverConversationId ?? null;
     setMessages(conversation.messages);
     hydratedCountRef.current = conversation.messages.length;
     selectChatMode(conversation.mode);
@@ -1523,6 +1538,12 @@ export default function App() {
     await saveConversation({ ...branch, title: name.trim(), messages });
     activeConversationIdRef.current = branch.id;
     activeConversationParentIdRef.current = parentId;
+    // A branch gets its own server-side conversation on its own first
+    // message — it does NOT inherit the parent's (see storage.ts's
+    // Conversation.serverConversationId doc comment). Reset the ref
+    // explicitly, since it otherwise still holds the parent's id from
+    // whatever conversation was active a moment ago.
+    activeServerConversationIdRef.current = null;
     setCurrentParentChat({ id: parentId, title: deriveTitle(messages) });
     setOpenPanel(null);
   }, [messages]);
@@ -1555,6 +1576,7 @@ export default function App() {
     activeConversationIdRef.current = conversation.id;
     activeConversationParentIdRef.current = conversation.parentId;
     activeConversationProjectIdRef.current = conversation.projectId;
+    activeServerConversationIdRef.current = conversation.serverConversationId ?? null;
     setMessages(conversation.messages);
     hydratedCountRef.current = conversation.messages.length;
     selectChatMode(conversation.mode);
@@ -1721,7 +1743,13 @@ export default function App() {
       : "Thinking…";
     if (!asyncJobActive()) setPendingStep(firstStep);
 
-    const handleResponse = (data: { reply?: string; error?: string; async?: boolean }) => {
+    const handleResponse = (data: { reply?: string; error?: string; async?: boolean; conversation_id?: string }) => {
+      // Server issues the conversation id on a plain-chat turn (real
+      // multi-turn memory, 2026-09-01 — see how_to_handle_context.md);
+      // typed /commands and the async /research ack never send one, so
+      // this only ever updates on the turns that actually have one.
+      if (data.conversation_id) activeServerConversationIdRef.current = data.conversation_id;
+
       const replyText = data.reply ?? data.error ?? "(empty reply)";
       const attachments = parseAttachments(replyText);
       setMessages(m => [...m, {
@@ -1756,7 +1784,10 @@ export default function App() {
     const send = () => fetch(`${NAVI_BACKEND_URL}/chat/send`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, mode: chatModeRef.current }),
+      body: JSON.stringify({
+        text, mode: chatModeRef.current,
+        ...(activeServerConversationIdRef.current ? { conversation_id: activeServerConversationIdRef.current } : {}),
+      }),
     }).then(res => res.json());
 
     send()
@@ -2928,20 +2959,24 @@ export default function App() {
           </div>
 
           {activeCanvas === "agentWork" ? (
-            /* Calendar (primary — "what's going to fire when" across
-               every workflow in this project) over Run History
-               (secondary, smaller — JuanJo's explicitly experimental
-               inclusion, "sounds okayish, we can see how it goes", not
-               a locked decision the way the calendar is). Plain flex
-               split, not a resizable Group — doesn't need drag-resize
-               the way Dev Slate's code column does. */
+            /* Workflows (primary — every saved workflow, its trigger,
+               its most recent run, manual Run Now) over Run History
+               (secondary, smaller, inline-expandable rows). The
+               calendar concept that used to live in this primary slot
+               moved to its own floating overlay instead (JuanJo,
+               2026-09-01: fits the calendar-in-a-popover pattern better
+               than living in a cramped sidebar column) — see
+               AgentWorkCalendar.tsx + the floating button next to
+               Agent Work's chat button below. Plain flex split, not a
+               resizable Group — doesn't need drag-resize the way Dev
+               Slate's code column does. */
             <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
               <div style={{ flex: 7, minHeight: 0 }}>
-                {devSlatePane(<CalendarIcon size={22} fill={CANVAS_ACCENT.agentWork.color} />, "Schedule", "When every workflow in this project is set to fire — across all of them, not one at a time. Not wired up yet.")}
+                <AgentWorkWorkflows onNewWorkflow={e => togglePanel("agents", e.currentTarget)} />
               </div>
               <div style={{ height: 1, background: "rgba(255,255,255,0.08)", flexShrink: 0 }} />
               <div style={{ flex: 3, minHeight: 0 }}>
-                {devSlatePane(<HistoryIcon size={18} fill={CANVAS_ACCENT.agentWork.color} />, "Run History", "Recent runs across this project's workflows. Experimental inclusion — not wired up yet.")}
+                <AgentWorkRunHistory />
               </div>
             </div>
           ) : activeCanvas === "devSlate" ? (
@@ -3273,58 +3308,87 @@ export default function App() {
               Agent Work canvas
             </div>
             <div style={{ fontSize: fontSize.xs, marginTop: spacing.xs, lineHeight: lineHeight.base }}>
-              The visual workflow builder lives here — real content (an embedded Activepieces
-              instance) needs backend work that hasn't started yet.
+              Describe a workflow in the chat, or build one yourself below —
+              a real node-graph builder lives here eventually, this is the
+              first, simpler version of it.
             </div>
+            <button
+              onClick={e => togglePanel("agents", e.currentTarget)}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: spacing.xs, marginTop: spacing.md,
+                padding: `${spacing.sm}px ${spacing.lg}px`, borderRadius: radius.sm,
+                border: `1px solid ${CANVAS_ACCENT.agentWork.color}`, background: tintedGlow(CANVAS_ACCENT.agentWork.hue, 0.15),
+                color: CANVAS_ACCENT.agentWork.color, cursor: "pointer",
+                fontSize: fontSize.xs, fontWeight: fontWeight.medium, fontFamily,
+              }}
+            >
+              <PlusIcon size={iconSize.sm} /> New Workflow
+            </button>
           </div>
 
-          {/* Compact chat popup — bottom-right, collapsed by default. */}
-          <div style={{ position: "absolute", bottom: spacing.xl, right: spacing.xl, zIndex: 21 }}>
+          {/* Chat popup — bottom-right, collapsed by default. Shifts left
+              with the right sidebar so it never sits underneath it
+              (JuanJo, 2026-09-01: "change the chat floating button so it
+              moves accordingly if the right side bar opens"). zIndex
+              above the calendar popup's (22 vs 21) — chat wins whenever
+              their panels overlap (JuanJo, 2026-09-01: "the chat should
+              always be the element on top"). */}
+          <div style={{
+            position: "absolute", bottom: spacing.xl, zIndex: 22,
+            right: isDesktopSidebar && rightPanelOpen
+              ? `calc(var(--right-panel-width, 280px) + ${spacing.xl}px)`
+              : spacing.xl,
+            transition: "right 0.2s ease",
+          }}>
             {agentWorkChatOpen ? (
-              <div style={{
-                width: 320, height: 400, display: "flex", flexDirection: "column",
-                background: "rgba(10,12,18,0.95)", border: "1px solid rgba(255,255,255,0.12)",
-                borderRadius: radius.lg, boxShadow: "0 8px 30px rgba(0,0,0,0.5)",
-                overflow: "hidden",
-              }}>
-                <div style={{
-                  display: "flex", alignItems: "center", justifyContent: "space-between",
-                  padding: `${spacing.sm}px ${spacing.md}px`, borderBottom: "1px solid rgba(255,255,255,0.08)",
-                }}>
-                  <span style={{ fontSize: fontSize.xs, fontWeight: fontWeight.medium, color: neutral.textPrimary }}>
-                    Canvas chat
-                  </span>
-                  <button
-                    aria-label="Collapse chat"
-                    onClick={() => setAgentWorkChatOpen(false)}
-                    style={{
-                      width: 22, height: 22, borderRadius: radius.xs, border: "none", background: "transparent",
-                      color: neutral.textMuted, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
-                    }}
-                  >
-                    <ChevronDownIcon size={14} />
-                  </button>
-                </div>
-                <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: spacing.lg }}>
-                  <span style={{ fontSize: fontSize.xxs, color: neutral.textFaint, textAlign: "center" }}>
-                    Not wired up yet — context will be this canvas's state plus a
-                    summary of a linked chat.
-                  </span>
-                </div>
-              </div>
+              <AgentWorkChat onClose={() => setAgentWorkChatOpen(false)} />
             ) : (
               <button
                 aria-label="Open canvas chat"
                 onClick={() => setAgentWorkChatOpen(true)}
                 style={{
                   width: controlSize.md + 6, height: controlSize.md + 6, borderRadius: "50%",
-                  border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.06)",
-                  color: neutral.textPrimary, cursor: "pointer",
+                  border: `1px solid ${tintedGlow(CANVAS_ACCENT.agentWork.hue, 0.4)}`,
+                  background: tintedGlow(CANVAS_ACCENT.agentWork.hue, 0.15),
+                  color: CANVAS_ACCENT.agentWork.color, cursor: "pointer",
                   display: "flex", alignItems: "center", justifyContent: "center",
-                  boxShadow: "0 4px 18px rgba(0,0,0,0.4)",
+                  boxShadow: `0 4px 18px rgba(0,0,0,0.4), 0 0 20px ${CANVAS_ACCENT.agentWork.glow}`,
                 }}
               >
                 <CommentDiscussionIcon size={iconSize.md} />
+              </button>
+            )}
+          </div>
+
+          {/* Calendar popup — top-right corner, independent of the chat
+              button's bottom-right cluster entirely (JuanJo, 2026-09-01:
+              moved here after seeing the stacked version — it was
+              crowding/overlapping the chat popup, not just sitting
+              near it). Same right-shift-with-sidebar logic as the chat
+              button, mirrored to `top` instead of `bottom`. */}
+          <div style={{
+            position: "absolute", top: spacing.xl, zIndex: 21,
+            right: isDesktopSidebar && rightPanelOpen
+              ? `calc(var(--right-panel-width, 280px) + ${spacing.xl}px)`
+              : spacing.xl,
+            transition: "right 0.2s ease",
+          }}>
+            {agentWorkCalendarOpen ? (
+              <AgentWorkCalendar onClose={() => setAgentWorkCalendarOpen(false)} />
+            ) : (
+              <button
+                aria-label="Open schedule calendar"
+                onClick={() => setAgentWorkCalendarOpen(true)}
+                style={{
+                  width: controlSize.md + 6, height: controlSize.md + 6, borderRadius: "50%",
+                  border: `1px solid ${tintedGlow(CANVAS_ACCENT.agentWork.hue, 0.4)}`,
+                  background: tintedGlow(CANVAS_ACCENT.agentWork.hue, 0.15),
+                  color: CANVAS_ACCENT.agentWork.color, cursor: "pointer",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  boxShadow: `0 4px 18px rgba(0,0,0,0.4), 0 0 20px ${CANVAS_ACCENT.agentWork.glow}`,
+                }}
+              >
+                <CalendarIcon size={iconSize.md} />
               </button>
             )}
           </div>
@@ -3797,13 +3861,9 @@ export default function App() {
               {openPanel === "agents" && (
                 <div>
                   <div style={{ fontSize: fontSize.sm, color: neutral.textMuted, marginBottom: spacing.sm }}>
-                    Agents
+                    New Workflow
                   </div>
-                  <div style={{ fontSize: fontSize.sm, color: neutral.textMuted }}>
-                    Nothing wired up yet — Agent Work's real content (an embedded Activepieces instance)
-                    needs backend infra that hasn't been built. This panel is here so the shape's already
-                    in place once that lands.
-                  </div>
+                  <AgentWorkNewWorkflowForm onDone={() => setOpenPanel(null)} />
                 </div>
               )}
 

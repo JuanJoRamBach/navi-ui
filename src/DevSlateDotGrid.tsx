@@ -2,10 +2,11 @@ import { useEffect, useRef } from "react";
 import { CANVAS_ACCENT } from "./tokens";
 
 // Adapted from a canvas dot-grid reference component (2026-09-01) — idle
-// dots glow white, cursor proximity shifts them toward the Dev Slate
-// accent (teal). Simplified from the original: no light/dark theme
-// toggle (this canvas is dark-only), no demo label, no generic `colors`
-// override prop — fixed to this one usage.
+// dots glow white, cursor proximity shifts them toward an accent color
+// (teal for Dev Slate, amber for Agent Work — JuanJo, 2026-09-01: "same
+// background and same animation, just change the color"). Simplified
+// from the original: no light/dark theme toggle (this canvas is
+// dark-only), no demo label.
 //
 // Tracks the pointer via `window` mousemove, not DOM :hover on the
 // canvas — this is what makes the glow correctly follow the cursor even
@@ -35,7 +36,7 @@ function cssColorToRgb(css: string): [number, number, number] {
   return match ? [Number(match[0]), Number(match[1]), Number(match[2])] : [255, 255, 255];
 }
 
-export function DevSlateDotGrid() {
+export function DevSlateDotGrid({ accentColor = CANVAS_ACCENT.devSlate.color }: { accentColor?: string } = {}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mouseRef = useRef<{ x: number; y: number } | null>(null);
@@ -73,7 +74,7 @@ export function DevSlateDotGrid() {
     const canvas = canvasRef.current!;
     const ctx = canvas.getContext("2d")!;
     const [r0, g0, b0] = [255, 255, 255]; // idle: white
-    const [r1, g1, b1] = cssColorToRgb(CANVAS_ACCENT.devSlate.color); // lit: teal accent, resolved via the DOM so it can never drift from the token
+    const [r1, g1, b1] = cssColorToRgb(accentColor); // lit: resolved via the DOM so it can never drift from whatever token the caller passed
 
     type Dot = { x: number; y: number; b: number };
     let dots: Dot[] = [];
@@ -143,7 +144,7 @@ export function DevSlateDotGrid() {
       cancelAnimationFrame(animId);
       ro.disconnect();
     };
-  }, []);
+  }, [accentColor]);
 
   return (
     <div ref={containerRef} style={{ position: "absolute", inset: 0, overflow: "hidden", background: BACKGROUND, pointerEvents: "none" }}>

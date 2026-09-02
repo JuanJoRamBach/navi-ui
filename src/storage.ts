@@ -76,6 +76,13 @@ export interface Conversation {
   // exactly one (see Project below). Required going forward; the v2->v3
   // migration stamps it onto every pre-existing conversation.
   projectId: string;
+  // NAVI's server-side conversation id for this chat, once one exists —
+  // set the first time /chat/send returns one (2026-09-01: real
+  // multi-turn server memory, see how_to_handle_context.md). Absent
+  // until the first plain-chat message is sent; a branch starts without
+  // one too (gets its own on its own first message, doesn't inherit the
+  // parent's).
+  serverConversationId?: string;
 }
 
 // Project is the real top-level container — everything else (canvases,

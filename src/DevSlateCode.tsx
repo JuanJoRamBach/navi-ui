@@ -1,7 +1,9 @@
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Editor, DiffEditor } from "@monaco-editor/react";
 import { CheckIcon, XIcon, FileIcon } from "@primer/octicons-react";
 import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT } from "./tokens";
-import { decideWriteReview, useDevSlateState } from "./devslateStore";
+import { decideWriteReview, notifyFileWritten, useDevSlateState } from "./devslateStore";
+import { writeLocalFile } from "./devslateFs";
 
 const accent = CANVAS_ACCENT.devSlate.color;
 
@@ -15,15 +17,65 @@ function languageFor(path: string | null): string {
   return LANGUAGE_BY_EXTENSION[ext] ?? "plaintext";
 }
 
-// Hosts both the plain editor (viewing whatever file is currently
-// selected in the Files pane) and the diff view for an AI-proposed
-// write_file change — per this canvas layout's own original comment
-// ("Monaco — also hosts the diff view when reviewing an AI-proposed
-// change"). Read-only either way for now: Dev Slate's edit path is the
-// model calling write_file, not the user typing directly into Monaco —
-// that's a real, deliberate scope line for this pass, not an oversight.
+const SAVE_DEBOUNCE_MS = 600;
+
+// Hosts both the plain editor (viewing/editing whatever file is
+// currently selected in the Files pane) and the diff view for an
+// AI-proposed write_file change — per this canvas layout's own original
+// comment ("Monaco — also hosts the diff view when reviewing an
+// AI-proposed change"). The plain editor is directly editable (JuanJo,
+// 2026-09-01: reversing the earlier "read-only, model writes only"
+// scope call) — typed changes save to disk debounced, not on every
+// keystroke, then flow through notifyFileWritten so Preview/Files/
+// Change History all pick them up the same way an AI write does. The
+// DIFF view stays read-only — it's a review UI for an AI proposal
+// (Accept/Reject), not a general editing surface; editing mid-review
+// would need new design (does an edited diff still count as Accept?).
 export function DevSlateCode() {
   const { activeFilePath, activeFileContent, pendingWrite } = useDevSlateState();
+  const [localContent, setLocalContent] = useState(activeFileContent);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const saveTimeoutRef = useRef<number | null>(null);
+
+  // Resets local content on a file switch, or when a diff review just
+  // resolved (pendingWrite going from present to absent) — NOT on every
+  // activeFileContent tick, since our own debounced save round-trips
+  // through the store too and would otherwise fight the user's typing.
+  useEffect(() => {
+    setLocalContent(activeFileContent);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeFilePath, !!pendingWrite]);
+
+  useEffect(() => {
+    return () => { if (saveTimeoutRef.current) window.clearTimeout(saveTimeoutRef.current); };
+  }, []);
+
+  const handleChange = useCallback((value: string | undefined) => {
+    const next = value ?? "";
+    setLocalContent(next);
+    const path = activeFilePath;
+    if (!path) return;
+    if (saveTimeoutRef.current) window.clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = window.setTimeout(async () => {
+      setSaving(true);
+      setSaveError(null);
+      try {
+        await writeLocalFile(path, next);
+        notifyFileWritten(path, next);
+      } catch (e) {
+        // writeLocalFile has no internal error handling of its own (it
+        // throws straight through, e.g. requireRoot()'s "No project
+        // folder connected yet." right after a refresh, before File
+        // System Access permission has re-confirmed) — without this
+        // catch, that became an unhandled rejection and the edit
+        // silently never saved, no indication to the user at all.
+        setSaveError(e instanceof Error ? e.message : "Couldn't save.");
+      } finally {
+        setSaving(false);
+      }
+    }, SAVE_DEBOUNCE_MS);
+  }, [activeFilePath]);
 
   if (!activeFilePath) {
     return (
@@ -47,6 +99,12 @@ export function DevSlateCode() {
         fontSize: fontSize.xxs, color: neutral.textFaint, fontFamily: "monospace", flexShrink: 0,
       }}>
         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{activeFilePath}</span>
+        {!pendingWrite && saving && (
+          <span style={{ flexShrink: 0, color: neutral.textFaint }}>Saving…</span>
+        )}
+        {!pendingWrite && !saving && saveError && (
+          <span style={{ flexShrink: 0, color: "#e05a4a" }} title={saveError}>Couldn't save — {saveError}</span>
+        )}
         {pendingWrite && (
           <div style={{ display: "flex", gap: spacing.xs, flexShrink: 0 }}>
             <button onClick={() => decideWriteReview(false)} style={{
@@ -77,10 +135,12 @@ export function DevSlateCode() {
           />
         ) : (
           <Editor
+            key={activeFilePath}
             language={language}
-            value={activeFileContent}
+            value={localContent}
+            onChange={handleChange}
             theme="vs-dark"
-            options={{ readOnly: true, minimap: { enabled: false }, fontSize: 13 }}
+            options={{ readOnly: false, minimap: { enabled: false }, fontSize: 13 }}
           />
         )}
       </div>
