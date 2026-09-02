@@ -68,6 +68,7 @@ import { AgentWorkRunHistory } from "./AgentWorkRunHistory";
 import { AgentWorkCalendar } from "./AgentWorkCalendar";
 import { fetchModelCatalog, setPinnedModel, type ModelCatalog } from "./devslate";
 import { AgentWorkNewWorkflowForm } from "./AgentWorkNewWorkflowForm";
+import { ChoiceButtons } from "./ChoiceButtons";
 
 const DOT_SIZE = 8;
 
@@ -1701,8 +1702,8 @@ export default function App() {
   // /research/status for live progress until the real result arrives
   // via push (see the "navi-message" listener below, which stops the
   // poll and clears pendingStep once that happens).
-  const sendMessage = useCallback(() => {
-    const text = draft.trim();
+  const sendMessage = useCallback((overrideText?: string) => {
+    const text = overrideText ?? draft.trim();
     if (!text) return;
     setMessages(m => [...m, { role: "user", text, timestamp: Date.now(), command: parseCommand(text) }]);
     setDraft("");
@@ -1722,7 +1723,7 @@ export default function App() {
       : "Thinking…";
     if (!asyncJobActive()) setPendingStep(firstStep);
 
-    const handleResponse = (data: { reply?: string; error?: string; async?: boolean; conversation_id?: string }) => {
+    const handleResponse = (data: { reply?: string; error?: string; async?: boolean; conversation_id?: string; choices?: string[] }) => {
       // Server issues the conversation id on a plain-chat turn (real
       // multi-turn memory, 2026-09-01 — see how_to_handle_context.md);
       // typed /commands and the async /research ack never send one, so
@@ -1736,6 +1737,7 @@ export default function App() {
         text: replyText,
         timestamp: Date.now(),
         ...(attachments.length > 0 ? { attachments } : {}),
+        ...(data.choices && data.choices.length > 0 ? { choices: data.choices } : {}),
       }]);
 
       if (data.async) {
@@ -3597,6 +3599,16 @@ export default function App() {
                     ))}
                   </div>
                 )}
+                {/* Only the most recent message's choices are actionable
+                    — a stale option from an earlier turn wouldn't make
+                    sense once the conversation's moved on. */}
+                {m.choices && m.choices.length > 0 && item.index === messages.length - 1 && (
+                  <ChoiceButtons
+                    options={m.choices} hue={OKLCH_HUE[chatMode]}
+                    disabled={!!pendingStep}
+                    onPick={(text) => sendMessage(text)}
+                  />
+                )}
                 <div style={{
                   display: "flex",
                   justifyContent: m.role === "navi" ? "space-between" : "flex-end",
@@ -4081,7 +4093,7 @@ export default function App() {
             }}
           />
           <button
-            onClick={sendMessage}
+            onClick={() => sendMessage()}
             aria-label="Send"
             title="Send"
             style={{

@@ -58,6 +58,7 @@ export interface StoredMessage {
   // reader treats their absence as "plain chat, no command, no files."
   command?: string; // set on the user message that triggered a command
   attachments?: MessageAttachment[]; // set on the navi reply that produced file(s)
+  choices?: string[]; // from ask_user_choice — set on the navi message that asked
 }
 
 export interface Conversation {

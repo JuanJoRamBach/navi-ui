@@ -20,6 +20,7 @@ export interface DevSlateMessage {
   text: string;
   provider?: string | null;
   model?: string | null;
+  choices?: string[]; // from ask_user_choice — not persisted, doesn't survive a reload
 }
 
 export interface ModelCandidate {
@@ -78,7 +79,7 @@ export async function setPinnedModel(role: string, provider: string, model: stri
 }
 
 type IncomingFrame =
-  | { type: "assistant_message"; text: string; provider: string | null; model: string | null }
+  | { type: "assistant_message"; text: string; provider: string | null; model: string | null; choices?: string[] | null }
   | { type: "tool_request"; id: string; name: string; arguments: Record<string, unknown> }
   | { type: string; [key: string]: unknown };
 
@@ -141,7 +142,11 @@ export function connectDevSlate(conversationId: string, handlers: DevSlateHandle
     }
 
     if (frame.type === "assistant_message") {
-      handlers.onMessage({ role: "navi", text: String(frame.text ?? ""), provider: frame.provider as string | null, model: frame.model as string | null });
+      handlers.onMessage({
+        role: "navi", text: String(frame.text ?? ""),
+        provider: frame.provider as string | null, model: frame.model as string | null,
+        choices: (frame.choices as string[] | null | undefined) ?? undefined,
+      });
       return;
     }
 

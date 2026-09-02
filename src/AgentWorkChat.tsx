@@ -5,6 +5,7 @@ import { DevSlateDotGrid } from "./DevSlateDotGrid";
 import { fetchModelCatalog, setPinnedModel, type ModelCatalog } from "./devslate";
 import { NAVI_BACKEND_URL } from "./config";
 import { WORKFLOW_CREATED_EVENT } from "./agentWork";
+import { ChoiceButtons } from "./ChoiceButtons";
 
 // Same visual template as Dev Slate's own chat (DevSlateChat.tsx) — dot-grid
 // background, bottom-anchored bubbles, floating input pill, model picker +
@@ -193,6 +194,7 @@ interface AgentWorkMessage {
   text: string;
   at: number; // epoch ms — captured client-side when the message is added, not persisted
   usageNote?: string; // navi replies only, when the provider reported one (tokens or Cloudflare Neurons)
+  choices?: string[]; // navi replies only, from ask_user_choice — doesn't survive a page refresh, same as usageNote
 }
 
 function formatMessageTime(epochMs: number): string {
@@ -287,19 +289,21 @@ export function AgentWorkChat({ onClose }: { onClose: () => void }) {
     window.addEventListener("pointerup", onUp);
   }, [size]);
 
-  const revealText = useCallback(async (fullText: string, usageNote?: string) => {
+  const revealText = useCallback(async (fullText: string, usageNote?: string, choices?: string[]) => {
     setPending(null);
     setStreamingText("");
     for (let i = 1; i <= fullText.length; i++) {
       setStreamingText(fullText.slice(0, i));
       await sleep(fullText[i - 1] === "." ? STREAM_CHAR_DELAY_MS + STREAM_PERIOD_PAUSE_MS : STREAM_CHAR_DELAY_MS);
     }
-    setMessages(m => [...m, { role: "navi", text: fullText, at: Date.now(), usageNote }]);
+    setMessages(m => [...m, { role: "navi", text: fullText, at: Date.now(), usageNote, choices }]);
     setStreamingText(null);
   }, []);
 
-  const send = useCallback(async () => {
-    const text = input.trim();
+  // overrideText: set when a ChoiceButtons click sends its label directly,
+  // bypassing whatever's currently (or not) typed in the input box.
+  const send = useCallback(async (overrideText?: string) => {
+    const text = overrideText ?? input.trim();
     if (!text || sendingRef.current) return;
     sendingRef.current = true;
     setInput("");
@@ -316,7 +320,7 @@ export function AgentWorkChat({ onClose }: { onClose: () => void }) {
     }).then(res => res.json());
 
     try {
-      let data: { reply?: string; error?: string; conversation_id?: string; usage_note?: string };
+      let data: { reply?: string; error?: string; conversation_id?: string; usage_note?: string; choices?: string[] };
       try {
         data = await post();
       } catch {
@@ -332,7 +336,7 @@ export function AgentWorkChat({ onClose }: { onClose: () => void }) {
         conversationIdRef.current = data.conversation_id;
         sessionStorage.setItem(AGENT_WORK_CONVERSATION_ID_KEY, data.conversation_id);
       }
-      await revealText(data.reply ?? data.error ?? "(empty reply)", data.usage_note);
+      await revealText(data.reply ?? data.error ?? "(empty reply)", data.usage_note, data.choices);
       // Tool calls (create_workflow, run_workflow) happen entirely
       // server-side — this popup has no visibility into which ones fired,
       // so refresh the sidebar's workflow/run lists unconditionally after
@@ -472,6 +476,16 @@ export function AgentWorkChat({ onClose }: { onClose: () => void }) {
               }}>
                 {formatMessageTime(m.at)}{m.usageNote ? ` · ${m.usageNote}` : ""}
               </div>
+              {/* Only the most recent message's choices are actionable —
+                  clicking a stale option from an earlier turn wouldn't
+                  make sense once the conversation's moved on. */}
+              {i === 0 && m.choices && m.choices.length > 0 && (
+                <ChoiceButtons
+                  options={m.choices} hue={CANVAS_ACCENT.agentWork.hue}
+                  disabled={pending !== null || streamingText !== null}
+                  onPick={(text) => { void send(text); }}
+                />
+              )}
             </div>
           ))}
         </div>

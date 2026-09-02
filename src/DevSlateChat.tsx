@@ -8,6 +8,7 @@ import {
 import { connectFolder, getConnectedFolderName, hasLocalFsSupport, listAllFiles, readLocalFile } from "./devslateFs";
 import { requestWriteReview, setTaskState, useDevSlateState } from "./devslateStore";
 import { DevSlateDotGrid } from "./DevSlateDotGrid";
+import { ChoiceButtons } from "./ChoiceButtons";
 
 const accent = CANVAS_ACCENT.devSlate.color;
 
@@ -338,6 +339,14 @@ export function DevSlateChat() {
     setAttachedPaths([]);
   };
 
+  // Bypasses the input box/attachments entirely — a ChoiceButtons click
+  // sends its label directly, same as typing and pressing send would.
+  const sendText = async (text: string) => {
+    if (!text || !connRef.current) return;
+    setMessages(m => [...m, { role: "user", text }]);
+    connRef.current.send(text);
+  };
+
   const handleConnectFolder = async () => {
     const name = await connectFolder();
     if (name) setFolderName(name);
@@ -389,7 +398,10 @@ export function DevSlateChat() {
           )}
           {reversedMessages.map((m, i) => (
             <div key={reversedMessages.length - i} style={{
+              display: "flex", flexDirection: "column", gap: 4, minWidth: 0,
               alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "90%",
+            }}>
+            <div style={{
               // Same bubble treatment as the main Chat canvas — heavier
               // blur/glow carries legibility instead of a solid fill,
               // NAVI's replies fully carry this canvas's own tint (teal,
@@ -411,9 +423,17 @@ export function DevSlateChat() {
               borderRadius: radius.lg, padding: `${spacing.sm}px ${spacing.md}px`,
               fontSize: fontSize.sm,
               color: m.role === "user" ? neutral.textPrimary : "rgba(246, 246, 246, 0.85)",
-              whiteSpace: "pre-wrap",
+              whiteSpace: "pre-wrap", overflowWrap: "anywhere",
             }}>
               {m.text}
+            </div>
+              {i === 0 && m.choices && m.choices.length > 0 && (
+                <ChoiceButtons
+                  options={m.choices} hue={CANVAS_ACCENT.devSlate.hue}
+                  disabled={!!activity}
+                  onPick={(text) => { void sendText(text); }}
+                />
+              )}
             </div>
           ))}
         </div>
