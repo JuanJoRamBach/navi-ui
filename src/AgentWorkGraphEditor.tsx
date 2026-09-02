@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ReactFlow, ReactFlowProvider, Background, BackgroundVariant, Controls, Panel,
+  BaseEdge, EdgeLabelRenderer, getBezierPath,
   addEdge, useNodesState, useEdgesState, useReactFlow, useViewport,
-  type Node, type Edge, type Connection, type OnConnectEnd, type FinalConnectionState,
+  type Node, type Edge, type Connection, type OnConnectEnd, type FinalConnectionState, type EdgeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { XIcon, PlusIcon } from "@primer/octicons-react";
@@ -48,6 +49,42 @@ const GRID_DOT_COLOR = "rgba(189, 129, 48, 0.4)";
 // on dark surfaces.
 const EDGE_COLOR = neutral.textPrimary;
 const EDGE_WIDTH = 3;
+
+// Edges were selectable + Backspace-deletable via React Flow's own
+// defaults already, but with zero visual affordance — nothing on
+// screen suggested a thin line was clickable at all (2026-09-03,
+// JuanJo: "there is no way to erase a connection"). A small × button
+// at the edge's midpoint, always visible but subtle until hovered, is
+// the same pattern n8n uses. Registered as the "default" edge type so
+// every edge gets it without needing an explicit `type` on creation.
+function AgentWorkEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, style, markerEnd }: EdgeProps) {
+  const [edgePath, labelX, labelY] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
+  const [hovered, setHovered] = useState(false);
+  const { setEdges } = useReactFlow();
+  return (
+    <>
+      <BaseEdge id={id} path={edgePath} style={style} markerEnd={markerEnd} />
+      <EdgeLabelRenderer>
+        <button
+          onClick={e => { e.stopPropagation(); setEdges(eds => eds.filter(edge => edge.id !== id)); }}
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
+          aria-label="Delete connection"
+          style={{
+            position: "absolute", transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+            width: 16, height: 16, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
+            border: "1px solid rgba(255,255,255,0.25)", background: hovered ? "#e05a4a" : "#161616",
+            color: hovered ? "#fff" : neutral.textFaint, fontSize: 11, lineHeight: 1, padding: 0,
+            cursor: "pointer", pointerEvents: "all", fontFamily,
+          }}
+        >
+          ×
+        </button>
+      </EdgeLabelRenderer>
+    </>
+  );
+}
+const AGENT_WORK_EDGE_TYPES = { default: AgentWorkEdge };
 
 // Closes a floating menu on an outside click WITHOUT an intercepting
 // full-screen overlay (2026-09-03 fix, JuanJo: "I can't drag the nodes
@@ -488,9 +525,20 @@ function GraphCanvas() {
             nodes={nodes} edges={edges}
             onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect}
             onConnectEnd={onConnectEnd}
-            onNodeClick={(_e, node) => setSelectedId(node.id)}
-            onPaneClick={() => setSelectedId(null)}
+            // Clicking inside the canvas — the pane itself or a node —
+            // never reached the outside-click listener that closes the
+            // Add Node / quick-add menus: React Flow's own pointer
+            // handling stops the mousedown from bubbling to document
+            // (2026-09-03, JuanJo: "I can actually make [them]
+            // disappear... I need to click outside the canvas, it's
+            // rather counter intuitive"). onPaneClick/onNodeClick are
+            // React Flow's own callbacks, dispatched regardless of that
+            // internal stopPropagation, so closing the menus here is
+            // reliable everywhere the outside-click listener wasn't.
+            onNodeClick={(_e, node) => { setSelectedId(node.id); setShowAddNodeMenu(false); setConnectDropMenu(null); }}
+            onPaneClick={() => { setSelectedId(null); setShowAddNodeMenu(false); setConnectDropMenu(null); }}
             nodeTypes={AGENT_WORK_NODE_TYPES}
+            edgeTypes={AGENT_WORK_EDGE_TYPES}
             snapToGrid snapGrid={[GRID_SIZE, GRID_SIZE]}
             defaultEdgeOptions={{ style: { stroke: EDGE_COLOR, strokeWidth: EDGE_WIDTH } }}
             fitView
