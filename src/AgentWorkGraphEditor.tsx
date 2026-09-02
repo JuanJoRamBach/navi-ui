@@ -1,6 +1,6 @@
-import { useCallback, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
-  ReactFlow, ReactFlowProvider, Controls, MiniMap,
+  ReactFlow, ReactFlowProvider, Background, BackgroundVariant, Controls, MiniMap,
   addEdge, useNodesState, useEdgesState, useReactFlow,
   type Node, type Edge, type Connection,
 } from "@xyflow/react";
@@ -13,29 +13,24 @@ import { AGENT_WORK_NODE_TYPES, type AgentWorkNodeData } from "./AgentWorkGraphN
 const accent = CANVAS_ACCENT.agentWork.color;
 let nodeCounter = 0;
 
-// Lines-at-3:1 read as a bad net/mesh in practice (2026-09-02, JuanJo:
-// "horrible... too thick... a bad net effect") — the contrast math was
-// correct, but a full crossing grid of lines is a fundamentally
-// different visual weight than a field of dots, no ratio fixes that.
-// Went dots (20px separation), then to a 4-pointed sparkle (✦) per
-// JuanJo's exact reference glyph — a small tip-length-5 / waist-1 star,
-// same proportions a 2px dot + 4px tails implied. React Flow's own
-// Background component only ships dots/lines/cross, no custom shapes,
-// so this is a hand-drawn SVG tile rendered as a CSS background-image
-// instead of that component. Snap grid still matches the tile spacing
-// exactly, same reasoning as before (what you see is what nodes lock to).
+// Went lines-at-3:1 (2026-09-02: "horrible... a bad net effect" — the
+// contrast math was fine, a full crossing grid is just a different
+// visual weight no ratio fixes), then a hand-drawn 4-pointed sparkle
+// (✦, matching JuanJo's reference glyph) via a custom SVG background —
+// which turned out to visually match reactflow.dev's own marketing-site
+// background closely enough to look like copied code (it wasn't, but
+// the resemblance was real and funny). Landed back on React Flow's own
+// built-in dots — 20px separation, 2px diameter (`size` is a RADIUS, so
+// size=1). Opacity at 40%: no clean external precedent for this exact
+// case, reasoned directly instead — a plain dot covers far less canvas
+// area than the star or the crossing lines did, so the same opacity
+// reads noticeably softer overall purely from less colored pixel area;
+// higher than the original overly-cautious starting point for that
+// reason, but pulled back from 50% since that number was only ever
+// actually seen on the busier star shape, never tested on a bare dot.
 const GRID_SIZE = 20;
-const GRID_STAR_COLOR = "189, 129, 48"; // amber accent, as an rgb() triplet for reuse in both the SVG fill and rgba() opacity
-const GRID_OPACITY = 0.5;
-const GRID_STAR_SVG = encodeURIComponent(
-  `<svg xmlns="http://www.w3.org/2000/svg" width="${GRID_SIZE}" height="${GRID_SIZE}">` +
-  `<path d="M10,5 L11,9 L15,10 L11,11 L10,15 L9,11 L5,10 L9,9 Z" fill="rgb(${GRID_STAR_COLOR})" fill-opacity="${GRID_OPACITY}" />` +
-  `</svg>`,
-);
-const GRID_BACKGROUND_STYLE: CSSProperties = {
-  backgroundImage: `url("data:image/svg+xml,${GRID_STAR_SVG}")`,
-  backgroundSize: `${GRID_SIZE}px ${GRID_SIZE}px`,
-};
+const GRID_DOT_RADIUS = 1;
+const GRID_DOT_COLOR = "rgba(189, 129, 48, 0.4)";
 
 // Left rail — drag a kind onto the canvas to create one. Not a click-to-
 // add list on purpose: dragging is what every real node-graph tool uses
@@ -233,7 +228,7 @@ function GraphCanvas({ onClose }: { onClose: () => void }) {
       </div>
       <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
         <NodePalette />
-        <div ref={wrapperRef} style={{ flex: 1, minWidth: 0, ...GRID_BACKGROUND_STYLE }} onDrop={onDrop} onDragOver={e => e.preventDefault()}>
+        <div ref={wrapperRef} style={{ flex: 1, minWidth: 0 }} onDrop={onDrop} onDragOver={e => e.preventDefault()}>
           <ReactFlow
             nodes={nodes} edges={edges}
             onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect}
@@ -243,8 +238,12 @@ function GraphCanvas({ onClose }: { onClose: () => void }) {
             snapToGrid snapGrid={[GRID_SIZE, GRID_SIZE]}
             fitView
             colorMode="dark"
-            style={{ background: "transparent" }}
+            // MIT-licensed — nothing legally requires keeping React
+            // Flow's own attribution badge, and NAVI isn't a commercial
+            // product being sold (2026-09-02 check before hiding it).
+            proOptions={{ hideAttribution: true }}
           >
+            <Background variant={BackgroundVariant.Dots} color={GRID_DOT_COLOR} gap={GRID_SIZE} size={GRID_DOT_RADIUS} />
             <Controls showInteractive={false} />
             <MiniMap pannable zoomable style={{ background: tintedSurface(CANVAS_ACCENT.agentWork.hue, 12, 0.03) }} />
           </ReactFlow>
