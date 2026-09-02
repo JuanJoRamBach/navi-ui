@@ -1,10 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
-import { PlayIcon, PlusIcon, CalendarIcon, CommentDiscussionIcon, TrashIcon, AlertIcon } from "@primer/octicons-react";
+import { PlayIcon, PlusIcon, CalendarIcon, CommentDiscussionIcon, TrashIcon, AlertIcon, ChevronDownIcon, ChevronRightIcon } from "@primer/octicons-react";
 import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, tintedGlow } from "./tokens";
-import { sidebarRow } from "./sidebar-tokens";
 import { WORKFLOW_CREATED_EVENT, deleteWorkflow, listRuns, listWorkflows, runWorkflowNow, type AgentRun, type WorkflowDefinition } from "./agentWork";
 
 const accent = CANVAS_ACCENT.agentWork.color;
+
+// Neutral white-alpha overlay, not an accent/mode-tinted background —
+// the established rule for every "raised surface" card in a right
+// sidebar (sidebar-tokens.ts's own comment: "a consistent, restrained
+// 'raised' surface, not a bright pill" — same treatment Knowledge items
+// and source rows already use). Workflow cards previously had no
+// background at all, reading as placeholder rows rather than real,
+// separated features (2026-09-02, JuanJo).
+const CARD_BG = "rgba(255,255,255,0.05)";
+const CARD_BORDER = "1px solid rgba(255,255,255,0.08)";
 
 const STATUS_COLOR: Record<string, string> = {
   completed: "#3ecf8e", running: "#e0b94a", queued: "#e0b94a", failed: "#e05a4a",
@@ -12,6 +21,13 @@ const STATUS_COLOR: Record<string, string> = {
 
 function formatWhen(epochSeconds: number): string {
   return new Date(epochSeconds * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+function formatInterval(seconds: number): string {
+  if (seconds % 86400 === 0) return `${seconds / 86400} day${seconds / 86400 === 1 ? "" : "s"}`;
+  if (seconds % 3600 === 0) return `${seconds / 3600} hour${seconds / 3600 === 1 ? "" : "s"}`;
+  if (seconds % 60 === 0) return `${seconds / 60} minute${seconds / 60 === 1 ? "" : "s"}`;
+  return `${seconds}s`;
 }
 
 // Confirm-before-destroy (2026-09-02, JuanJo, after a workflow he created
@@ -74,6 +90,131 @@ function DeleteConfirmDialog({ name, scheduled, deleting, error, onCancel, onCon
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// One workflow, as a real card — not a flat list row (2026-09-02,
+// JuanJo: "those 'workflows' feel like placeholders, not actual working
+// features" + "a UI Card for being over the right sidebar, separating
+// each"). Click-to-expand reveals what was previously invisible: every
+// step's actual prompt and tool(s), and the real schedule detail (not
+// just "1 left") — the whole point being that a saved workflow should
+// read as a real, inspectable thing, not a name with a Run button.
+function WorkflowCard({ wf, lastRun, running, onRun, onDeleteClick }: {
+  wf: WorkflowDefinition; lastRun: AgentRun | undefined; running: boolean;
+  onRun: () => void; onDeleteClick: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const trigger = wf.trigger;
+  const scheduled = trigger.type === "scheduled";
+  // Wording matters here (2026-09-01, JuanJo: "we must show the user
+  // that those 'jobs' exist... no 'forever' wording") — an indefinite
+  // schedule and a bounded one used to look identical ("Scheduled"
+  // either way), which is exactly the "invisible, perpetually
+  // repeating, wasting resources" risk being flagged against. "No
+  // expiration set" mirrors the same wording the manual creation form
+  // uses for the same field.
+  const triggerLabel = trigger.type !== "scheduled"
+    ? "Manual"
+    : trigger.next_run_at == null
+      ? "Scheduled · done"
+      : trigger.remaining_runs == null
+        ? "Scheduled · no expiration set"
+        : `Scheduled · ${trigger.remaining_runs} left`;
+
+  return (
+    <div style={{ background: CARD_BG, border: CARD_BORDER, borderRadius: radius.sm, marginBottom: spacing.xs, overflow: "hidden" }}>
+      <button
+        onClick={() => setExpanded(e => !e)}
+        style={{
+          width: "100%", display: "flex", flexDirection: "column", gap: 4, textAlign: "left",
+          padding: spacing.sm, border: "none", background: "transparent", cursor: "pointer", fontFamily,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, minWidth: 0 }}>
+          {expanded ? <ChevronDownIcon size={10} /> : <ChevronRightIcon size={10} />}
+          <span style={{
+            flex: 1, fontSize: fontSize.xs, fontWeight: fontWeight.medium, color: neutral.textPrimary,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0,
+          }}>
+            {wf.name}
+          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+            <button
+              onClick={onRun}
+              disabled={running}
+              title="Run now"
+              style={{
+                display: "flex", alignItems: "center", gap: 4,
+                padding: `2px ${spacing.xs}px`, borderRadius: radius.xs,
+                border: `1px solid ${accent}55`, background: "transparent",
+                color: accent, cursor: running ? "default" : "pointer",
+                fontSize: fontSize.xxs, fontFamily, opacity: running ? 0.5 : 1,
+              }}
+            >
+              <PlayIcon size={10} /> {running ? "Starting…" : "Run"}
+            </button>
+            <button
+              onClick={onDeleteClick}
+              title="Delete workflow"
+              style={{
+                display: "flex", alignItems: "center", padding: `2px ${spacing.xxs}px`, borderRadius: radius.xs,
+                border: "1px solid rgba(255,255,255,0.1)", background: "transparent",
+                color: neutral.textFaint, cursor: "pointer",
+              }}
+            >
+              <TrashIcon size={10} />
+            </button>
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, fontSize: fontSize.xxs, color: neutral.textFaint, paddingLeft: 18 }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 2 }}>
+            {scheduled && <CalendarIcon size={10} />}
+            {triggerLabel}
+          </span>
+          {lastRun && (
+            <>
+              <span>·</span>
+              <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <span style={{ width: 5, height: 5, borderRadius: 9999, background: STATUS_COLOR[lastRun.status] ?? neutral.textFaint }} />
+                {lastRun.status} {formatWhen(lastRun.started_at)}
+              </span>
+            </>
+          )}
+        </div>
+      </button>
+      {expanded && (
+        <div style={{ padding: `0 ${spacing.sm}px ${spacing.sm}px ${spacing.sm}px`, display: "flex", flexDirection: "column", gap: spacing.sm }}>
+          {wf.description && (
+            <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted, lineHeight: 1.5 }}>{wf.description}</div>
+          )}
+          <div style={{ display: "flex", flexDirection: "column", gap: spacing.xs }}>
+            {wf.graph.nodes.map((node, i) => (
+              <div key={node.id} style={{
+                borderLeft: `2px solid ${accent}55`, paddingLeft: spacing.xs,
+                display: "flex", flexDirection: "column", gap: 2,
+              }}>
+                <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted, fontFamily: "monospace" }}>
+                  {i + 1}. {node.tools && node.tools.length > 0 ? node.tools.join(", ") : "text only"}
+                </div>
+                <div style={{ fontSize: fontSize.xxs, color: neutral.textFaint, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+                  {node.prompt}
+                </div>
+              </div>
+            ))}
+          </div>
+          {scheduled && trigger.type === "scheduled" && (
+            <div style={{ fontSize: fontSize.xxs, color: neutral.textFaint, lineHeight: 1.6 }}>
+              {trigger.interval_seconds ? <>Repeats every {formatInterval(trigger.interval_seconds)}.<br /></> : "One-time run.\n"}
+              {trigger.next_run_at != null
+                ? <>Next run: {formatWhen(trigger.next_run_at)}.</>
+                : "No further runs scheduled."}
+              {trigger.remaining_runs != null && <> {trigger.remaining_runs} remaining.</>}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -204,79 +345,16 @@ export function AgentWorkWorkflows({ onNewWorkflow }: { onNewWorkflow: (e: React
     <div style={{ height: "100%", display: "flex", flexDirection: "column", fontFamily }}>
       {header}
       <div className="hide-scrollbar" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: spacing.xs }}>
-      {workflows.map(wf => {
-        const lastRun = lastRunByWorkflow[wf.id];
-        const scheduled = wf.trigger.type === "scheduled";
-        // Wording matters here (2026-09-01, JuanJo: "we must show the
-        // user that those 'jobs' exist... no 'forever' wording") — an
-        // indefinite schedule and a bounded one used to look identical
-        // ("Scheduled" either way), which is exactly the "invisible,
-        // perpetually repeating, wasting resources" risk being flagged
-        // against. "No expiration set" mirrors the same wording the
-        // manual creation form uses for the same field.
-        const trigger = wf.trigger;
-        const triggerLabel = trigger.type !== "scheduled"
-          ? "Manual"
-          : trigger.next_run_at == null
-            ? "Scheduled · done"
-            : trigger.remaining_runs == null
-              ? "Scheduled · no expiration set"
-              : `Scheduled · ${trigger.remaining_runs} left`;
-        return (
-          <div key={wf.id} style={{
-            padding: `${sidebarRow.paddingV}px ${sidebarRow.paddingH}px`, borderRadius: sidebarRow.radius,
-            display: "flex", flexDirection: "column", gap: 4, marginBottom: 2,
-          }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.xs, minWidth: 0 }}>
-              <span style={{ fontSize: fontSize.xs, fontWeight: fontWeight.medium, color: neutral.textPrimary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
-                {wf.name}
-              </span>
-              <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
-                <button
-                  onClick={() => runNow(wf.id)}
-                  disabled={runningId === wf.id}
-                  title="Run now"
-                  style={{
-                    display: "flex", alignItems: "center", gap: 4,
-                    padding: `2px ${spacing.xs}px`, borderRadius: radius.xs,
-                    border: `1px solid ${accent}55`, background: "transparent",
-                    color: accent, cursor: runningId === wf.id ? "default" : "pointer",
-                    fontSize: fontSize.xxs, fontFamily, opacity: runningId === wf.id ? 0.5 : 1,
-                  }}
-                >
-                  <PlayIcon size={10} /> {runningId === wf.id ? "Starting…" : "Run"}
-                </button>
-                <button
-                  onClick={() => { setConfirmTarget({ id: wf.id, name: wf.name, scheduled }); setDeleteError(null); }}
-                  title="Delete workflow"
-                  style={{
-                    display: "flex", alignItems: "center", padding: `2px ${spacing.xxs}px`, borderRadius: radius.xs,
-                    border: "1px solid rgba(255,255,255,0.1)", background: "transparent",
-                    color: neutral.textFaint, cursor: "pointer",
-                  }}
-                >
-                  <TrashIcon size={10} />
-                </button>
-              </div>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, fontSize: fontSize.xxs, color: neutral.textFaint }}>
-              <span style={{ display: "flex", alignItems: "center", gap: 2 }}>
-                {scheduled && <CalendarIcon size={10} />}
-                {triggerLabel}
-              </span>
-              {lastRun && (
-                <>
-                  <span>·</span>
-                  <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                    <span style={{ width: 5, height: 5, borderRadius: 9999, background: STATUS_COLOR[lastRun.status] ?? neutral.textFaint }} />
-                    {lastRun.status} {formatWhen(lastRun.started_at)}
-                  </span>
-                </>
-              )}
-            </div>
-          </div>
-        );
-      })}
+      {workflows.map(wf => (
+        <WorkflowCard
+          key={wf.id}
+          wf={wf}
+          lastRun={lastRunByWorkflow[wf.id]}
+          running={runningId === wf.id}
+          onRun={() => runNow(wf.id)}
+          onDeleteClick={() => { setConfirmTarget({ id: wf.id, name: wf.name, scheduled: wf.trigger.type === "scheduled" }); setDeleteError(null); }}
+        />
+      ))}
       </div>
       {confirmTarget && (
         <DeleteConfirmDialog
