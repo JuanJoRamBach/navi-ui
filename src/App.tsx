@@ -69,6 +69,7 @@ import { AgentWorkCalendar } from "./AgentWorkCalendar";
 import { fetchModelCatalog, setPinnedModel, type ModelCatalog } from "./devslate";
 import { AgentWorkNewWorkflowForm } from "./AgentWorkNewWorkflowForm";
 import { ChoiceButtons } from "./ChoiceButtons";
+import { AgentWorkGraphEditor } from "./AgentWorkGraphEditor";
 
 const DOT_SIZE = 8;
 
@@ -888,6 +889,14 @@ export default function App() {
   const [draft, setDraft] = useState("");
   // Which toolbar popover is open, if any — only one at a time.
   const [openPanel, setOpenPanel] = useState<"branches" | "models" | "routing" | "usage" | "settings" | "commands" | "projects" | "builds" | "agents" | "connections" | null>(null);
+  // Independent of AgentWorkWorkflows' own showGraphEditor state — that
+  // one lives in the right sidebar, which defaults closed (the exact
+  // same discoverability gap "New Workflow" already had here, fixed by
+  // this same empty-canvas fallback pattern; the visual builder button
+  // added later never got the same treatment). Each entry point owns
+  // its own open/close rather than sharing state across two components
+  // that don't otherwise know about each other.
+  const [showAgentWorkGraphEditor, setShowAgentWorkGraphEditor] = useState(false);
   // V3 sidebar (menu drawer on mobile/tablet, persistent column on
   // desktop — see .sidebar in index.css). Only meaningful below
   // layout.sidebarBreakpoint; CSS forces the sidebar visible above it
@@ -3293,19 +3302,34 @@ export default function App() {
               a real node-graph builder lives here eventually, this is the
               first, simpler version of it.
             </div>
-            <button
-              onClick={e => togglePanel("agents", e.currentTarget)}
-              style={{
-                display: "inline-flex", alignItems: "center", gap: spacing.xs, marginTop: spacing.md,
-                padding: `${spacing.sm}px ${spacing.lg}px`, borderRadius: radius.sm,
-                border: `1px solid ${CANVAS_ACCENT.agentWork.color}`, background: tintedGlow(CANVAS_ACCENT.agentWork.hue, 0.15),
-                color: CANVAS_ACCENT.agentWork.color, cursor: "pointer",
-                fontSize: fontSize.xs, fontWeight: fontWeight.medium, fontFamily,
-              }}
-            >
-              <PlusIcon size={iconSize.sm} /> New Workflow
-            </button>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: spacing.sm, marginTop: spacing.md }}>
+              <button
+                onClick={e => togglePanel("agents", e.currentTarget)}
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: spacing.xs,
+                  padding: `${spacing.sm}px ${spacing.lg}px`, borderRadius: radius.sm,
+                  border: `1px solid ${CANVAS_ACCENT.agentWork.color}`, background: tintedGlow(CANVAS_ACCENT.agentWork.hue, 0.15),
+                  color: CANVAS_ACCENT.agentWork.color, cursor: "pointer",
+                  fontSize: fontSize.xs, fontWeight: fontWeight.medium, fontFamily,
+                }}
+              >
+                <PlusIcon size={iconSize.sm} /> New Workflow
+              </button>
+              <button
+                onClick={() => setShowAgentWorkGraphEditor(true)}
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: spacing.xs,
+                  padding: `${spacing.sm}px ${spacing.lg}px`, borderRadius: radius.sm,
+                  border: "1px solid rgba(255,255,255,0.18)", background: "transparent",
+                  color: neutral.textMuted, cursor: "pointer",
+                  fontSize: fontSize.xs, fontWeight: fontWeight.medium, fontFamily,
+                }}
+              >
+                Visual Builder
+              </button>
+            </div>
           </div>
+          {showAgentWorkGraphEditor && <AgentWorkGraphEditor onClose={() => setShowAgentWorkGraphEditor(false)} />}
 
           {/* Chat popup — bottom-right, collapsed by default. Shifts left
               with the right sidebar so it never sits underneath it
