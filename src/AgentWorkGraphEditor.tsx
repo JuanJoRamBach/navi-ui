@@ -1,8 +1,8 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ReactFlow, ReactFlowProvider, Background, BackgroundVariant, Controls, Panel,
   addEdge, useNodesState, useEdgesState, useReactFlow, useViewport,
-  type Node, type Edge, type Connection,
+  type Node, type Edge, type Connection, type OnConnectEnd, type FinalConnectionState,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { XIcon, PlusIcon } from "@primer/octicons-react";
@@ -49,51 +49,99 @@ const GRID_DOT_COLOR = "rgba(189, 129, 48, 0.4)";
 const EDGE_COLOR = neutral.textPrimary;
 const EDGE_WIDTH = 3;
 
+// Closes a floating menu on an outside click WITHOUT an intercepting
+// full-screen overlay (2026-09-03 fix, JuanJo: "I can't drag the nodes
+// when the add node window is open"). The original close mechanism was
+// a `position:fixed, inset:0` transparent div sitting above the canvas
+// — it caught the outside click correctly, but it also silently ate
+// every other pointer interaction underneath it (node dragging
+// included) for as long as the menu was open. A document-level
+// mousedown listener gets the same "click away to close" behavior
+// without ever sitting in the canvas's own hit-testing path.
+function useClickOutside(onOutside: () => void) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as globalThis.Node)) onOutside();
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [onOutside]);
+  return ref;
+}
+
+// Shared list body for both node-add menus below — the top-bar dropdown
+// and the connection-drop quick-add. Each item supports BOTH gestures:
+// click creates the node (position decided by whichever menu is
+// showing it), drag places it exactly where dropped via the existing
+// onDrop handler on the canvas wrapper.
+function NodeKindItems({ onPick, onDragStart }: { onPick: (kind: NodeKindId) => void; onDragStart?: () => void }) {
+  return (
+    <>
+      {NODE_KIND_LIST.map(kind => {
+        const Icon = kind.icon;
+        const color = `oklch(65% 0.14 ${kind.hue})`;
+        return (
+          <div
+            key={kind.id}
+            draggable
+            onDragStart={e => { e.dataTransfer.setData("application/agentwork-node-kind", kind.id); e.dataTransfer.effectAllowed = "move"; onDragStart?.(); }}
+            onClick={() => onPick(kind.id)}
+            title={kind.description}
+            style={{
+              display: "flex", alignItems: "center", gap: spacing.xs, padding: `${spacing.xs}px ${spacing.sm}px`,
+              borderRadius: radius.sm, border: `1px solid ${color}40`, background: tintedGlow(kind.hue, 0.08),
+              cursor: "grab", fontFamily,
+            }}
+          >
+            <span style={{ display: "flex", flexShrink: 0, color }}><Icon size={13} /></span>
+            <span style={{ fontSize: fontSize.xxs, color: neutral.textPrimary, lineHeight: 1.3 }}>{kind.label}</span>
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
 // On-demand menu, not a persistent docked palette (2026-09-02 research
 // pass before this was built) — a permanently-visible left-side list is
 // what caused the earlier space-competition/layout bug in the first
 // place, and it's not actually how professional node editors solve
 // this: Blender's Shift+A, Unreal Blueprint's right-click, and n8n's own
 // "+" button are all on-demand, not docked. Opens below the "+ Add
-// Node" button in the top bar. Each item supports BOTH gestures per
-// JuanJo's spec: click creates the node centered in the current canvas
-// view, drag places it exactly where dropped — same drop target
-// (onDrop on the canvas wrapper) either way, this menu is just a second
-// way to start that drag, plus a click shortcut for when precise
-// placement doesn't matter yet.
+// Node" button in the top bar. Click creates the node centered in the
+// current canvas view; drag places it exactly where dropped.
 function AddNodeMenu({ onPick, onClose }: { onPick: (kind: NodeKindId) => void; onClose: () => void }) {
+  const ref = useClickOutside(onClose);
   return (
-    <>
-      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 320 }} />
-      <div style={{
-        position: "absolute", top: "100%", left: 0, marginTop: 4, zIndex: 321,
-        width: 200, background: "#161616", border: "1px solid rgba(255,255,255,0.1)",
-        borderRadius: radius.sm, padding: spacing.xs, display: "flex", flexDirection: "column", gap: 3,
-        boxShadow: "0 12px 40px rgba(0,0,0,0.5)", maxHeight: 360, overflowY: "auto",
-      }}>
-        {NODE_KIND_LIST.map(kind => {
-          const Icon = kind.icon;
-          const color = `oklch(65% 0.14 ${kind.hue})`;
-          return (
-            <div
-              key={kind.id}
-              draggable
-              onDragStart={e => { e.dataTransfer.setData("application/agentwork-node-kind", kind.id); e.dataTransfer.effectAllowed = "move"; onClose(); }}
-              onClick={() => onPick(kind.id)}
-              title={kind.description}
-              style={{
-                display: "flex", alignItems: "center", gap: spacing.xs, padding: `${spacing.xs}px ${spacing.sm}px`,
-                borderRadius: radius.sm, border: `1px solid ${color}40`, background: tintedGlow(kind.hue, 0.08),
-                cursor: "grab", fontFamily,
-              }}
-            >
-              <span style={{ display: "flex", flexShrink: 0, color }}><Icon size={13} /></span>
-              <span style={{ fontSize: fontSize.xxs, color: neutral.textPrimary, lineHeight: 1.3 }}>{kind.label}</span>
-            </div>
-          );
-        })}
-      </div>
-    </>
+    <div ref={ref} style={{
+      position: "absolute", top: "100%", left: 0, marginTop: 4, zIndex: 321,
+      width: 200, background: "#161616", border: "1px solid rgba(255,255,255,0.1)",
+      borderRadius: radius.sm, padding: spacing.xs, display: "flex", flexDirection: "column", gap: 3,
+      boxShadow: "0 12px 40px rgba(0,0,0,0.5)", maxHeight: 360, overflowY: "auto",
+    }}>
+      <NodeKindItems onPick={onPick} onDragStart={onClose} />
+    </div>
+  );
+}
+
+// Quick-add menu that opens right where a dragged connection line is
+// dropped on empty canvas — "that's one hell of a recurring pattern,
+// dragging the line and drop to create a new node" (2026-09-03,
+// JuanJo). Picking a kind creates the node at the drop point AND wires
+// the edge automatically (see handleConnectDropPick in GraphCanvas),
+// so the connect-drag gesture itself never has to be redone.
+function ConnectDropMenu({ left, top, onPick, onClose }: { left: number; top: number; onPick: (kind: NodeKindId) => void; onClose: () => void }) {
+  const ref = useClickOutside(onClose);
+  return (
+    <div ref={ref} style={{
+      position: "absolute", left, top, transform: "translate(-50%, -50%)", zIndex: 50,
+      width: 200, background: "#161616", border: "1px solid rgba(255,255,255,0.1)",
+      borderRadius: radius.sm, padding: spacing.xs, display: "flex", flexDirection: "column", gap: 3,
+      boxShadow: "0 12px 40px rgba(0,0,0,0.5)", maxHeight: 360, overflowY: "auto",
+    }}>
+      <NodeKindItems onPick={onPick} />
+    </div>
   );
 }
 
@@ -241,6 +289,9 @@ function GraphCanvas() {
   const [saveErrors, setSaveErrors] = useState<string[]>([]);
   const [savedName, setSavedName] = useState<string | null>(null);
   const [showAddNodeMenu, setShowAddNodeMenu] = useState(false);
+  const [connectDropMenu, setConnectDropMenu] = useState<{
+    left: number; top: number; flowPosition: { x: number; y: number }; sourceId: string; handleType: "source" | "target";
+  } | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition } = useReactFlow();
 
@@ -255,6 +306,7 @@ function GraphCanvas() {
       id, type: "agentWorkNode", position,
       data: { kindId, values: {} } satisfies AgentWorkNodeData,
     }]);
+    return id;
   }, [setNodes]);
 
   const onDrop = useCallback((e: React.DragEvent) => {
@@ -263,6 +315,37 @@ function GraphCanvas() {
     if (!kindId || !NODE_KINDS[kindId]) return;
     addNode(kindId, screenToFlowPosition({ x: e.clientX, y: e.clientY }));
   }, [screenToFlowPosition, addNode]);
+
+  // "Drag a connection line and drop it on empty canvas to create a
+  // node" — the recurring pattern JuanJo called out from n8n/Blueprint-
+  // style editors. onConnectEnd fires for every connect-drag regardless
+  // of outcome; connectionState.toNode is null exactly when the drop
+  // landed on empty canvas rather than an existing handle, which is
+  // also true whether the drag started from a source or a target handle
+  // (fromHandle.type tells us which, so the eventual edge points the
+  // right direction either way).
+  const onConnectEnd: OnConnectEnd = useCallback((event, connectionState: FinalConnectionState) => {
+    if (connectionState.toNode || !connectionState.fromNode || !connectionState.fromHandle?.type) return;
+    const point = "changedTouches" in event ? event.changedTouches[0] : event;
+    const rect = wrapperRef.current?.getBoundingClientRect();
+    setConnectDropMenu({
+      left: point.clientX - (rect?.left ?? 0),
+      top: point.clientY - (rect?.top ?? 0),
+      flowPosition: screenToFlowPosition({ x: point.clientX, y: point.clientY }),
+      sourceId: connectionState.fromNode.id,
+      handleType: connectionState.fromHandle.type,
+    });
+  }, [screenToFlowPosition]);
+
+  const handleConnectDropPick = (kindId: NodeKindId) => {
+    if (!connectDropMenu) return;
+    const newId = addNode(kindId, connectDropMenu.flowPosition);
+    const connection: Connection = connectDropMenu.handleType === "target"
+      ? { source: newId, target: connectDropMenu.sourceId, sourceHandle: null, targetHandle: null }
+      : { source: connectDropMenu.sourceId, target: newId, sourceHandle: null, targetHandle: null };
+    setEdges(eds => addEdge({ ...connection, animated: false, style: { stroke: EDGE_COLOR, strokeWidth: EDGE_WIDTH } }, eds));
+    setConnectDropMenu(null);
+  };
 
   // "+ Add Node" button's click path (as opposed to dragging the same
   // menu item onto a specific spot) — centers on the canvas wrapper's
@@ -404,6 +487,7 @@ function GraphCanvas() {
           <ReactFlow
             nodes={nodes} edges={edges}
             onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect}
+            onConnectEnd={onConnectEnd}
             onNodeClick={(_e, node) => setSelectedId(node.id)}
             onPaneClick={() => setSelectedId(null)}
             nodeTypes={AGENT_WORK_NODE_TYPES}
@@ -434,6 +518,14 @@ function GraphCanvas() {
               onChange={updateSelectedValues}
               onDelete={deleteSelected}
               onClose={() => setSelectedId(null)}
+            />
+          )}
+          {connectDropMenu && (
+            <ConnectDropMenu
+              left={connectDropMenu.left}
+              top={connectDropMenu.top}
+              onPick={handleConnectDropPick}
+              onClose={() => setConnectDropMenu(null)}
             />
           )}
         </div>
