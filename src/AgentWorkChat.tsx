@@ -432,12 +432,12 @@ export function AgentWorkChat({ onClose }: { onClose: () => void }) {
           )}
           {streamingText !== null && (
             <div style={{
-              alignSelf: "flex-start", maxWidth: "90%",
+              alignSelf: "flex-start", maxWidth: "90%", minWidth: 0,
               background: tintedSurface(CANVAS_ACCENT.agentWork.hue, 21, 0.045),
               border: `1px solid oklch(65% 0.12 ${CANVAS_ACCENT.agentWork.hue} / 0.3)`,
               boxShadow: `0 4px 18px rgba(0,0,0,0.35), 0 0 14px ${CANVAS_ACCENT.agentWork.glow}`,
               borderRadius: radius.lg, padding: `${spacing.sm}px ${spacing.md}px`,
-              fontSize: fontSize.sm, color: "rgba(246, 246, 246, 0.85)", whiteSpace: "pre-wrap",
+              fontSize: fontSize.sm, color: "rgba(246, 246, 246, 0.85)", whiteSpace: "pre-wrap", overflowWrap: "anywhere",
             }}>
               {streamingText}
               <span className="step-pulse" style={{ opacity: 0.7 }}>▍</span>
@@ -445,7 +445,7 @@ export function AgentWorkChat({ onClose }: { onClose: () => void }) {
           )}
           {reversedMessages.map((m, i) => (
             <div key={reversedMessages.length - i} style={{
-              display: "flex", flexDirection: "column", gap: 3,
+              display: "flex", flexDirection: "column", gap: 3, minWidth: 0,
               alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "90%",
             }}>
               <div style={{
@@ -459,7 +459,7 @@ export function AgentWorkChat({ onClose }: { onClose: () => void }) {
                 borderRadius: radius.lg, padding: `${spacing.sm}px ${spacing.md}px`,
                 fontSize: fontSize.sm,
                 color: m.role === "user" ? neutral.textPrimary : "rgba(246, 246, 246, 0.85)",
-                whiteSpace: "pre-wrap",
+                whiteSpace: "pre-wrap", overflowWrap: "anywhere",
               }}>
                 {m.text}
               </div>
