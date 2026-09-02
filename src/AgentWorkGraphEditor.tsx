@@ -1,12 +1,12 @@
 import { useCallback, useRef, useState } from "react";
 import {
-  ReactFlow, ReactFlowProvider, Background, BackgroundVariant, Controls, MiniMap,
-  addEdge, useNodesState, useEdgesState, useReactFlow,
+  ReactFlow, ReactFlowProvider, Background, BackgroundVariant, Controls, Panel,
+  addEdge, useNodesState, useEdgesState, useReactFlow, useViewport,
   type Node, type Edge, type Connection,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { XIcon, PlusIcon } from "@primer/octicons-react";
-import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, tintedGlow, tintedSurface } from "./tokens";
+import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, tintedGlow } from "./tokens";
 import { NODE_KIND_LIST, NODE_KINDS, type NodeKindId } from "./agentWorkNodeKinds";
 import { AGENT_WORK_NODE_TYPES, type AgentWorkNodeData } from "./AgentWorkGraphNode";
 import { convertGraphToBackend } from "./agentWorkGraphConvert";
@@ -161,6 +161,27 @@ function NodeInspector({ node, onChange, onDelete, onClose }: {
         </button>
       </div>
     </div>
+  );
+}
+
+// A live "100%"-style readout — React Flow's own zoom controls have no
+// number on them at all (2026-09-02, JuanJo: "there is no numbers on
+// the zoom buttons"). useViewport() re-renders this on every zoom/pan,
+// no manual event wiring needed. Anchored next to Controls (both
+// bottom-left) via Panel, React Flow's own corner-positioning helper,
+// rather than hand-computed absolute coordinates.
+function ZoomBadge() {
+  const { zoom } = useViewport();
+  return (
+    <Panel position="bottom-left" style={{ marginLeft: 52, marginBottom: 10 }}>
+      <div style={{
+        padding: `2px ${spacing.xs}px`, borderRadius: radius.xs, background: "rgba(0,0,0,0.5)",
+        border: "1px solid rgba(255,255,255,0.1)", color: neutral.textMuted,
+        fontSize: fontSize.xxs, fontFamily, pointerEvents: "none",
+      }}>
+        {Math.round(zoom * 100)}%
+      </div>
+    </Panel>
   );
 }
 
@@ -342,6 +363,14 @@ function GraphCanvas() {
             snapToGrid snapGrid={[GRID_SIZE, GRID_SIZE]}
             fitView
             colorMode="dark"
+            // zoom=1 is the standard 100%/actual-size convention (same
+            // as a plain CSS transform: scale(1)) — every zoomable
+            // canvas tool uses this. minZoom caps how far out the
+            // canvas can go (2026-09-02, JuanJo: "don't allow a big zoom
+            // out") — a small handful of nodes shouldn't be able to
+            // shrink to unreadable specks; maxZoom left at React Flow's
+            // own default (2, i.e. 200%).
+            minZoom={0.5}
             // MIT-licensed — nothing legally requires keeping React
             // Flow's own attribution badge, and NAVI isn't a commercial
             // product being sold (2026-09-02 check before hiding it).
@@ -349,7 +378,7 @@ function GraphCanvas() {
           >
             <Background variant={BackgroundVariant.Dots} color={GRID_DOT_COLOR} gap={GRID_SIZE} size={GRID_DOT_RADIUS} />
             <Controls showInteractive={false} />
-            <MiniMap pannable zoomable style={{ background: tintedSurface(CANVAS_ACCENT.agentWork.hue, 12, 0.03) }} />
+            <ZoomBadge />
           </ReactFlow>
         </div>
         {selectedNode && (

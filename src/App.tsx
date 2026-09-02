@@ -3330,9 +3330,16 @@ export default function App() {
               moved here after seeing the stacked version — it was
               crowding/overlapping the chat popup, not just sitting
               near it). Same right-shift-with-sidebar logic as the chat
-              button, mirrored to `top` instead of `bottom`. */}
+              button, mirrored to `top` instead of `bottom`.
+              Top offset accounts for the graph editor's own top bar
+              (added 2026-09-02, after this positioning was set) — 8px
+              below it, not overlapping (JuanJo: "the calendar is over
+              the top bar"). A fixed estimate of the bar's own height
+              (~56px in the common case, no save-error banner showing)
+              rather than measuring it live — the header's content is
+              static enough that this doesn't need a ResizeObserver. */}
           <div style={{
-            position: "absolute", top: spacing.xl, zIndex: 21,
+            position: "absolute", top: 56 + spacing.sm, zIndex: 21,
             right: isDesktopSidebar && rightPanelOpen
               ? `calc(var(--right-panel-width, 280px) + ${spacing.xl}px)`
               : spacing.xl,
