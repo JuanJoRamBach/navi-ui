@@ -93,6 +93,11 @@ export default defineConfig(({ mode }) => {
             { src: 'icon-512.png', sizes: '512x512', type: 'image/png' },
           ],
         },
+        // Default cap is 2 MiB — @xyflow/react (2026-09-02, the Agent
+        // Work visual graph editor) pushed the main bundle past it.
+        // Raised with headroom rather than tuned exactly to today's
+        // size, so the next dependency added doesn't hit this again.
+        injectManifest: { maximumFileSizeToCacheInBytes: 5 * 1024 * 1024 },
       }),
     ],
     resolve: {

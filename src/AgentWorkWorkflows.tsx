@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { PlayIcon, PlusIcon, CalendarIcon, CommentDiscussionIcon, TrashIcon, AlertIcon, ChevronDownIcon, ChevronRightIcon } from "@primer/octicons-react";
+import { PlayIcon, PlusIcon, CalendarIcon, CommentDiscussionIcon, TrashIcon, AlertIcon, ChevronDownIcon, ChevronRightIcon, GitBranchIcon } from "@primer/octicons-react";
 import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, tintedGlow } from "./tokens";
 import { WORKFLOW_CREATED_EVENT, deleteWorkflow, listRuns, listWorkflows, runWorkflowNow, type AgentRun, type WorkflowDefinition } from "./agentWork";
+import { AgentWorkGraphEditor } from "./AgentWorkGraphEditor";
 
 const accent = CANVAS_ACCENT.agentWork.color;
 
@@ -239,6 +240,7 @@ export function AgentWorkWorkflows({ onNewWorkflow }: { onNewWorkflow: (e: React
   const [confirmTarget, setConfirmTarget] = useState<{ id: string; name: string; scheduled: boolean } | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [showGraphEditor, setShowGraphEditor] = useState(false);
 
   const refresh = useCallback(() => {
     listWorkflows().then(setWorkflows).catch(() => setWorkflows([]));
@@ -299,18 +301,32 @@ export function AgentWorkWorkflows({ onNewWorkflow }: { onNewWorkflow: (e: React
       <span style={{ fontSize: fontSize.xxs, fontWeight: fontWeight.medium, color: neutral.textMuted, letterSpacing: "0.04em" }}>
         WORKFLOWS
       </span>
-      <button
-        onClick={onNewWorkflow}
-        title="New Workflow"
-        style={{
-          display: "flex", alignItems: "center", gap: 4,
-          padding: `2px ${spacing.xs}px`, borderRadius: radius.xs,
-          border: `1px solid ${accent}55`, background: tintedGlow(CANVAS_ACCENT.agentWork.hue, 0.1),
-          color: accent, cursor: "pointer", fontSize: fontSize.xxs, fontFamily,
-        }}
-      >
-        <PlusIcon size={10} /> New
-      </button>
+      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+        <button
+          onClick={() => setShowGraphEditor(true)}
+          title="Visual Builder"
+          style={{
+            display: "flex", alignItems: "center", gap: 4,
+            padding: `2px ${spacing.xs}px`, borderRadius: radius.xs,
+            border: "1px solid rgba(255,255,255,0.12)", background: "transparent",
+            color: neutral.textMuted, cursor: "pointer", fontSize: fontSize.xxs, fontFamily,
+          }}
+        >
+          <GitBranchIcon size={10} /> Visual
+        </button>
+        <button
+          onClick={onNewWorkflow}
+          title="New Workflow"
+          style={{
+            display: "flex", alignItems: "center", gap: 4,
+            padding: `2px ${spacing.xs}px`, borderRadius: radius.xs,
+            border: `1px solid ${accent}55`, background: tintedGlow(CANVAS_ACCENT.agentWork.hue, 0.1),
+            color: accent, cursor: "pointer", fontSize: fontSize.xxs, fontFamily,
+          }}
+        >
+          <PlusIcon size={10} /> New
+        </button>
+      </div>
     </div>
   );
 
@@ -321,6 +337,7 @@ export function AgentWorkWorkflows({ onNewWorkflow }: { onNewWorkflow: (e: React
         <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", color: neutral.textFaint, fontSize: fontSize.xs }}>
           Loading…
         </div>
+        {showGraphEditor && <AgentWorkGraphEditor onClose={() => setShowGraphEditor(false)} />}
       </div>
     );
   }
@@ -337,6 +354,7 @@ export function AgentWorkWorkflows({ onNewWorkflow }: { onNewWorkflow: (e: React
           <div style={{ fontSize: fontSize.xs, color: neutral.textMuted, fontWeight: fontWeight.medium }}>No workflows yet</div>
           <div style={{ fontSize: fontSize.xxs }}>Describe one in the chat, or create one with the button above.</div>
         </div>
+        {showGraphEditor && <AgentWorkGraphEditor onClose={() => setShowGraphEditor(false)} />}
       </div>
     );
   }
@@ -366,6 +384,7 @@ export function AgentWorkWorkflows({ onNewWorkflow }: { onNewWorkflow: (e: React
           onConfirm={confirmDelete}
         />
       )}
+      {showGraphEditor && <AgentWorkGraphEditor onClose={() => setShowGraphEditor(false)} />}
     </div>
   );
 }
