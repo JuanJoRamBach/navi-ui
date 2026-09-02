@@ -1,6 +1,6 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef, useState, type CSSProperties } from "react";
 import {
-  ReactFlow, ReactFlowProvider, Background, BackgroundVariant, Controls, MiniMap,
+  ReactFlow, ReactFlowProvider, Controls, MiniMap,
   addEdge, useNodesState, useEdgesState, useReactFlow,
   type Node, type Edge, type Connection,
 } from "@xyflow/react";
@@ -17,15 +17,25 @@ let nodeCounter = 0;
 // "horrible... too thick... a bad net effect") — the contrast math was
 // correct, but a full crossing grid of lines is a fundamentally
 // different visual weight than a field of dots, no ratio fixes that.
-// Switched to dots per explicit spec: 20px separation, 2px diameter
-// (React Flow's `size` is a RADIUS, so size=1 for a 2px dot). Opacity
-// started at 12%, bumped to 30% (2026-09-02, JuanJo) — a real,
-// deliberately-tuned-by-eye value, not derived from a contrast target
-// this time. Snap grid still matches the visible spacing exactly, same
-// reasoning as before (what you see is what nodes lock to).
+// Went dots (20px separation), then to a 4-pointed sparkle (✦) per
+// JuanJo's exact reference glyph — a small tip-length-5 / waist-1 star,
+// same proportions a 2px dot + 4px tails implied. React Flow's own
+// Background component only ships dots/lines/cross, no custom shapes,
+// so this is a hand-drawn SVG tile rendered as a CSS background-image
+// instead of that component. Snap grid still matches the tile spacing
+// exactly, same reasoning as before (what you see is what nodes lock to).
 const GRID_SIZE = 20;
-const GRID_DOT_RADIUS = 1;
-const GRID_LINE_COLOR = "rgba(189, 129, 48, 0.3)";
+const GRID_STAR_COLOR = "189, 129, 48"; // amber accent, as an rgb() triplet for reuse in both the SVG fill and rgba() opacity
+const GRID_OPACITY = 0.5;
+const GRID_STAR_SVG = encodeURIComponent(
+  `<svg xmlns="http://www.w3.org/2000/svg" width="${GRID_SIZE}" height="${GRID_SIZE}">` +
+  `<path d="M10,5 L11,9 L15,10 L11,11 L10,15 L9,11 L5,10 L9,9 Z" fill="rgb(${GRID_STAR_COLOR})" fill-opacity="${GRID_OPACITY}" />` +
+  `</svg>`,
+);
+const GRID_BACKGROUND_STYLE: CSSProperties = {
+  backgroundImage: `url("data:image/svg+xml,${GRID_STAR_SVG}")`,
+  backgroundSize: `${GRID_SIZE}px ${GRID_SIZE}px`,
+};
 
 // Left rail — drag a kind onto the canvas to create one. Not a click-to-
 // add list on purpose: dragging is what every real node-graph tool uses
@@ -223,7 +233,7 @@ function GraphCanvas({ onClose }: { onClose: () => void }) {
       </div>
       <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
         <NodePalette />
-        <div ref={wrapperRef} style={{ flex: 1, minWidth: 0 }} onDrop={onDrop} onDragOver={e => e.preventDefault()}>
+        <div ref={wrapperRef} style={{ flex: 1, minWidth: 0, ...GRID_BACKGROUND_STYLE }} onDrop={onDrop} onDragOver={e => e.preventDefault()}>
           <ReactFlow
             nodes={nodes} edges={edges}
             onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect}
@@ -233,8 +243,8 @@ function GraphCanvas({ onClose }: { onClose: () => void }) {
             snapToGrid snapGrid={[GRID_SIZE, GRID_SIZE]}
             fitView
             colorMode="dark"
+            style={{ background: "transparent" }}
           >
-            <Background variant={BackgroundVariant.Dots} color={GRID_LINE_COLOR} gap={GRID_SIZE} size={GRID_DOT_RADIUS} />
             <Controls showInteractive={false} />
             <MiniMap pannable zoomable style={{ background: tintedSurface(CANVAS_ACCENT.agentWork.hue, 12, 0.03) }} />
           </ReactFlow>
