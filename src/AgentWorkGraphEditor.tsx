@@ -34,42 +34,51 @@ const GRID_SIZE = 20;
 const GRID_DOT_RADIUS = 1;
 const GRID_DOT_COLOR = "rgba(189, 129, 48, 0.4)";
 
-// Left rail — drag a kind onto the canvas to create one. Not a click-to-
-// add list on purpose: dragging is what every real node-graph tool uses
-// (n8n, LangGraph Studio) for "place this specific thing at this
-// specific spot," and it's the same gesture the connect-nodes step uses
-// right after, so the whole canvas stays one consistent interaction
-// model instead of switching between click-to-add and drag-to-connect.
-function NodePalette() {
+// On-demand menu, not a persistent docked palette (2026-09-02 research
+// pass before this was built) — a permanently-visible left-side list is
+// what caused the earlier space-competition/layout bug in the first
+// place, and it's not actually how professional node editors solve
+// this: Blender's Shift+A, Unreal Blueprint's right-click, and n8n's own
+// "+" button are all on-demand, not docked. Opens below the "+ Add
+// Node" button in the top bar. Each item supports BOTH gestures per
+// JuanJo's spec: click creates the node centered in the current canvas
+// view, drag places it exactly where dropped — same drop target
+// (onDrop on the canvas wrapper) either way, this menu is just a second
+// way to start that drag, plus a click shortcut for when precise
+// placement doesn't matter yet.
+function AddNodeMenu({ onPick, onClose }: { onPick: (kind: NodeKindId) => void; onClose: () => void }) {
   return (
-    <div style={{
-      width: 168, flexShrink: 0, borderRight: "1px solid rgba(255,255,255,0.08)",
-      padding: spacing.sm, display: "flex", flexDirection: "column", gap: spacing.xs, overflowY: "auto",
-    }}>
-      <div style={{ fontSize: fontSize.xxs, fontWeight: fontWeight.medium, color: neutral.textMuted, letterSpacing: "0.04em", marginBottom: 2 }}>
-        DRAG A NODE
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 320 }} />
+      <div style={{
+        position: "absolute", top: "100%", left: 0, marginTop: 4, zIndex: 321,
+        width: 200, background: "#161616", border: "1px solid rgba(255,255,255,0.1)",
+        borderRadius: radius.sm, padding: spacing.xs, display: "flex", flexDirection: "column", gap: 3,
+        boxShadow: "0 12px 40px rgba(0,0,0,0.5)", maxHeight: 360, overflowY: "auto",
+      }}>
+        {NODE_KIND_LIST.map(kind => {
+          const Icon = kind.icon;
+          const color = `oklch(65% 0.14 ${kind.hue})`;
+          return (
+            <div
+              key={kind.id}
+              draggable
+              onDragStart={e => { e.dataTransfer.setData("application/agentwork-node-kind", kind.id); e.dataTransfer.effectAllowed = "move"; onClose(); }}
+              onClick={() => onPick(kind.id)}
+              title={kind.description}
+              style={{
+                display: "flex", alignItems: "center", gap: spacing.xs, padding: `${spacing.xs}px ${spacing.sm}px`,
+                borderRadius: radius.sm, border: `1px solid ${color}40`, background: tintedGlow(kind.hue, 0.08),
+                cursor: "grab", fontFamily,
+              }}
+            >
+              <span style={{ display: "flex", flexShrink: 0, color }}><Icon size={13} /></span>
+              <span style={{ fontSize: fontSize.xxs, color: neutral.textPrimary, lineHeight: 1.3 }}>{kind.label}</span>
+            </div>
+          );
+        })}
       </div>
-      {NODE_KIND_LIST.map(kind => {
-        const Icon = kind.icon;
-        const color = `oklch(65% 0.14 ${kind.hue})`;
-        return (
-          <div
-            key={kind.id}
-            draggable
-            onDragStart={e => { e.dataTransfer.setData("application/agentwork-node-kind", kind.id); e.dataTransfer.effectAllowed = "move"; }}
-            title={kind.description}
-            style={{
-              display: "flex", alignItems: "center", gap: spacing.xs, padding: `${spacing.xs}px ${spacing.sm}px`,
-              borderRadius: radius.sm, border: `1px solid ${color}40`, background: tintedGlow(kind.hue, 0.08),
-              cursor: "grab", fontFamily,
-            }}
-          >
-            <span style={{ display: "flex", flexShrink: 0, color }}><Icon size={13} /></span>
-            <span style={{ fontSize: fontSize.xxs, color: neutral.textPrimary, lineHeight: 1.3 }}>{kind.label}</span>
-          </div>
-        );
-      })}
-    </div>
+    </>
   );
 }
 
@@ -163,6 +172,7 @@ function GraphCanvas() {
   const [saving, setSaving] = useState(false);
   const [saveErrors, setSaveErrors] = useState<string[]>([]);
   const [savedName, setSavedName] = useState<string | null>(null);
+  const [showAddNodeMenu, setShowAddNodeMenu] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition } = useReactFlow();
 
@@ -170,18 +180,34 @@ function GraphCanvas() {
     setEdges(eds => addEdge({ ...connection, animated: false, style: { stroke: `${accent}99` } }, eds));
   }, [setEdges]);
 
-  const onDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    const kindId = e.dataTransfer.getData("application/agentwork-node-kind") as NodeKindId;
-    if (!kindId || !NODE_KINDS[kindId]) return;
-    const position = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+  const addNode = useCallback((kindId: NodeKindId, position: { x: number; y: number }) => {
     nodeCounter += 1;
     const id = `node-${nodeCounter}`;
     setNodes(nds => [...nds, {
       id, type: "agentWorkNode", position,
       data: { kindId, values: {} } satisfies AgentWorkNodeData,
     }]);
-  }, [screenToFlowPosition, setNodes]);
+  }, [setNodes]);
+
+  const onDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    const kindId = e.dataTransfer.getData("application/agentwork-node-kind") as NodeKindId;
+    if (!kindId || !NODE_KINDS[kindId]) return;
+    addNode(kindId, screenToFlowPosition({ x: e.clientX, y: e.clientY }));
+  }, [screenToFlowPosition, addNode]);
+
+  // "+ Add Node" button's click path (as opposed to dragging the same
+  // menu item onto a specific spot) — centers on the canvas wrapper's
+  // own visible area, not the whole window, so the palette/inspector
+  // panels being open doesn't throw the "center" off to one side.
+  const addNodeAtViewCenter = (kindId: NodeKindId) => {
+    const rect = wrapperRef.current?.getBoundingClientRect();
+    const center = rect
+      ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
+      : { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+    addNode(kindId, screenToFlowPosition(center));
+    setShowAddNodeMenu(false);
+  };
 
   const selectedNode = nodes.find(n => n.id === selectedId) ?? null;
 
@@ -257,6 +283,21 @@ function GraphCanvas() {
             />
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, flexShrink: 0 }}>
+            <div style={{ position: "relative" }}>
+              <button
+                onClick={() => setShowAddNodeMenu(v => !v)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 4, padding: `${spacing.xxs}px ${spacing.sm}px`,
+                  borderRadius: radius.xs, border: "1px solid rgba(255,255,255,0.15)", background: "transparent",
+                  color: neutral.textMuted, cursor: "pointer", fontSize: fontSize.xs, fontWeight: fontWeight.medium, fontFamily,
+                }}
+              >
+                <PlusIcon size={11} /> Add Node
+              </button>
+              {showAddNodeMenu && (
+                <AddNodeMenu onPick={addNodeAtViewCenter} onClose={() => setShowAddNodeMenu(false)} />
+              )}
+            </div>
             <button
               onClick={handleSave}
               disabled={saving}
@@ -291,7 +332,6 @@ function GraphCanvas() {
         )}
       </div>
       <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
-        <NodePalette />
         <div ref={wrapperRef} style={{ flex: 1, minWidth: 0 }} onDrop={onDrop} onDragOver={e => e.preventDefault()}>
           <ReactFlow
             nodes={nodes} edges={edges}
