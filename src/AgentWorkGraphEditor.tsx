@@ -17,15 +17,23 @@ let nodeCounter = 0;
 // 8px unit virtually every design tool's layout grid is built on
 // (Figma included). Snap grid and the visible background grid MUST
 // share this exact number, or what you see and what nodes actually
-// lock to would silently disagree (2026-09-02 research pass). Line
-// weight and color both deliberately soft — WCAG's non-text contrast
-// minimum (1.4.11, normally 3:1) explicitly exempts purely decorative
-// graphics, and a snap grid doesn't need to be legible to work, just
-// present — so there's no accessibility floor pushing this brighter,
-// only readability/fatigue pushing it softer. Same low-alpha white
-// overlay every other "restrained surface" in this app already uses
-// (sidebar-tokens.ts's own rule), not a new value invented for this.
+// lock to would silently disagree (2026-09-02 research pass).
 const GRID_SIZE = 16;
+
+// Grid lines tinted with the canvas's own amber accent, calibrated to a
+// REAL 3:1 contrast ratio against the editor background (rgb(6,7,10)) —
+// computed via the actual WCAG relative-luminance formula, not eyeballed
+// (2026-09-02, JuanJo: "use the amber color... 3:1, maybe 4-5:1 if the
+// research says that's better"). 3:1 kept as the target, not pushed
+// higher: it's WCAG 1.4.11's own calibrated minimum for a meaningful
+// non-text graphic, not a floor to clear — 4.5:1 is WCAG's NORMAL-TEXT
+// legibility minimum, and pushing a passive background grid that far
+// would make it compete visually the way body text does, undermining
+// the original "not cognitively fatiguing" goal this grid was built
+// for. The amber accent (oklch(65% 0.12 70) -> rgb(189,129,48)) sits at
+// 6.09:1 against this background at full opacity; ~63% opacity brings
+// it down to exactly 3:1.
+const GRID_LINE_COLOR = "rgba(189, 129, 48, 0.63)";
 
 // Left rail — drag a kind onto the canvas to create one. Not a click-to-
 // add list on purpose: dragging is what every real node-graph tool uses
@@ -234,7 +242,7 @@ function GraphCanvas({ onClose }: { onClose: () => void }) {
             fitView
             colorMode="dark"
           >
-            <Background variant={BackgroundVariant.Lines} color="rgba(255,255,255,0.05)" gap={GRID_SIZE} lineWidth={1} />
+            <Background variant={BackgroundVariant.Lines} color={GRID_LINE_COLOR} gap={GRID_SIZE} lineWidth={1} />
             <Controls showInteractive={false} />
             <MiniMap pannable zoomable style={{ background: tintedSurface(CANVAS_ACCENT.agentWork.hue, 12, 0.03) }} />
           </ReactFlow>
