@@ -102,7 +102,7 @@ body {
    itself should read once it IS in desktop mode. */
 @media (min-width: 1024px) {
   .chat-column {
-    max-width: 1000px;
+    max-width: 850px; /* narrower, more elegant reading width (2026-09-03, JuanJo, sized off Google's own chat width) — was 1000px */
     margin: 0 auto;
     padding-left: 24px;
     padding-right: 24px;

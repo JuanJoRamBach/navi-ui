@@ -3327,7 +3327,7 @@ export default function App() {
               thing"). New Workflow (the manual step-list form) stays
               reachable from the left rail for anyone who prefers that
               flat form over the visual graph. */}
-          <AgentWorkGraphEditor />
+          <AgentWorkGraphEditor rightSidebarOpen={isDesktopSidebar && rightPanelOpen} />
 
           {/* Chat popup — bottom-right, collapsed by default. Shifts left
               with the right sidebar so it never sits underneath it

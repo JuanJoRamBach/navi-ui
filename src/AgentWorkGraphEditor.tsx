@@ -6,7 +6,7 @@ import {
   type Node, type Edge, type Connection, type OnConnectEnd, type FinalConnectionState, type EdgeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { XIcon, PlusIcon, SquareIcon } from "@primer/octicons-react";
+import { XIcon, PlusIcon, SquareIcon, PencilIcon } from "@primer/octicons-react";
 import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, tintedGlow } from "./tokens";
 import { NODE_KIND_LIST, NODE_KINDS, type NodeKindId } from "./agentWorkNodeKinds";
 import { AGENT_WORK_NODE_TYPES, type AgentWorkNodeData, type AgentWorkGroupData } from "./AgentWorkGraphNode";
@@ -410,12 +410,18 @@ function ZoomBadge() {
   );
 }
 
-function GraphCanvas() {
+function GraphCanvas({ rightSidebarOpen }: { rightSidebarOpen: boolean }) {
   const [nodes, setNodes, onNodesChange] = useNodesState<AgentWorkAnyNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [workflowName, setWorkflowName] = useState("");
+  // A set name reads as a plain title + an edit button, not a
+  // perpetually-editable input (2026-09-03, JuanJo). Forced true
+  // whenever the name is actually empty — there's no title to show yet,
+  // so it always starts (and stays, until something's typed) as the
+  // input regardless of this flag.
+  const [editingName, setEditingName] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveErrors, setSaveErrors] = useState<string[]>([]);
   const [savedName, setSavedName] = useState<string | null>(null);
@@ -619,7 +625,7 @@ function GraphCanvas() {
       // canvas landing page entirely). Reset to a blank canvas so
       // building the next workflow starts clean, with a brief
       // confirmation instead of silently vanishing.
-      setNodes([]); setEdges([]); setSelectedId(null); setWorkflowName("");
+      setNodes([]); setEdges([]); setSelectedId(null); setWorkflowName(""); setEditingName(true);
       setSavedName(saved);
       setTimeout(() => setSavedName(null), 4000);
     } catch {
@@ -635,22 +641,63 @@ function GraphCanvas() {
         display: "flex", flexDirection: "column", gap: spacing.xs,
         padding: `${spacing.sm}px ${spacing.md}px`, borderBottom: "1px solid rgba(255,255,255,0.08)", flexShrink: 0,
       }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.sm }}>
-          <div style={{ display: "flex", alignItems: "center", gap: spacing.sm, minWidth: 0, flex: 1 }}>
-            <span style={{ fontSize: fontSize.sm, fontWeight: fontWeight.medium, color: neutral.textPrimary, flexShrink: 0 }}>
-              Visual Workflow Builder
-            </span>
-            <input
-              value={workflowName} onChange={e => setWorkflowName(e.target.value)}
-              placeholder="Name this workflow…"
-              style={{
-                flex: 1, minWidth: 0, maxWidth: 260, background: "rgba(255,255,255,0.04)",
-                border: "1px solid rgba(255,255,255,0.12)", borderRadius: radius.xs,
-                color: neutral.textPrimary, fontSize: fontSize.xs, fontFamily,
-                padding: `${spacing.xxs}px ${spacing.xs}px`, boxSizing: "border-box",
-              }}
-            />
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.sm,
+          position: "relative",
+          // Compensates for the app's own sidebars, which overlay ON TOP
+          // of this canvas rather than shrinking it — without this, the
+          // absolutely-centered name below drifts off-true the moment
+          // either sidebar is open. Left reads the reactive
+          // --left-panel-width var directly (already 0px when closed);
+          // right has no such unified var, so App.tsx passes its
+          // open/closed state down as rightSidebarOpen instead.
+          paddingLeft: "var(--left-panel-width, 0px)",
+          paddingRight: rightSidebarOpen ? "var(--right-panel-width, 280px)" : 0,
+          transition: "padding 0.2s ease",
+        }}>
+          <span style={{ fontSize: fontSize.sm, fontWeight: fontWeight.medium, color: neutral.textPrimary, flexShrink: 0 }}>
+            Workflow Canvas
+          </span>
+
+          {/* Absolutely centered on the row's own (padded) width, not
+              the full canvas — see the padding comment above. A set
+              name reads as a plain title + a small edit button, not a
+              perpetually-open input (2026-09-03, JuanJo). */}
+          <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", display: "flex", alignItems: "center", gap: spacing.xs }}>
+            {editingName || !workflowName.trim() ? (
+              <input
+                value={workflowName} onChange={e => setWorkflowName(e.target.value)}
+                onBlur={() => { if (workflowName.trim()) setEditingName(false); }}
+                onKeyDown={e => { if (e.key === "Enter" && workflowName.trim()) (e.currentTarget as HTMLInputElement).blur(); }}
+                placeholder="Name this workflow…"
+                autoFocus={!!workflowName.trim()}
+                style={{
+                  width: 220, background: "rgba(255,255,255,0.04)",
+                  border: "1px solid rgba(255,255,255,0.12)", borderRadius: radius.xs,
+                  color: neutral.textPrimary, fontSize: fontSize.xs, fontFamily, textAlign: "center",
+                  padding: `${spacing.xxs}px ${spacing.xs}px`, boxSizing: "border-box",
+                }}
+              />
+            ) : (
+              <>
+                <span style={{ fontSize: fontSize.xs, fontWeight: fontWeight.medium, color: neutral.textPrimary, whiteSpace: "nowrap" }}>
+                  {workflowName}
+                </span>
+                <button
+                  onClick={() => setEditingName(true)}
+                  aria-label="Rename workflow" title="Rename workflow"
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "center", width: 20, height: 20,
+                    borderRadius: "50%", border: "1px solid rgba(255,255,255,0.15)", background: "transparent",
+                    color: neutral.textFaint, cursor: "pointer", padding: 0, flexShrink: 0,
+                  }}
+                >
+                  <PencilIcon size={10} />
+                </button>
+              </>
+            )}
           </div>
+
           <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, flexShrink: 0 }}>
             <div style={{ position: "relative" }}>
               <button
@@ -798,11 +845,23 @@ function GraphCanvas() {
 // overlay entirely, in favor of the graph editor just BEING Agent
 // Work's default canvas content, sidesteps that class of bug rather
 // than working around it with a portal).
-export function AgentWorkGraphEditor() {
+// rightSidebarOpen (2026-09-03, JuanJo: "the elements inside [the top
+// bar] should move if the Side bars are open") — the graph editor fills
+// the canvas full-bleed (see the comment above), and the app's right
+// sidebar overlays ON TOP of it rather than shrinking it, same as the
+// floating chat/calendar buttons already had to compensate for. The top
+// bar didn't, which is exactly why centering the workflow name (below)
+// would otherwise drift off-true whenever the sidebar covers part of
+// the visible canvas. The left sidebar needs no prop for this — its
+// width already lives in the reactive --left-panel-width CSS variable
+// (0px when closed), which GraphCanvas's header reads directly; the
+// right sidebar has no such unified variable, so App.tsx passes its
+// open/closed state down explicitly instead.
+export function AgentWorkGraphEditor({ rightSidebarOpen = false }: { rightSidebarOpen?: boolean }) {
   return (
     <div style={{ height: "100%", background: "rgba(6,7,10,0.97)", display: "flex", flexDirection: "column" }}>
       <ReactFlowProvider>
-        <GraphCanvas />
+        <GraphCanvas rightSidebarOpen={rightSidebarOpen} />
       </ReactFlowProvider>
     </div>
   );
