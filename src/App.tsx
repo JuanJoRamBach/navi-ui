@@ -67,6 +67,7 @@ import { AgentWorkChat } from "./AgentWorkChat";
 import { AgentWorkWorkflows } from "./AgentWorkWorkflows";
 import { ConnectionsOverlay } from "./ConnectionsOverlay";
 import { AgentVault } from "./AgentVault";
+import { AgentChat, type PendingAgentInput } from "./AgentChat";
 import { AgentWorkRunHistory } from "./AgentWorkRunHistory";
 import { AgentWorkCalendar } from "./AgentWorkCalendar";
 import { fetchModelCatalog, setPinnedModel, type ModelCatalog } from "./devslate";
@@ -944,6 +945,19 @@ export default function App() {
   // seeding effect, then cleared here so it never re-seeds a graph the
   // user's already started editing or re-fires on a later visit.
   const [agentSeed, setAgentSeed] = useState<AgentWorkSeed | null>(null);
+  // "Agent Chat" — the needs-your-input surface (2026-09-03). Real UI
+  // mechanism (conditional rail button, badge count, the chat itself
+  // below), deliberately fed by an always-empty local array rather than
+  // a new backend endpoint — there's genuinely nothing to fetch yet.
+  // Agents can only run today via a forked Agent Work workflow; there's
+  // no standalone "run this saved agent" path that could ever produce a
+  // pending decision. Building a real /agents/pending-input backend
+  // table with nothing calling it would be exactly the kind of
+  // speculative infrastructure this codebase deliberately avoids — this
+  // starts working the moment standalone agent execution exists, no
+  // rewiring needed, just a real fetch replacing this array.
+  const [pendingAgentInputs, setPendingAgentInputs] = useState<PendingAgentInput[]>([]);
+  const [showAgentChat, setShowAgentChat] = useState(false);
   // Dev Slate's right sidebar (Task State / Change History, built below)
   // reads straight off the same shared store its own panes already use
   // — real data, not placeholder content, so no separate fetch/state
@@ -1085,22 +1099,40 @@ export default function App() {
       "--left-panel-width", isDesktopSidebar && leftPanelOpen ? "var(--sidebar-width)" : "0px"
     );
   }, [isDesktopSidebar, leftPanelOpen]);
-  // Reversal of the 2026-08-30 call above ("sidebars never auto-hide
-  // themselves") — JuanJo, 2026-09-01: switching canvases now closes
-  // both. Scoped to the canvas-switch action specifically, not a
-  // standing "always closed" rule — the user can still reopen either
-  // one by hand and it stays open until the next switch. Skips its
-  // first run (the mount itself isn't a "switch") so the app doesn't
-  // start with both forced closed regardless of leftPanelOpen's own
-  // default-true.
+  // Refined 2026-09-03 (JuanJo) — the blanket "close both on every
+  // switch" rule above got walked back to something less destructive:
+  // Dev Slate still force-closes both (it genuinely needs the full
+  // canvas), but Chat and Agent Work now each remember their OWN
+  // open/closed state independently and restore it on return, instead
+  // of always resetting to closed. Plain refs, not state — this is
+  // write-on-the-way-out, read-on-the-way-in bookkeeping that should
+  // never itself trigger a re-render. Skips its first run (the mount
+  // itself isn't a "switch") for the same reason the original did.
   const skipFirstCanvasEffectRef = useRef(true);
+  const prevCanvasRef = useRef<CanvasKey>(activeCanvas);
+  const leftPanelMemoryRef = useRef<Partial<Record<CanvasKey, boolean>>>({});
+  const rightPanelMemoryRef = useRef<Partial<Record<CanvasKey, boolean>>>({});
   useEffect(() => {
     if (skipFirstCanvasEffectRef.current) {
       skipFirstCanvasEffectRef.current = false;
+      prevCanvasRef.current = activeCanvas;
       return;
     }
-    setLeftPanelOpen(false);
-    setRightPanelOpen(false);
+    // Remember the canvas being LEFT exactly as it was, before touching
+    // anything — leftPanelOpen/rightPanelOpen here are still last
+    // render's values (nothing else changes them between the click that
+    // switched canvases and this effect running).
+    leftPanelMemoryRef.current[prevCanvasRef.current] = leftPanelOpen;
+    rightPanelMemoryRef.current[prevCanvasRef.current] = rightPanelOpen;
+
+    if (activeCanvas === "devSlate") {
+      setLeftPanelOpen(false);
+      setRightPanelOpen(false);
+    } else {
+      setLeftPanelOpen(leftPanelMemoryRef.current[activeCanvas] ?? true);
+      setRightPanelOpen(rightPanelMemoryRef.current[activeCanvas] ?? false);
+    }
+    prevCanvasRef.current = activeCanvas;
   }, [activeCanvas]);
   // Local file placement (Windows-Explorer-style drag/place, not the
   // deferred cross-user transfer — see the file-transfer memory).
@@ -2304,6 +2336,74 @@ export default function App() {
                 <span className="sidebar-menu-btn-label">{label}</span>
               </button>
             ))}
+            {/* Agent Chat — the "needs your input" surface (2026-09-03
+                design pass), only ever rendered at all when there's
+                something actually pending, same "don't show a usually-
+                empty control" rule the rest of this rail follows.
+                Currently always hidden: nothing populates
+                pendingAgentInputs yet because agents can only run today
+                via a forked Agent Work workflow (see AgentWorkGraphEditor's
+                seed effect) — standalone agent execution (the piece that
+                would actually finish a run and need to ask "chat, pdf, or
+                markdown?") isn't built. Wired for real against a real
+                endpoint so it starts working the moment that exists,
+                not a placeholder that needs rewiring later. */}
+            {pendingAgentInputs.length > 0 && (
+              <button
+                className="sidebar-menu-btn"
+                title={`Agent Chat — ${pendingAgentInputs.length} waiting on you`}
+                onClick={() => setShowAgentChat(true)}
+                style={{
+                  display: "flex", alignItems: "center", gap: spacing.sm,
+                  height: OUTER_RAIL_ROW_HEIGHT, boxSizing: "border-box",
+                  padding: `0 ${spacing.sm}px`,
+                  borderRadius: radius.sm, border: `1px solid ${CANVAS_ACCENT.agentWork.color}55`,
+                  background: tintedGlow(CANVAS_ACCENT.agentWork.hue, 0.12),
+                  color: CANVAS_ACCENT.agentWork.color, cursor: "pointer", textAlign: "left",
+                  fontSize: fontSize.xs, fontFamily, fontWeight: fontWeight.medium,
+                }}
+              >
+                <CommentDiscussionIcon size={iconSize.sm} />
+                <span className="sidebar-menu-btn-label" style={{ flex: 1 }}>Agent Chat</span>
+                <span style={{
+                  fontSize: fontSize.xxs, minWidth: 16, height: 16, borderRadius: 8,
+                  background: CANVAS_ACCENT.agentWork.color, color: "#0a0a0a",
+                  display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                }}>
+                  {pendingAgentInputs.length}
+                </span>
+              </button>
+            )}
+            {/* Agents — a persistent shortcut into the Agent Vault tab,
+                unlike Activity/Library it never depends on the left
+                sidebar's own open/closed memory (2026-09-03, JuanJo:
+                after finding the sidebar auto-closes on canvas switches
+                — now per-canvas-remembered instead, see above, but this
+                button still guarantees Agent Vault specifically is
+                always exactly one click away regardless of that state,
+                same tier as Profile). Opens the sidebar if it's closed;
+                if it's already open, just switches tab. */}
+            <button
+              className="sidebar-menu-btn"
+              title="Agents"
+              onClick={() => {
+                setLeftPanelTab("agents");
+                setLeftPanelOpen(true);
+                if (!isDesktopSidebar) setSidebarOpen(true);
+              }}
+              style={{
+                display: "flex", alignItems: "center", gap: spacing.sm,
+                height: OUTER_RAIL_ROW_HEIGHT, boxSizing: "border-box",
+                padding: `0 ${spacing.sm}px`,
+                borderRadius: radius.sm, border: "none",
+                background: leftPanelOpen && leftPanelTab === "agents" ? "rgba(255,255,255,0.06)" : "transparent",
+                color: neutral.textPrimary, cursor: "pointer", textAlign: "left",
+                fontSize: fontSize.xs, fontFamily, fontWeight: fontWeight.medium,
+              }}
+            >
+              <PersonIcon size={iconSize.sm} />
+              <span className="sidebar-menu-btn-label">Agents</span>
+            </button>
             <button
               className="sidebar-menu-btn"
               title="Profile"
@@ -4374,6 +4474,16 @@ export default function App() {
                 <LinkIcon size={iconSize.sm} />
                 Connections
               </button>
+              <button
+                onClick={() => {
+                  setMobileAccountMenuOpen(false);
+                  setLeftPanelTab("agents"); setSidebarOpen(true);
+                }}
+                style={mobileSheetRowStyle}
+              >
+                <PersonIcon size={iconSize.sm} />
+                Agents
+              </button>
             </div>
           )}
 
@@ -4422,6 +4532,19 @@ export default function App() {
         </>
       )}
       {showConnectionsOverlay && <ConnectionsOverlay onClose={() => setShowConnectionsOverlay(false)} />}
+      {showAgentChat && pendingAgentInputs.length > 0 && (
+        <AgentChat
+          pending={pendingAgentInputs}
+          onAnswer={(id, _answer) => {
+            // Answer handling (actually formatting/delivering the
+            // completed run's output per the pick) plugs in here once
+            // standalone agent execution exists — for now this only
+            // removes the item locally, since nothing real produced it.
+            setPendingAgentInputs(items => items.filter(i => i.id !== id));
+          }}
+          onClose={() => setShowAgentChat(false)}
+        />
+      )}
     </div>
   );
 }
