@@ -6,15 +6,44 @@ import {
   type Node, type Edge, type Connection, type OnConnectEnd, type FinalConnectionState, type EdgeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { XIcon, PlusIcon } from "@primer/octicons-react";
+import { XIcon, PlusIcon, SquareIcon } from "@primer/octicons-react";
 import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, tintedGlow } from "./tokens";
 import { NODE_KIND_LIST, NODE_KINDS, type NodeKindId } from "./agentWorkNodeKinds";
-import { AGENT_WORK_NODE_TYPES, type AgentWorkNodeData } from "./AgentWorkGraphNode";
+import { AGENT_WORK_NODE_TYPES, type AgentWorkNodeData, type AgentWorkGroupData } from "./AgentWorkGraphNode";
 import { convertGraphToBackend } from "./agentWorkGraphConvert";
 import { createWorkflow, WORKFLOW_CREATED_EVENT } from "./agentWork";
 
 const accent = CANVAS_ACCENT.agentWork.color;
 let nodeCounter = 0;
+let groupCounter = 0;
+
+// Sub-flows (2026-09-03, JuanJo: "we must implement the sub-flows from
+// reactflow", reactflow.dev/learn/layouting/sub-flows) — a resizable
+// "group" node other nodes can be dragged into, built on React Flow's
+// own parentId/extent mechanism. Purely visual/organizational for now:
+// convertGraphToBackend never sees group nodes (filtered at the
+// handleSave call site below), and nothing here changes HOW a workflow
+// executes. Wiring an actual "run this group once per row of a list"
+// fan-out into the dispatcher is a separate, larger, later feature —
+// see IDEAS.md.
+type AgentWorkAnyNode = Node<AgentWorkNodeData> | Node<AgentWorkGroupData>;
+
+function isExecNode(n: AgentWorkAnyNode): n is Node<AgentWorkNodeData> {
+  return n.type !== "group";
+}
+
+// React Flow's own hard requirement: "parent nodes appear before their
+// children in the nodes array" or child positioning breaks. Groups can
+// be created after nodes that later get dragged into them, so creation
+// order alone can't guarantee this — re-sort after every membership
+// change instead. Single-level nesting only (no group-in-group), so
+// "all groups first, then everything else, relative order otherwise
+// preserved" is sufficient — no real topological sort needed.
+function reorderGroupsFirst(nds: AgentWorkAnyNode[]): AgentWorkAnyNode[] {
+  const groups = nds.filter(n => n.type === "group");
+  const rest = nds.filter(n => n.type !== "group");
+  return [...groups, ...rest];
+}
 
 // Went lines-at-3:1 (2026-09-02: "horrible... a bad net effect" — the
 // contrast math was fine, a full crossing grid is just a different
@@ -318,7 +347,7 @@ function ZoomBadge() {
 }
 
 function GraphCanvas() {
-  const [nodes, setNodes, onNodesChange] = useNodesState<Node<AgentWorkNodeData>>([]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<AgentWorkAnyNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [workflowName, setWorkflowName] = useState("");
@@ -330,7 +359,7 @@ function GraphCanvas() {
     left: number; top: number; flowPosition: { x: number; y: number }; sourceId: string; handleType: "source" | "target";
   } | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, getIntersectingNodes } = useReactFlow();
 
   const onConnect = useCallback((connection: Connection) => {
     setEdges(eds => addEdge({ ...connection, animated: false, style: { stroke: EDGE_COLOR, strokeWidth: EDGE_WIDTH } }, eds));
@@ -345,6 +374,64 @@ function GraphCanvas() {
     }]);
     return id;
   }, [setNodes]);
+
+  const handleDeleteGroup = useCallback((groupId: string) => {
+    // Ungroups rather than cascading — deleting the container shouldn't
+    // silently delete everything inside it. Children go back to absolute
+    // positions (group.position + their own relative position) so they
+    // don't jump on screen once the parent reference is gone.
+    setNodes(nds => {
+      const group = nds.find(n => n.id === groupId);
+      return nds
+        .filter(n => n.id !== groupId)
+        .map(n => n.parentId === groupId
+          ? { ...n, parentId: undefined, extent: undefined, position: { x: n.position.x + (group?.position.x ?? 0), y: n.position.y + (group?.position.y ?? 0) } }
+          : n
+        );
+    });
+  }, [setNodes]);
+
+  const addGroup = useCallback((position: { x: number; y: number }) => {
+    groupCounter += 1;
+    const id = `group-${groupCounter}`;
+    setNodes(nds => reorderGroupsFirst([...nds, {
+      id, type: "group", position, style: { width: 320, height: 220 },
+      data: { label: "Group", onDelete: () => handleDeleteGroup(id) } satisfies AgentWorkGroupData,
+    }]));
+  }, [setNodes, handleDeleteGroup]);
+
+  // Reassigns a dragged node's parentId based on whether it was dropped
+  // inside a group's bounds — the actual "drag into/out of a sub-flow"
+  // interaction (reactflow.dev/learn/layouting/sub-flows' own pattern:
+  // getIntersectingNodes finds overlap, parentId + a recomputed relative
+  // position does the reparenting). Only one level of nesting is
+  // supported (groups can't contain groups), so a group's own position
+  // is always absolute — that's what keeps this math simple.
+  const onNodeDragStop = useCallback((_e: MouseEvent | TouchEvent, dragged: AgentWorkAnyNode) => {
+    if (dragged.type === "group") return;
+    const overlappingGroup = getIntersectingNodes(dragged).find(n => n.type === "group");
+    const currentParentId = dragged.parentId;
+
+    if (overlappingGroup && overlappingGroup.id !== currentParentId) {
+      setNodes(nds => {
+        const oldParent = currentParentId ? nds.find(n => n.id === currentParentId) : undefined;
+        const absX = dragged.position.x + (oldParent?.position.x ?? 0);
+        const absY = dragged.position.y + (oldParent?.position.y ?? 0);
+        return reorderGroupsFirst(nds.map(n => n.id === dragged.id
+          ? { ...n, parentId: overlappingGroup.id, extent: "parent" as const, position: { x: absX - overlappingGroup.position.x, y: absY - overlappingGroup.position.y } }
+          : n
+        ));
+      });
+    } else if (!overlappingGroup && currentParentId) {
+      setNodes(nds => {
+        const oldParent = nds.find(n => n.id === currentParentId);
+        return reorderGroupsFirst(nds.map(n => n.id === dragged.id
+          ? { ...n, parentId: undefined, extent: undefined, position: { x: n.position.x + (oldParent?.position.x ?? 0), y: n.position.y + (oldParent?.position.y ?? 0) } }
+          : n
+        ));
+      });
+    }
+  }, [getIntersectingNodes, setNodes]);
 
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -397,11 +484,26 @@ function GraphCanvas() {
     setShowAddNodeMenu(false);
   };
 
-  const selectedNode = nodes.find(n => n.id === selectedId) ?? null;
+  const addGroupAtViewCenter = () => {
+    const rect = wrapperRef.current?.getBoundingClientRect();
+    const center = rect
+      ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
+      : { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+    const flowCenter = screenToFlowPosition(center);
+    // addNode centers a small node on the click point; a group is much
+    // bigger, so center the whole 320x220 box on that same point instead
+    // of anchoring its top-left corner there.
+    addGroup({ x: flowCenter.x - 160, y: flowCenter.y - 110 });
+  };
+
+  const selectedNode = nodes.find((n): n is Node<AgentWorkNodeData> => n.id === selectedId && isExecNode(n));
 
   const updateSelectedValues = (values: Record<string, string>) => {
     if (!selectedId) return;
-    setNodes(nds => nds.map(n => n.id === selectedId ? { ...n, data: { ...n.data, values } } : n));
+    // selectedId is only ever set for exec nodes (groups never open the
+    // inspector, see onNodeClick), so isExecNode here is a real
+    // narrowing, not just a defensive check.
+    setNodes(nds => nds.map(n => n.id === selectedId && isExecNode(n) ? { ...n, data: { ...n.data, values } } : n));
   };
 
   const deleteSelected = () => {
@@ -423,7 +525,9 @@ function GraphCanvas() {
       setSaveErrors(["Name this workflow before saving."]);
       return;
     }
-    const { graph, errors } = convertGraphToBackend(nodes, edges);
+    // Groups are canvas-only organization, never sent to the backend —
+    // convertGraphToBackend only knows about real execution nodes.
+    const { graph, errors } = convertGraphToBackend(nodes.filter(isExecNode), edges);
     if (errors.length > 0 || !graph) {
       setSaveErrors(errors);
       return;
@@ -487,6 +591,17 @@ function GraphCanvas() {
               )}
             </div>
             <button
+              onClick={addGroupAtViewCenter}
+              title="Group nodes together for visual organization — drag nodes into it"
+              style={{
+                display: "flex", alignItems: "center", gap: 4, padding: `${spacing.xxs}px ${spacing.sm}px`,
+                borderRadius: radius.xs, border: "1px solid rgba(255,255,255,0.15)", background: "transparent",
+                color: neutral.textMuted, cursor: "pointer", fontSize: fontSize.xs, fontWeight: fontWeight.medium, fontFamily,
+              }}
+            >
+              <SquareIcon size={11} /> Group
+            </button>
+            <button
               onClick={handleSave}
               disabled={saving}
               style={{
@@ -535,7 +650,14 @@ function GraphCanvas() {
             // React Flow's own callbacks, dispatched regardless of that
             // internal stopPropagation, so closing the menus here is
             // reliable everywhere the outside-click listener wasn't.
-            onNodeClick={(_e, node) => { setSelectedId(node.id); setShowAddNodeMenu(false); setConnectDropMenu(null); }}
+            onNodeClick={(_e, node) => {
+              // Groups don't get the field-editing popover — they have
+              // no prompt/tools to configure, only membership (handled
+              // by dragging) and deletion (their own button).
+              setSelectedId(node.type === "group" ? null : node.id);
+              setShowAddNodeMenu(false); setConnectDropMenu(null);
+            }}
+            onNodeDragStop={onNodeDragStop}
             onPaneClick={() => { setSelectedId(null); setShowAddNodeMenu(false); setConnectDropMenu(null); }}
             nodeTypes={AGENT_WORK_NODE_TYPES}
             edgeTypes={AGENT_WORK_EDGE_TYPES}
