@@ -141,7 +141,7 @@ function NewAgentForm({ onCreated, onCancel }: { onCreated: () => void; onCancel
   );
 }
 
-function AgentCard({ agent, onDelete }: { agent: SavedAgent; onDelete: () => void }) {
+function AgentCard({ agent, onDelete, onOpenInCanvas }: { agent: SavedAgent; onDelete: () => void; onOpenInCanvas: () => void }) {
   const [expanded, setExpanded] = useState(false);
   return (
     <div style={{ background: CARD_BG, border: CARD_BORDER, borderRadius: radius.sm, marginBottom: spacing.xs, overflow: "hidden" }}>
@@ -171,13 +171,25 @@ function AgentCard({ agent, onDelete }: { agent: SavedAgent; onDelete: () => voi
           <div style={{ fontSize: fontSize.xxs, color: neutral.textFaint }}>
             Output: {agent.output_type ?? "ask when it's done"}
           </div>
+          <button
+            onClick={e => { e.stopPropagation(); onOpenInCanvas(); }}
+            title="Fork this agent into a real Agent Work graph you can extend — one-way, editing it afterward won't change this saved agent"
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 4,
+              padding: `${spacing.xxs}px ${spacing.sm}px`, borderRadius: radius.xs,
+              border: `1px solid ${accent}55`, background: "transparent", color: accent,
+              cursor: "pointer", fontSize: fontSize.xxs, fontWeight: fontWeight.medium, fontFamily,
+            }}
+          >
+            <SparkleFillIcon size={10} /> Open in canvas
+          </button>
         </div>
       )}
     </div>
   );
 }
 
-export function AgentVault() {
+export function AgentVault({ onOpenInCanvas }: { onOpenInCanvas: (agent: SavedAgent) => void }) {
   const [agents, setAgents] = useState<SavedAgent[] | null>(null);
   const [showNewForm, setShowNewForm] = useState(false);
 
@@ -214,7 +226,7 @@ export function AgentVault() {
             <div style={{ fontSize: fontSize.xxs }}>Create a reusable one with the button above.</div>
           </div>
         ) : (
-          agents.map(a => <AgentCard key={a.id} agent={a} onDelete={() => handleDelete(a.id)} />)
+          agents.map(a => <AgentCard key={a.id} agent={a} onDelete={() => handleDelete(a.id)} onOpenInCanvas={() => onOpenInCanvas(a)} />)
         )}
       </div>
     </div>

@@ -13,6 +13,27 @@ import { AGENT_WORK_NODE_TYPES, type AgentWorkNodeData, type AgentWorkGroupData 
 import { convertGraphToBackend } from "./agentWorkGraphConvert";
 import { createWorkflow, WORKFLOW_CREATED_EVENT } from "./agentWork";
 
+// The Agent Vault "Open in canvas" fork (2026-09-03) — one-way, per the
+// design: seeds a real Input -> Generate with AI -> Output starter
+// chain (the same shape OpenAI's own agent-building guide names —
+// input, agent, output — JuanJo's own follow-up after the mockup
+// discussion), then this canvas owns it as an independent workflow.
+// Editing the graph afterward never touches the saved agent it came
+// from, and editing the agent afterward never touches a workflow
+// already forked from it — same "detach instance" pattern as Figma/
+// Notion templates. Known gap, flagged rather than silently dropped: an
+// agent's selected skills/tools aren't represented in this starter
+// chain yet — generateAi nodes don't carry a tools field the way
+// searchWeb/readPage/saveFile's fixed single-tool kinds do; the backend
+// already supports a real multi-tool node (_run_generic_multi_tool_node
+// in dispatcher/agent_work.py), there's just no visual-editor field for
+// it yet.
+export interface AgentWorkSeed {
+  agentName: string;
+  instructions: string;
+  tools: string[];
+}
+
 const accent = CANVAS_ACCENT.agentWork.color;
 let nodeCounter = 0;
 let groupCounter = 0;
@@ -410,7 +431,9 @@ function ZoomBadge() {
   );
 }
 
-function GraphCanvas({ rightSidebarOpen }: { rightSidebarOpen: boolean }) {
+function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed }: {
+  rightSidebarOpen: boolean; seed?: AgentWorkSeed | null; onSeedConsumed?: () => void;
+}) {
   const [nodes, setNodes, onNodesChange] = useNodesState<AgentWorkAnyNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -431,6 +454,30 @@ function GraphCanvas({ rightSidebarOpen }: { rightSidebarOpen: boolean }) {
   } | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition, getIntersectingNodes } = useReactFlow();
+
+  // Consumes an Agent Vault seed exactly once, only into a genuinely
+  // empty canvas — never overwrites a graph already being built. The
+  // one-way fork itself: after this runs, the seed data is gone
+  // (onSeedConsumed clears it in App.tsx) and this IS just a normal,
+  // independent workflow from here on, same as one built by hand.
+  useEffect(() => {
+    if (!seed || nodes.length > 0) return;
+    nodeCounter += 1; const inId = `node-${nodeCounter}`;
+    nodeCounter += 1; const genId = `node-${nodeCounter}`;
+    nodeCounter += 1; const outId = `node-${nodeCounter}`;
+    setNodes([
+      { id: inId, type: "agentWorkNode", position: { x: 40, y: 140 }, data: { kindId: "input", values: { value: "" } } satisfies AgentWorkNodeData },
+      { id: genId, type: "agentWorkNode", position: { x: 320, y: 140 }, data: { kindId: "generateAi", values: { instructions: seed.instructions } } satisfies AgentWorkNodeData },
+      { id: outId, type: "agentWorkNode", position: { x: 600, y: 140 }, data: { kindId: "output", values: {} } satisfies AgentWorkNodeData },
+    ]);
+    setEdges([
+      { id: `e-${inId}-${genId}`, source: inId, target: genId, animated: false, style: { stroke: EDGE_COLOR, strokeWidth: EDGE_WIDTH } },
+      { id: `e-${genId}-${outId}`, source: genId, target: outId, animated: false, style: { stroke: EDGE_COLOR, strokeWidth: EDGE_WIDTH } },
+    ]);
+    setWorkflowName(seed.agentName);
+    setEditingName(false);
+    onSeedConsumed?.();
+  }, [seed, nodes.length, setNodes, setEdges, onSeedConsumed]);
 
   const onConnect = useCallback((connection: Connection) => {
     setEdges(eds => addEdge({ ...connection, animated: false, style: { stroke: EDGE_COLOR, strokeWidth: EDGE_WIDTH } }, eds));
@@ -857,11 +904,13 @@ function GraphCanvas({ rightSidebarOpen }: { rightSidebarOpen: boolean }) {
 // (0px when closed), which GraphCanvas's header reads directly; the
 // right sidebar has no such unified variable, so App.tsx passes its
 // open/closed state down explicitly instead.
-export function AgentWorkGraphEditor({ rightSidebarOpen = false }: { rightSidebarOpen?: boolean }) {
+export function AgentWorkGraphEditor({ rightSidebarOpen = false, seed, onSeedConsumed }: {
+  rightSidebarOpen?: boolean; seed?: AgentWorkSeed | null; onSeedConsumed?: () => void;
+}) {
   return (
     <div style={{ height: "100%", background: "rgba(6,7,10,0.97)", display: "flex", flexDirection: "column" }}>
       <ReactFlowProvider>
-        <GraphCanvas rightSidebarOpen={rightSidebarOpen} />
+        <GraphCanvas rightSidebarOpen={rightSidebarOpen} seed={seed} onSeedConsumed={onSeedConsumed} />
       </ReactFlowProvider>
     </div>
   );

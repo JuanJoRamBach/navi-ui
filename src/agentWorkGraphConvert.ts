@@ -14,10 +14,12 @@ import { NODE_KINDS, type NodeKindId } from "./agentWorkNodeKinds";
 const BACKEND_READY: Record<NodeKindId, boolean> = {
   writeText: true, generateAi: true, searchWeb: true, readPage: true,
   saveFile: true, sendMessage: true, apiCall: false, sendMail: false, choosePath: false,
+  input: true, output: true,
 };
 
 const TOOL_FOR_KIND: Partial<Record<NodeKindId, string>> = {
   searchWeb: "web_search", readPage: "fetch_page", saveFile: "save_note", sendMessage: "send_to_telegram",
+  input: "input", output: "output",
 };
 
 export interface GraphConversionResult {
@@ -82,7 +84,9 @@ export function convertGraphToBackend(
       let prompt =
         kindId === "generateAi" ? (values.instructions ?? "") :
         kindId === "searchWeb" ? (values.instructions ?? "") :
-        kindId === "readPage" ? (values.url ?? "") : "";
+        kindId === "readPage" ? (values.url ?? "") :
+        kindId === "input" ? (values.value ?? "") :
+        kindId === "output" ? (values.value ?? "") : "";
       const inlined = literalTextByTarget.get(n.id);
       if (inlined) prompt = prompt ? `${prompt}\n\n${inlined}` : inlined;
       const tool = TOOL_FOR_KIND[kindId];
@@ -98,7 +102,7 @@ export function convertGraphToBackend(
   // confusing empty send later.
   for (const n of backendNodes) {
     const kindId = nodes.find(x => x.id === n.id)!.data.kindId;
-    const isActionKind = kindId === "sendMessage" || kindId === "saveFile";
+    const isActionKind = kindId === "sendMessage" || kindId === "saveFile" || kindId === "input" || kindId === "output";
     const hasIncoming = backendEdges.some(e => e.to === n.id);
     if (isActionKind && !n.prompt.trim() && !hasIncoming) {
       errors.push(`"${NODE_KINDS[kindId].label}" has no content — connect a Write Text/Generate with AI node, or type something in it.`);

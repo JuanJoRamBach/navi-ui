@@ -72,7 +72,7 @@ import { AgentWorkCalendar } from "./AgentWorkCalendar";
 import { fetchModelCatalog, setPinnedModel, type ModelCatalog } from "./devslate";
 import { AgentWorkNewWorkflowForm } from "./AgentWorkNewWorkflowForm";
 import { ChoiceButtons } from "./ChoiceButtons";
-import { AgentWorkGraphEditor } from "./AgentWorkGraphEditor";
+import { AgentWorkGraphEditor, type AgentWorkSeed } from "./AgentWorkGraphEditor";
 
 const DOT_SIZE = 8;
 
@@ -939,6 +939,11 @@ export default function App() {
   // now — the other three canvases don't exist yet, shown disabled.
   type CanvasKey = "chat" | "agentWork" | "devSlate" | "dashboard";
   const [activeCanvas, setActiveCanvas] = useState<CanvasKey>("chat");
+  // Agent Vault's "Open in canvas" fork (2026-09-03) — set right before
+  // switching to Agent Work, consumed once by AgentWorkGraphEditor's own
+  // seeding effect, then cleared here so it never re-seeds a graph the
+  // user's already started editing or re-fires on a later visit.
+  const [agentSeed, setAgentSeed] = useState<AgentWorkSeed | null>(null);
   // Dev Slate's right sidebar (Task State / Change History, built below)
   // reads straight off the same shared store its own panes already use
   // — real data, not placeholder content, so no separate fetch/state
@@ -2476,7 +2481,10 @@ export default function App() {
           </button>
         </div>
         {leftPanelTab === "agents" ? (
-          <AgentVault />
+          <AgentVault onOpenInCanvas={agent => {
+            setAgentSeed({ agentName: agent.name, instructions: agent.instructions, tools: agent.tools });
+            setActiveCanvas("agentWork");
+          }} />
         ) : leftPanelTab === "library" ? (
         <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
         <div style={{ flex: 7, minHeight: 0, display: "flex", flexDirection: "column" }}>
@@ -3346,7 +3354,11 @@ export default function App() {
               thing"). New Workflow (the manual step-list form) stays
               reachable from the left rail for anyone who prefers that
               flat form over the visual graph. */}
-          <AgentWorkGraphEditor rightSidebarOpen={isDesktopSidebar && rightPanelOpen} />
+          <AgentWorkGraphEditor
+            rightSidebarOpen={isDesktopSidebar && rightPanelOpen}
+            seed={agentSeed}
+            onSeedConsumed={() => setAgentSeed(null)}
+          />
 
           {/* Chat popup — bottom-right, collapsed by default. Shifts left
               with the right sidebar so it never sits underneath it

@@ -1,7 +1,7 @@
 import type { ComponentType } from "react";
 import {
   PencilIcon, SparkleFillIcon, SearchIcon, LinkIcon, PlugIcon,
-  PaperAirplaneIcon, MailIcon, FileIcon, GitBranchIcon,
+  PaperAirplaneIcon, MailIcon, FileIcon, GitBranchIcon, SignInIcon, SignOutIcon,
 } from "@primer/octicons-react";
 
 // The full node palette, settled 2026-09-02 after checking real naming
@@ -22,7 +22,8 @@ import {
 
 export type NodeKindId =
   | "writeText" | "generateAi" | "searchWeb" | "readPage"
-  | "apiCall" | "sendMessage" | "sendMail" | "saveFile" | "choosePath";
+  | "apiCall" | "sendMessage" | "sendMail" | "saveFile" | "choosePath"
+  | "input" | "output";
 
 export type FieldKind = "text" | "textarea" | "select" | "url";
 
@@ -112,6 +113,25 @@ export const NODE_KINDS: Record<NodeKindId, NodeKindDef> = {
     description: "Branch — only the path matching your condition runs, the rest are skipped.",
     icon: GitBranchIcon, hue: 15,
     fields: [{ key: "condition", label: "Condition", kind: "textarea", placeholder: "e.g. if the news is about AI" }],
+  },
+  // Input/output (2026-09-03) — formalizes what a fan-out group's
+  // {{item}} already does informally (dispatcher/agent_work.py's own
+  // node function docstrings), generalized to the whole workflow.
+  // Deterministic, always — JuanJo's explicit call: "whatever
+  // instruction has the Input and Output nodes, are deterministic,
+  // unless they want an LLM input node" (that variant isn't built; this
+  // is the plain default). No AI involved in either direction.
+  input: {
+    id: "input", label: "Input",
+    description: "Marks where external data enters this workflow — no AI involved, the value is used exactly as set.",
+    icon: SignInIcon, hue: 100,
+    fields: [{ key: "value", label: "Value", kind: "textarea", placeholder: "The literal value this workflow starts with" }],
+  },
+  output: {
+    id: "output", label: "Output",
+    description: "Returns whatever the connected step produced — for an agent used as a step inside another workflow, not a real-world action like sending a message.",
+    icon: SignOutIcon, hue: 330,
+    fields: [{ key: "value", label: "Fallback value (optional)", kind: "textarea", placeholder: "Used only if nothing upstream produced anything" }],
   },
 };
 
