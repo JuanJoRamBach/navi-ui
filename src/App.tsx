@@ -66,6 +66,7 @@ import { useDevSlateState } from "./devslateStore";
 import { AgentWorkChat } from "./AgentWorkChat";
 import { AgentWorkWorkflows } from "./AgentWorkWorkflows";
 import { ConnectionsOverlay } from "./ConnectionsOverlay";
+import { AgentVault } from "./AgentVault";
 import { AgentWorkRunHistory } from "./AgentWorkRunHistory";
 import { AgentWorkCalendar } from "./AgentWorkCalendar";
 import { fetchModelCatalog, setPinnedModel, type ModelCatalog } from "./devslate";
@@ -1268,7 +1269,14 @@ export default function App() {
   // where it came from, reusing the same /command flag convention
   // Activity already uses (parseCommand/StoredMessage.command) rather
   // than inventing a separate labeling scheme.
-  const [leftPanelTab, setLeftPanelTab] = useState<"activity" | "knowledge" | "files">("activity");
+  // "library" merges the old separate Files/Knowledge tabs into one,
+  // stacked (Files primary/top since it's interactive — drag/drop
+  // upload — Knowledge secondary/bottom since it's a passive record;
+  // same "act on it / glance at it" stacking rule Agent Work's own
+  // Workflows/Run History split already uses). "agents" is the new
+  // Agent Vault tab (2026-09-03 design pass — JuanJo's brother's
+  // suggestion, refined into left-sidebar-tab shape over several turns).
+  const [leftPanelTab, setLeftPanelTab] = useState<"activity" | "library" | "agents">("activity");
   const MOCK_KNOWLEDGE = [
     { title: "Local-first sync — synthesis", note: "from 3 accepted sources", origin: "search" as const },
     { title: "CRDT tradeoffs — synthesis", note: "from 2 accepted sources", origin: "search" as const },
@@ -2409,10 +2417,10 @@ export default function App() {
               to breathe at narrow widths regardless of how many tools
               get added later. */}
           <div style={{ display: "flex", alignItems: "flex-end", gap: sidebarTab.gap, minWidth: 0, overflow: "hidden" }}>
-            {(["activity", "knowledge", "files"] as const).map(tab => {
+            {(["activity", "library", "agents"] as const).map(tab => {
               const active = leftPanelTab === tab;
-              const label = tab === "activity" ? "ACTIVITY" : tab === "knowledge" ? "KNOWLEDGE" : "FILES";
-              const Icon = tab === "activity" ? PulseIcon : tab === "knowledge" ? BookIcon : FileDirectoryIcon;
+              const label = tab === "activity" ? "ACTIVITY" : tab === "library" ? "LIBRARY" : "AGENTS";
+              const Icon = tab === "activity" ? PulseIcon : tab === "library" ? FileDirectoryIcon : PersonIcon;
               // Active tab glows with whichever canvas is currently
               // active — same accent.color/accent.glow the left rail's
               // own canvas-switcher buttons use (JuanJo, 2026-09-01:
@@ -2467,7 +2475,11 @@ export default function App() {
             <XIcon size={iconSize.sm} />
           </button>
         </div>
-        {leftPanelTab === "files" ? (
+        {leftPanelTab === "agents" ? (
+          <AgentVault />
+        ) : leftPanelTab === "library" ? (
+        <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+        <div style={{ flex: 7, minHeight: 0, display: "flex", flexDirection: "column" }}>
         <div
           onDragOver={e => { e.preventDefault(); setFileDragOver(true); }}
           onDragLeave={() => setFileDragOver(false)}
@@ -2701,35 +2713,42 @@ export default function App() {
             })}
           </div>
         </div>
+        </div>
+        <div style={{ height: 1, background: "rgba(255,255,255,0.08)", flexShrink: 0 }} />
+        <div style={{
+          padding: `0 ${spacing.lg}px ${spacing.lg}px`,
+          flex: 3, minHeight: 0, overflowY: "auto",
+        }}>
+          {MOCK_KNOWLEDGE.length === 0 ? (
+            <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted, marginTop: spacing.sm }}>
+              Nothing saved yet — accepted sources and research get synthesized here.
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: spacing.sm, marginTop: spacing.sm }}>
+              {MOCK_KNOWLEDGE.map(item => (
+                <div key={item.title} style={{ padding: `${spacing.xs}px ${spacing.sm}px`, borderRadius: radius.sm, background: "rgba(255,255,255,0.06)" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.xs }}>
+                    <span style={{ fontSize: fontSize.xs, color: neutral.textPrimary }}>{item.title}</span>
+                    <span style={{
+                      fontSize: fontSize.xxs, color: neutral.textMuted, flexShrink: 0,
+                      fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+                    }}>
+                      /{item.origin}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: fontSize.xxs, color: neutral.textFaint, marginTop: 2 }}>{item.note}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        </div>
         ) : (
         <div style={{
           padding: `0 ${spacing.lg}px ${spacing.lg}px`,
           flex: 1, minHeight: 0, overflowY: "auto",
         }}>
-          {leftPanelTab === "knowledge" ? (
-            MOCK_KNOWLEDGE.length === 0 ? (
-              <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted, marginTop: spacing.sm }}>
-                Nothing saved yet — accepted sources and research get synthesized here.
-              </div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: spacing.sm, marginTop: spacing.sm }}>
-                {MOCK_KNOWLEDGE.map(item => (
-                  <div key={item.title} style={{ padding: `${spacing.xs}px ${spacing.sm}px`, borderRadius: radius.sm, background: "rgba(255,255,255,0.06)" }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.xs }}>
-                      <span style={{ fontSize: fontSize.xs, color: neutral.textPrimary }}>{item.title}</span>
-                      <span style={{
-                        fontSize: fontSize.xxs, color: neutral.textMuted, flexShrink: 0,
-                        fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
-                      }}>
-                        /{item.origin}
-                      </span>
-                    </div>
-                    <div style={{ fontSize: fontSize.xxs, color: neutral.textFaint, marginTop: 2 }}>{item.note}</div>
-                  </div>
-                ))}
-              </div>
-            )
-          ) : activityItems.length === 0 ? (
+          {activityItems.length === 0 ? (
             <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted, marginTop: spacing.sm }}>
               No commands run yet in this conversation.
             </div>
