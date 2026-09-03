@@ -12,9 +12,20 @@ export interface SavedAgent {
   tools: string[];
   model: string | null;
   output_type: AgentOutputType;
+  // Set only when this entry came from starring a real Agent Work
+  // workflow (see agentWork.ts's starWorkflow) — a reference, not a
+  // copy, so its Tools/Nodes list is derived from the live graph rather
+  // than this entry's own (empty) `tools`.
+  workflow_id: string | null;
   created_at: number;
   updated_at: number;
 }
+
+// Fired whenever a Vault entry is created, starred, or unstarred from
+// anywhere other than AgentVault itself (currently: the Workflows
+// sidebar's star toggle) — same "plain window event, no shared store"
+// shortcut agentWork.ts's WORKFLOW_CREATED_EVENT already uses.
+export const AGENT_VAULT_CHANGED_EVENT = "agent-vault-changed";
 
 export interface SavedAgentInput {
   name: string;

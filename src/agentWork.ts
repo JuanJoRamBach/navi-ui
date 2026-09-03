@@ -10,6 +10,10 @@ export interface WorkflowGraphNode {
   prompt?: string;
   role?: string;
   tools?: string[];
+  // Only meaningful on an Output node — "pdf" renders its text to a real
+  // PDF file (dispatcher/agent_work.py's _run_output_node), which a
+  // following send_to_telegram step sends as an attachment.
+  output_type?: string;
 }
 
 export interface WorkflowGraphEdge {
@@ -52,6 +56,10 @@ export interface WorkflowDefinition {
   description: string | null;
   graph: WorkflowGraph;
   trigger: WorkflowTrigger;
+  // The Agent Work Chat exchange that built this workflow (null for one
+  // built by hand, node-by-node, with no chat involved) — Agent Vault
+  // reads this as the starting "Instructions" text when starred.
+  creation_transcript: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -103,6 +111,29 @@ export async function createWorkflow(
 // shortcut is fine here since it's a single one-way notification, not
 // ongoing shared state.
 export const WORKFLOW_CREATED_EVENT = "agent-workflow-created";
+
+export async function getWorkflow(workflowId: string): Promise<WorkflowDefinition> {
+  const res = await fetch(`${NAVI_BACKEND_URL}/agent/workflows/${encodeURIComponent(workflowId)}`);
+  return res.json();
+}
+
+// Star/unstar a workflow into the Agent Vault — a reference (server.py
+// stores the agent's workflow_id, not a copy of the graph), so it's a
+// pure toggle: starring twice is a no-op (the route reuses the existing
+// entry), unstarring removes it. See agents.ts's SavedAgent.workflow_id.
+export async function starWorkflow(workflowId: string): Promise<{ id: string } & Record<string, unknown>> {
+  const res = await fetch(`${NAVI_BACKEND_URL}/agent/workflows/${encodeURIComponent(workflowId)}/star`, { method: "POST" });
+  return res.json();
+}
+
+export async function unstarWorkflow(workflowId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${NAVI_BACKEND_URL}/agent/workflows/${encodeURIComponent(workflowId)}/star`, { method: "DELETE" });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
 
 export async function deleteWorkflow(workflowId: string): Promise<boolean> {
   try {

@@ -10,8 +10,8 @@ import { XIcon, PlusIcon, SquareIcon, PencilIcon } from "@primer/octicons-react"
 import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, tintedGlow } from "./tokens";
 import { NODE_KIND_LIST, NODE_KINDS, type NodeKindId } from "./agentWorkNodeKinds";
 import { AGENT_WORK_NODE_TYPES, type AgentWorkNodeData, type AgentWorkGroupData } from "./AgentWorkGraphNode";
-import { convertGraphToBackend } from "./agentWorkGraphConvert";
-import { createWorkflow, WORKFLOW_CREATED_EVENT } from "./agentWork";
+import { convertBackendToGraph, convertGraphToBackend } from "./agentWorkGraphConvert";
+import { createWorkflow, getWorkflow, WORKFLOW_CREATED_EVENT } from "./agentWork";
 
 // The Agent Vault "Open in canvas" fork (2026-09-03) — one-way, per the
 // design: seeds a real Input -> Generate with AI -> Output starter
@@ -431,8 +431,9 @@ function ZoomBadge() {
   );
 }
 
-function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed }: {
+function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, onWorkflowLoaded }: {
   rightSidebarOpen: boolean; seed?: AgentWorkSeed | null; onSeedConsumed?: () => void;
+  loadWorkflowId?: string | null; onWorkflowLoaded?: () => void;
 }) {
   const [nodes, setNodes, onNodesChange] = useNodesState<AgentWorkAnyNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -478,6 +479,30 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed }: {
     setEditingName(false);
     onSeedConsumed?.();
   }, [seed, nodes.length, setNodes, setEdges, onSeedConsumed]);
+
+  // Loads a real, already-saved workflow's actual graph onto the canvas
+  // as nodes — unlike the seed above, this REPLACES whatever's currently
+  // on the canvas rather than only filling an empty one, since the whole
+  // point is "show the thing that was just built" (2026-09-03, JuanJo:
+  // Agent Work Chat creating a workflow with no visible nodes was
+  // "separated" from the canvas in a way he'd explicitly asked not to
+  // happen). Fires once per distinct loadWorkflowId, same one-shot-
+  // consumed shape as the seed effect.
+  useEffect(() => {
+    if (!loadWorkflowId) return;
+    let cancelled = false;
+    getWorkflow(loadWorkflowId).then(wf => {
+      if (cancelled) return;
+      const { nodes: loadedNodes, edges: loadedEdges } = convertBackendToGraph(wf.graph);
+      setNodes(loadedNodes);
+      setEdges(loadedEdges);
+      setWorkflowName(wf.name);
+      setEditingName(false);
+      onWorkflowLoaded?.();
+    }).catch(() => onWorkflowLoaded?.());
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadWorkflowId]);
 
   const onConnect = useCallback((connection: Connection) => {
     setEdges(eds => addEdge({ ...connection, animated: false, style: { stroke: EDGE_COLOR, strokeWidth: EDGE_WIDTH } }, eds));
@@ -710,7 +735,7 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed }: {
               the full canvas — see the padding comment above. A set
               name reads as a plain title + a small edit button, not a
               perpetually-open input (2026-09-03, JuanJo). */}
-          <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", display: "flex", alignItems: "center", gap: spacing.xs }}>
+          <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", display: "flex", alignItems: "center", gap: spacing.xs }}>
             {editingName || !workflowName.trim() ? (
               <input
                 value={workflowName} onChange={e => setWorkflowName(e.target.value)}
@@ -904,13 +929,17 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed }: {
 // (0px when closed), which GraphCanvas's header reads directly; the
 // right sidebar has no such unified variable, so App.tsx passes its
 // open/closed state down explicitly instead.
-export function AgentWorkGraphEditor({ rightSidebarOpen = false, seed, onSeedConsumed }: {
+export function AgentWorkGraphEditor({ rightSidebarOpen = false, seed, onSeedConsumed, loadWorkflowId, onWorkflowLoaded }: {
   rightSidebarOpen?: boolean; seed?: AgentWorkSeed | null; onSeedConsumed?: () => void;
+  loadWorkflowId?: string | null; onWorkflowLoaded?: () => void;
 }) {
   return (
     <div style={{ height: "100%", background: "rgba(6,7,10,0.97)", display: "flex", flexDirection: "column" }}>
       <ReactFlowProvider>
-        <GraphCanvas rightSidebarOpen={rightSidebarOpen} seed={seed} onSeedConsumed={onSeedConsumed} />
+        <GraphCanvas
+          rightSidebarOpen={rightSidebarOpen} seed={seed} onSeedConsumed={onSeedConsumed}
+          loadWorkflowId={loadWorkflowId} onWorkflowLoaded={onWorkflowLoaded}
+        />
       </ReactFlowProvider>
     </div>
   );

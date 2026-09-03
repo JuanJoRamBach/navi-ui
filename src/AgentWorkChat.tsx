@@ -210,7 +210,7 @@ function formatMessageTime(epochMs: number): string {
 // decision).
 const AGENT_WORK_CONVERSATION_ID_KEY = "navi-agent-work-conversation-id";
 
-export function AgentWorkChat({ onClose }: { onClose: () => void }) {
+export function AgentWorkChat({ onClose, onWorkflowCreated }: { onClose: () => void; onWorkflowCreated?: (workflowId: string) => void }) {
   const [messages, setMessages] = useState<AgentWorkMessage[]>([]);
   const [streamingText, setStreamingText] = useState<string | null>(null);
   const [input, setInput] = useState("");
@@ -320,7 +320,7 @@ export function AgentWorkChat({ onClose }: { onClose: () => void }) {
     }).then(res => res.json());
 
     try {
-      let data: { reply?: string; error?: string; conversation_id?: string; usage_note?: string; choices?: string[] };
+      let data: { reply?: string; error?: string; conversation_id?: string; usage_note?: string; choices?: string[]; created_workflow_id?: string | null };
       try {
         data = await post();
       } catch {
@@ -342,6 +342,12 @@ export function AgentWorkChat({ onClose }: { onClose: () => void }) {
       // so refresh the sidebar's workflow/run lists unconditionally after
       // every reply rather than trying to detect specific tool calls.
       window.dispatchEvent(new Event(WORKFLOW_CREATED_EVENT));
+      // created_workflow_id (2026-09-03) is the one exception — when this
+      // turn actually built a workflow, load it onto the canvas as real
+      // nodes, not just a Workflows-list entry (JuanJo: chat creating a
+      // workflow with nothing to show for it on the canvas was exactly
+      // the gap he'd already asked not to have).
+      if (data.created_workflow_id) onWorkflowCreated?.(data.created_workflow_id);
     } catch {
       setMessages(m => [...m, { role: "navi", text: "That message failed to send — try again.", at: Date.now() }]);
     } finally {

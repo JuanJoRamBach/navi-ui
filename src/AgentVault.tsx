@@ -1,8 +1,22 @@
 import { useCallback, useEffect, useState } from "react";
-import { PlusIcon, TrashIcon, ChevronDownIcon, ChevronRightIcon, PersonIcon, SparkleFillIcon } from "@primer/octicons-react";
+import { PlusIcon, TrashIcon, ChevronDownIcon, ChevronRightIcon, PersonIcon, SparkleFillIcon, ToolsIcon } from "@primer/octicons-react";
 import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, tintedGlow } from "./tokens";
-import { createAgent, deleteAgent, listAgents, type AgentOutputType, type SavedAgent } from "./agents";
+import { AGENT_VAULT_CHANGED_EVENT, createAgent, deleteAgent, listAgents, type AgentOutputType, type SavedAgent } from "./agents";
+import { getWorkflow, type WorkflowGraph } from "./agentWork";
 import { listMCPConnections } from "./mcpConnections";
+
+// A ready-made entry so a brand-new Vault isn't just an empty box — the
+// single most commonly wanted "review my changes" agent (JuanJo's
+// brother's original suggestion), added on request rather than silently
+// pre-seeded, so it doesn't show up for someone who deletes it once and
+// would otherwise see it reappear.
+const CODE_REVIEW_PRESET: { name: string; instructions: string; tools: string[]; model: string | null; output_type: AgentOutputType } = {
+  name: "Code Review",
+  instructions: "Review the diff for correctness, missed edge cases, and style issues against the project's own conventions. Flag anything risky or unclear, and suggest concrete fixes rather than just naming problems.",
+  tools: [],
+  model: null,
+  output_type: "chat",
+};
 
 const accent = CANVAS_ACCENT.agentWork.color;
 const CARD_BG = "rgba(255,255,255,0.05)";
@@ -141,6 +155,62 @@ function NewAgentForm({ onCreated, onCancel }: { onCreated: () => void; onCancel
   );
 }
 
+// Collapsible, chevron-toggled — the graph itself is only fetched the
+// first time it's opened (2026-09-03, JuanJo: "add a section called
+// 'tools/nodes'... that shows a list of the tools and nodes used in the
+// creation of the agent"). Derived from the live workflow at read time,
+// never duplicated into saved_agents — see agents.py's own docstring on
+// why workflow_id is a reference, not a copy.
+function ToolsNodesSection({ workflowId }: { workflowId: string }) {
+  const [open, setOpen] = useState(false);
+  const [graph, setGraph] = useState<WorkflowGraph | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const toggle = () => {
+    setOpen(v => !v);
+    if (!graph && !loading) {
+      setLoading(true);
+      getWorkflow(workflowId).then(wf => setGraph(wf.graph)).catch(() => setGraph({ nodes: [], edges: [] })).finally(() => setLoading(false));
+    }
+  };
+
+  const distinctTools = graph ? Array.from(new Set(graph.nodes.flatMap(n => n.tools ?? []))) : [];
+
+  return (
+    <div>
+      <button
+        onClick={toggle}
+        style={{ display: "flex", alignItems: "center", gap: 4, background: "none", border: "none", cursor: "pointer", padding: 0, color: neutral.textFaint, fontSize: fontSize.xxs, fontFamily }}
+      >
+        {open ? <ChevronDownIcon size={9} /> : <ChevronRightIcon size={9} />}
+        <ToolsIcon size={10} /> Tools/Nodes
+      </button>
+      {open && (
+        <div style={{ marginTop: spacing.xxs, display: "flex", flexDirection: "column", gap: 4 }}>
+          {loading ? (
+            <span style={{ fontSize: fontSize.xxs, color: neutral.textFaint }}>Loading…</span>
+          ) : !graph || graph.nodes.length === 0 ? (
+            <span style={{ fontSize: fontSize.xxs, color: neutral.textFaint }}>No nodes found.</span>
+          ) : (
+            <>
+              <span style={{ fontSize: fontSize.xxs, color: neutral.textFaint }}>
+                {graph.nodes.length} node{graph.nodes.length === 1 ? "" : "s"}
+              </span>
+              {distinctTools.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                  {distinctTools.map(t => (
+                    <span key={t} style={{ fontSize: fontSize.xxs, padding: "2px 6px", borderRadius: 10, background: "rgba(255,255,255,0.06)", color: neutral.textFaint }}>{t}</span>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AgentCard({ agent, onDelete, onOpenInCanvas }: { agent: SavedAgent; onDelete: () => void; onOpenInCanvas: () => void }) {
   const [expanded, setExpanded] = useState(false);
   return (
@@ -160,7 +230,9 @@ function AgentCard({ agent, onDelete, onOpenInCanvas }: { agent: SavedAgent; onD
       </button>
       {expanded && (
         <div style={{ padding: `0 ${spacing.sm}px ${spacing.sm}px`, display: "flex", flexDirection: "column", gap: spacing.xs }}>
-          <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted, lineHeight: 1.5 }}>{agent.instructions}</div>
+          {agent.instructions && (
+            <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted, lineHeight: 1.5 }}>{agent.instructions}</div>
+          )}
           {agent.tools.length > 0 && (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
               {agent.tools.map(t => (
@@ -171,18 +243,22 @@ function AgentCard({ agent, onDelete, onOpenInCanvas }: { agent: SavedAgent; onD
           <div style={{ fontSize: fontSize.xxs, color: neutral.textFaint }}>
             Output: {agent.output_type ?? "ask when it's done"}
           </div>
-          <button
-            onClick={e => { e.stopPropagation(); onOpenInCanvas(); }}
-            title="Fork this agent into a real Agent Work graph you can extend — one-way, editing it afterward won't change this saved agent"
-            style={{
-              display: "flex", alignItems: "center", justifyContent: "center", gap: 4,
-              padding: `${spacing.xxs}px ${spacing.sm}px`, borderRadius: radius.xs,
-              border: `1px solid ${accent}55`, background: "transparent", color: accent,
-              cursor: "pointer", fontSize: fontSize.xxs, fontWeight: fontWeight.medium, fontFamily,
-            }}
-          >
-            <SparkleFillIcon size={10} /> Open in canvas
-          </button>
+          {agent.workflow_id ? (
+            <ToolsNodesSection workflowId={agent.workflow_id} />
+          ) : (
+            <button
+              onClick={e => { e.stopPropagation(); onOpenInCanvas(); }}
+              title="Fork this agent into a real Agent Work graph you can extend — one-way, editing it afterward won't change this saved agent"
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 4,
+                padding: `${spacing.xxs}px ${spacing.sm}px`, borderRadius: radius.xs,
+                border: `1px solid ${accent}55`, background: "transparent", color: accent,
+                cursor: "pointer", fontSize: fontSize.xxs, fontWeight: fontWeight.medium, fontFamily,
+              }}
+            >
+              <SparkleFillIcon size={10} /> Open in canvas
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -193,14 +269,30 @@ export function AgentVault({ onOpenInCanvas }: { onOpenInCanvas: (agent: SavedAg
   const [agents, setAgents] = useState<SavedAgent[] | null>(null);
   const [showNewForm, setShowNewForm] = useState(false);
 
+  const [addingPreset, setAddingPreset] = useState(false);
+
   const refresh = useCallback(() => {
     listAgents().then(setAgents).catch(() => setAgents([]));
   }, []);
   useEffect(refresh, [refresh]);
+  useEffect(() => {
+    window.addEventListener(AGENT_VAULT_CHANGED_EVENT, refresh);
+    return () => window.removeEventListener(AGENT_VAULT_CHANGED_EVENT, refresh);
+  }, [refresh]);
 
   const handleDelete = async (id: string) => {
     await deleteAgent(id);
     refresh();
+  };
+
+  const addPreset = async () => {
+    setAddingPreset(true);
+    try {
+      await createAgent(CODE_REVIEW_PRESET);
+      refresh();
+    } finally {
+      setAddingPreset(false);
+    }
   };
 
   return (
@@ -224,6 +316,19 @@ export function AgentVault({ onOpenInCanvas }: { onOpenInCanvas: (agent: SavedAg
             <SparkleFillIcon size={20} fill={accent} />
             <div style={{ fontSize: fontSize.xs, color: neutral.textMuted, fontWeight: fontWeight.medium }}>No agents yet</div>
             <div style={{ fontSize: fontSize.xxs }}>Create a reusable one with the button above.</div>
+            <button
+              onClick={addPreset}
+              disabled={addingPreset}
+              style={{
+                display: "flex", alignItems: "center", gap: 4, marginTop: spacing.xs,
+                padding: `${spacing.xxs}px ${spacing.sm}px`, borderRadius: radius.xs,
+                border: "1px solid rgba(255,255,255,0.15)", background: "transparent",
+                color: neutral.textMuted, cursor: addingPreset ? "default" : "pointer",
+                fontSize: fontSize.xxs, fontFamily, opacity: addingPreset ? 0.6 : 1,
+              }}
+            >
+              <PlusIcon size={10} /> {addingPreset ? "Adding…" : `Add "${CODE_REVIEW_PRESET.name}" preset`}
+            </button>
           </div>
         ) : (
           agents.map(a => <AgentCard key={a.id} agent={a} onDelete={() => handleDelete(a.id)} onOpenInCanvas={() => onOpenInCanvas(a)} />)

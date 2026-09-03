@@ -2,6 +2,7 @@ import type { Node, Edge } from "@xyflow/react";
 import type { AgentWorkNodeData } from "./AgentWorkGraphNode";
 import type { WorkflowGraph } from "./agentWork";
 import { NODE_KINDS, type NodeKindId } from "./agentWorkNodeKinds";
+import { neutral } from "./tokens";
 
 // Which node kinds dispatcher/agent_work.py's node-function library
 // actually knows how to run (2026-09-02 build) — everything else gets a
@@ -90,7 +91,15 @@ export function convertGraphToBackend(
       const inlined = literalTextByTarget.get(n.id);
       if (inlined) prompt = prompt ? `${prompt}\n\n${inlined}` : inlined;
       const tool = TOOL_FOR_KIND[kindId];
-      return { id: n.id, prompt, ...(tool ? { tools: [tool] } : {}) };
+      // output_type only means anything to an Output node (renders to a
+      // real PDF file when set to "pdf" — dispatcher/agent_work.py's
+      // _run_output_node); omitted entirely for every other kind rather
+      // than sending a stray blank field.
+      const outputType = kindId === "output" ? values.outputType : undefined;
+      return {
+        id: n.id, prompt, ...(tool ? { tools: [tool] } : {}),
+        ...(outputType ? { output_type: outputType } : {}),
+      };
     });
 
   const backendEdges = edges
@@ -123,4 +132,71 @@ export function convertGraphToBackend(
     graph: { nodes: backendNodes, edges: backendEdges, ...(backendGroups.length ? { groups: backendGroups } : {}) },
     errors: [],
   };
+}
+
+// Reverse of TOOL_FOR_KIND above — a backend node's single tool name maps
+// back to the canvas kind that produces it. Kept in sync by hand, same
+// caveat as BACKEND_READY: no shared source of truth across the language
+// boundary.
+const KIND_FOR_TOOL: Partial<Record<string, NodeKindId>> = {
+  web_search: "searchWeb", fetch_page: "readPage", save_note: "saveFile",
+  send_to_telegram: "sendMessage", input: "input", output: "output",
+};
+
+// sendMessage/saveFile have no text field of their own on the canvas
+// (their real content always arrives via an inlined Write Text node or an
+// upstream step — see convertGraphToBackend's own inlining logic above);
+// a backend node using one of these tools with a real literal prompt
+// needs that same Write Text node synthesized back in, not a value these
+// kinds have nowhere to hold.
+const NEEDS_INLINE_TEXT = new Set<NodeKindId>(["sendMessage", "saveFile"]);
+
+const EDGE_STYLE = { stroke: neutral.textPrimary, strokeWidth: 3 };
+
+// Turns storage/agent_work.py's real graph shape back into canvas
+// nodes/edges — the other direction of convertGraphToBackend, used to
+// show a workflow that Agent Work Chat (or any other non-canvas path)
+// created as actual nodes, not just an entry in the Workflows list
+// (2026-09-03, JuanJo: "why is the work chat separated from the visual
+// nodes... I specifically told you to create the nodes"). Every node
+// with no tools, or a tool this palette doesn't recognize, or more than
+// one tool becomes a "Generate with AI" node — AGENT_WORK_CHAT.md's own
+// brief never produces more than one tool per step today, so this is a
+// graceful fallback, not the expected case. Layout is a plain left-to-
+// right chain in `graph.nodes`' own order — correct for every graph the
+// chat can currently produce (always linear; see tools/workflows.py's
+// create_workflow), not a general graph layout algorithm.
+export function convertBackendToGraph(graph: WorkflowGraph): { nodes: Node<AgentWorkNodeData>[]; edges: Edge[] } {
+  const nodes: Node<AgentWorkNodeData>[] = [];
+  const edges: Edge[] = [];
+  const X_STEP = 320;
+  const Y_MAIN = 140;
+
+  graph.nodes.forEach((n, i) => {
+    const tools = n.tools ?? [];
+    const kindId: NodeKindId = tools.length === 1 && KIND_FOR_TOOL[tools[0]] ? KIND_FOR_TOOL[tools[0]]! : "generateAi";
+    const x = 40 + i * X_STEP;
+    const prompt = n.prompt ?? "";
+    const values: Record<string, string> =
+      kindId === "readPage" ? { url: prompt } :
+      kindId === "input" ? { value: prompt } :
+      kindId === "output" ? { value: prompt, outputType: n.output_type ?? "chat" } :
+      kindId === "sendMessage" ? { channel: "telegram" } :
+      kindId === "saveFile" ? {} :
+      { instructions: prompt }; // generateAi, searchWeb
+
+    nodes.push({ id: n.id, type: "agentWorkNode", position: { x, y: Y_MAIN }, data: { kindId, values } });
+
+    if (NEEDS_INLINE_TEXT.has(kindId) && prompt) {
+      const textId = `${n.id}-text`;
+      nodes.push({ id: textId, type: "agentWorkNode", position: { x, y: Y_MAIN - 160 }, data: { kindId: "writeText", values: { text: prompt } } });
+      edges.push({ id: `e-${textId}-${n.id}`, source: textId, target: n.id, animated: false, style: EDGE_STYLE });
+    }
+  });
+
+  for (const e of graph.edges) {
+    edges.push({ id: `e-${e.from}-${e.to}`, source: e.from, target: e.to, animated: false, style: EDGE_STYLE });
+  }
+
+  return { nodes, edges };
 }

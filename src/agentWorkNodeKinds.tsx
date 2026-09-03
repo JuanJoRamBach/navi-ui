@@ -131,7 +131,21 @@ export const NODE_KINDS: Record<NodeKindId, NodeKindDef> = {
     id: "output", label: "Output",
     description: "Returns whatever the connected step produced — for an agent used as a step inside another workflow, not a real-world action like sending a message.",
     icon: SignOutIcon, hue: 330,
-    fields: [{ key: "value", label: "Fallback value (optional)", kind: "textarea", placeholder: "Used only if nothing upstream produced anything" }],
+    fields: [
+      { key: "value", label: "Fallback value (optional)", kind: "textarea", placeholder: "Used only if nothing upstream produced anything" },
+      // Same output_type vocabulary as Agent Vault's saved agents
+      // (storage/agents.py) — "pdf" renders the incoming text to a
+      // real PDF file (2026-09-03: "create an output node before
+      // sending to telegram with pdf as output, we already have
+      // that"); a following Send Message To step recognizes and sends
+      // it as an attachment instead of stuffing a file path into a
+      // chat message. "chat"/blank stays plain text, unchanged.
+      { key: "outputType", label: "Format", kind: "select", options: [
+        { value: "chat", label: "Text" },
+        { value: "pdf", label: "PDF file" },
+        { value: "markdown", label: "Markdown" },
+      ] },
+    ],
   },
 };
 

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { PlayIcon, PlusIcon, CalendarIcon, CommentDiscussionIcon, TrashIcon, AlertIcon, ChevronDownIcon, ChevronRightIcon } from "@primer/octicons-react";
+import { PlayIcon, PlusIcon, CalendarIcon, CommentDiscussionIcon, TrashIcon, AlertIcon, ChevronDownIcon, ChevronRightIcon, StarIcon, StarFillIcon, EyeIcon } from "@primer/octicons-react";
 import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, tintedGlow } from "./tokens";
-import { WORKFLOW_CREATED_EVENT, deleteWorkflow, listRuns, listWorkflows, runWorkflowNow, type AgentRun, type WorkflowDefinition } from "./agentWork";
+import { WORKFLOW_CREATED_EVENT, deleteWorkflow, listRuns, listWorkflows, runWorkflowNow, starWorkflow, unstarWorkflow, type AgentRun, type WorkflowDefinition } from "./agentWork";
+import { AGENT_VAULT_CHANGED_EVENT, listAgents } from "./agents";
 
 const accent = CANVAS_ACCENT.agentWork.color;
 
@@ -101,9 +102,9 @@ function DeleteConfirmDialog({ name, scheduled, deleting, error, onCancel, onCon
 // step's actual prompt and tool(s), and the real schedule detail (not
 // just "1 left") — the whole point being that a saved workflow should
 // read as a real, inspectable thing, not a name with a Run button.
-function WorkflowCard({ wf, lastRun, running, onRun, onDeleteClick }: {
-  wf: WorkflowDefinition; lastRun: AgentRun | undefined; running: boolean;
-  onRun: () => void; onDeleteClick: () => void;
+function WorkflowCard({ wf, lastRun, running, starred, starring, onRun, onDeleteClick, onToggleStar, onViewInCanvas }: {
+  wf: WorkflowDefinition; lastRun: AgentRun | undefined; running: boolean; starred: boolean; starring: boolean;
+  onRun: () => void; onDeleteClick: () => void; onToggleStar: () => void; onViewInCanvas: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const trigger = wf.trigger;
@@ -141,6 +142,29 @@ function WorkflowCard({ wf, lastRun, running, onRun, onDeleteClick }: {
             {wf.name}
           </span>
           <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+            <button
+              onClick={onToggleStar}
+              disabled={starring}
+              title={starred ? "Remove from Agent Vault" : "Save to Agent Vault"}
+              style={{
+                display: "flex", alignItems: "center", padding: `2px ${spacing.xxs}px`, borderRadius: radius.xs,
+                border: "1px solid rgba(255,255,255,0.1)", background: "transparent",
+                color: starred ? "#e0b94a" : neutral.textFaint, cursor: starring ? "default" : "pointer", opacity: starring ? 0.5 : 1,
+              }}
+            >
+              {starred ? <StarFillIcon size={10} /> : <StarIcon size={10} />}
+            </button>
+            <button
+              onClick={onViewInCanvas}
+              title="View this workflow's nodes on the canvas"
+              style={{
+                display: "flex", alignItems: "center", padding: `2px ${spacing.xxs}px`, borderRadius: radius.xs,
+                border: "1px solid rgba(255,255,255,0.1)", background: "transparent",
+                color: neutral.textFaint, cursor: "pointer",
+              }}
+            >
+              <EyeIcon size={10} />
+            </button>
             <button
               onClick={onRun}
               disabled={running}
@@ -241,10 +265,14 @@ function WorkflowCard({ wf, lastRun, running, onRun, onDeleteClick }: {
 // sidebar's own definite-height slot) keeps the original flex-fill,
 // self-scrolling layout; fill=false lets the list size to its own
 // content and rely on the popover's own scroll instead.
-export function AgentWorkWorkflows({ onNewWorkflow, fill = true }: { onNewWorkflow: (e: React.MouseEvent<HTMLButtonElement>) => void; fill?: boolean }) {
+export function AgentWorkWorkflows({ onNewWorkflow, fill = true, onViewInCanvas }: {
+  onNewWorkflow: (e: React.MouseEvent<HTMLButtonElement>) => void; fill?: boolean; onViewInCanvas?: (workflowId: string) => void;
+}) {
   const [workflows, setWorkflows] = useState<WorkflowDefinition[] | null>(null);
   const [lastRunByWorkflow, setLastRunByWorkflow] = useState<Record<string, AgentRun>>({});
+  const [starredWorkflowIds, setStarredWorkflowIds] = useState<Set<string>>(new Set());
   const [runningId, setRunningId] = useState<string | null>(null);
+  const [starringId, setStarringId] = useState<string | null>(null);
   const [confirmTarget, setConfirmTarget] = useState<{ id: string; name: string; scheduled: boolean } | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -260,13 +288,36 @@ export function AgentWorkWorkflows({ onNewWorkflow, fill = true }: { onNewWorkfl
       }
       setLastRunByWorkflow(latest);
     }).catch(() => {});
+    listAgents().then(agents => {
+      setStarredWorkflowIds(new Set(agents.filter(a => a.workflow_id).map(a => a.workflow_id as string)));
+    }).catch(() => {});
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
   useEffect(() => {
     window.addEventListener(WORKFLOW_CREATED_EVENT, refresh);
-    return () => window.removeEventListener(WORKFLOW_CREATED_EVENT, refresh);
+    window.addEventListener(AGENT_VAULT_CHANGED_EVENT, refresh);
+    return () => {
+      window.removeEventListener(WORKFLOW_CREATED_EVENT, refresh);
+      window.removeEventListener(AGENT_VAULT_CHANGED_EVENT, refresh);
+    };
   }, [refresh]);
+
+  const toggleStar = async (workflowId: string) => {
+    setStarringId(workflowId);
+    try {
+      if (starredWorkflowIds.has(workflowId)) await unstarWorkflow(workflowId);
+      else await starWorkflow(workflowId);
+      setStarredWorkflowIds(prev => {
+        const next = new Set(prev);
+        if (next.has(workflowId)) next.delete(workflowId); else next.add(workflowId);
+        return next;
+      });
+      window.dispatchEvent(new Event(AGENT_VAULT_CHANGED_EVENT));
+    } finally {
+      setStarringId(null);
+    }
+  };
 
   const runNow = async (workflowId: string) => {
     setRunningId(workflowId);
@@ -370,8 +421,12 @@ export function AgentWorkWorkflows({ onNewWorkflow, fill = true }: { onNewWorkfl
           wf={wf}
           lastRun={lastRunByWorkflow[wf.id]}
           running={runningId === wf.id}
+          starred={starredWorkflowIds.has(wf.id)}
+          starring={starringId === wf.id}
           onRun={() => runNow(wf.id)}
           onDeleteClick={() => { setConfirmTarget({ id: wf.id, name: wf.name, scheduled: wf.trigger.type === "scheduled" }); setDeleteError(null); }}
+          onToggleStar={() => toggleStar(wf.id)}
+          onViewInCanvas={() => onViewInCanvas?.(wf.id)}
         />
       ))}
       </div>

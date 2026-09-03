@@ -945,6 +945,17 @@ export default function App() {
   // seeding effect, then cleared here so it never re-seeds a graph the
   // user's already started editing or re-fires on a later visit.
   const [agentSeed, setAgentSeed] = useState<AgentWorkSeed | null>(null);
+  // Which saved workflow's real graph to load onto the canvas as nodes
+  // (2026-09-03) — set either the moment Agent Work Chat's reply reports
+  // a freshly-created one, or on demand via a Workflows-list row's "View
+  // in canvas" button (added after JuanJo hit the gap: no way to go back
+  // and see an existing workflow's nodes once the live chat-creation
+  // moment passed). Consumed once by AgentWorkGraphEditor's own loading
+  // effect, then cleared so it doesn't re-load on every unrelated
+  // re-render. Separate from agentSeed above: that one FORKS a saved
+  // agent into a brand-new starter graph; this one shows the EXACT graph
+  // that workflow already has, verbatim.
+  const [chatCreatedWorkflowId, setChatCreatedWorkflowId] = useState<string | null>(null);
   // "Agent Chat" — the needs-your-input surface (2026-09-03). Real UI
   // mechanism (conditional rail button, badge count, the chat itself
   // below), deliberately fed by an always-empty local array rather than
@@ -3119,7 +3130,7 @@ export default function App() {
                Slate's code column does. */
             <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
               <div style={{ flex: 7, minHeight: 0 }}>
-                <AgentWorkWorkflows onNewWorkflow={e => togglePanel("newWorkflow", e.currentTarget)} />
+                <AgentWorkWorkflows onNewWorkflow={e => togglePanel("newWorkflow", e.currentTarget)} onViewInCanvas={setChatCreatedWorkflowId} />
               </div>
               <div style={{ height: 1, background: "rgba(255,255,255,0.08)", flexShrink: 0 }} />
               <div style={{ flex: 3, minHeight: 0 }}>
@@ -3458,6 +3469,8 @@ export default function App() {
             rightSidebarOpen={isDesktopSidebar && rightPanelOpen}
             seed={agentSeed}
             onSeedConsumed={() => setAgentSeed(null)}
+            loadWorkflowId={chatCreatedWorkflowId}
+            onWorkflowLoaded={() => setChatCreatedWorkflowId(null)}
           />
 
           {/* Chat popup — bottom-right, collapsed by default. Shifts left
@@ -3475,7 +3488,7 @@ export default function App() {
             transition: "right 0.2s ease",
           }}>
             {agentWorkChatOpen ? (
-              <AgentWorkChat onClose={() => setAgentWorkChatOpen(false)} />
+              <AgentWorkChat onClose={() => setAgentWorkChatOpen(false)} onWorkflowCreated={setChatCreatedWorkflowId} />
             ) : (
               <button
                 aria-label="Open canvas chat"
@@ -4021,7 +4034,19 @@ export default function App() {
                   this popover only has maxHeight+overflow:auto, so the
                   list has to size to its own content instead). */}
               {openPanel === "agents" && (
-                <AgentWorkWorkflows fill={false} onNewWorkflow={() => setOpenPanel("newWorkflow")} />
+                <AgentWorkWorkflows
+                  fill={false} onNewWorkflow={() => setOpenPanel("newWorkflow")}
+                  onViewInCanvas={id => {
+                    // Reachable from any canvas (this popover isn't gated
+                    // by activeCanvas) — unlike the right sidebar's own
+                    // copy above, viewing from here has to actually switch
+                    // to Agent Work first, or there'd be no mounted
+                    // AgentWorkGraphEditor for loadWorkflowId to reach.
+                    setChatCreatedWorkflowId(id);
+                    setActiveCanvas("agentWork");
+                    setOpenPanel(null);
+                  }}
+                />
               )}
 
               {openPanel === "newWorkflow" && (
