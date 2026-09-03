@@ -1035,6 +1035,15 @@ export default function App() {
   // does the same for Usage/Routing/Models/Settings, each of which
   // still opens through the existing togglePanel popover mechanism —
   // this bar only adds the entry point, not a second copy of that UI.
+  // Desktop rail's "Agents" button expands the saved-workflows list
+  // INLINE below itself, in the rail's own flow, rather than as a
+  // floating popover (2026-09-04, JuanJo: the button already carries a
+  // chevron — the expand-in-place affordance — but used to open a
+  // position:fixed window instead, an affordance mismatch. Mobile keeps
+  // the existing openPanel==="agents" popover/sheet, appropriate there
+  // since an inline expansion would awkwardly push everything else down
+  // a much shorter screen).
+  const [agentsWorkflowsExpanded, setAgentsWorkflowsExpanded] = useState(false);
   const MOBILE_BAR_HEIGHT = 56;
   const [mobileCanvasMenuOpen, setMobileCanvasMenuOpen] = useState(false);
   const [mobileAccountMenuOpen, setMobileAccountMenuOpen] = useState(false);
@@ -2206,21 +2215,35 @@ export default function App() {
                 <button
                   className="sidebar-menu-btn"
                   title="Agents"
-                  onClick={e => togglePanel("agents", e.currentTarget)}
+                  onClick={() => setAgentsWorkflowsExpanded(v => !v)}
                   style={{
                     display: "flex", alignItems: "center", gap: spacing.sm,
                     height: OUTER_RAIL_ROW_HEIGHT, boxSizing: "border-box",
                     padding: `0 ${spacing.sm}px`,
                     borderRadius: radius.sm, border: "none",
-                    background: openPanel === "agents" ? "rgba(255,255,255,0.06)" : "transparent",
+                    background: agentsWorkflowsExpanded ? "rgba(255,255,255,0.06)" : "transparent",
                     color: neutral.textPrimary, cursor: "pointer", textAlign: "left",
                     fontSize: fontSize.xs, fontFamily, fontWeight: fontWeight.medium,
                   }}
                 >
                   <RocketIcon size={iconSize.sm} />
                   <span className="sidebar-menu-btn-label" style={{ flex: 1 }}>Agents</span>
-                  <ChevronDownIcon size={12} className="sidebar-menu-btn-label" />
+                  <span
+                    className="sidebar-menu-btn-label"
+                    style={{ display: "flex", transform: agentsWorkflowsExpanded ? "rotate(180deg)" : undefined, transition: "transform 0.15s ease" }}
+                  >
+                    <ChevronDownIcon size={12} />
+                  </span>
                 </button>
+                {agentsWorkflowsExpanded && (
+                  <div className="hide-scrollbar" style={{ maxHeight: 320, overflowY: "auto" }}>
+                    <AgentWorkWorkflows
+                      fill={false}
+                      onNewWorkflow={() => setOpenPanel("newWorkflow")}
+                      onViewInCanvas={setChatCreatedWorkflowId}
+                    />
+                  </div>
+                )}
               </>
             )}
 

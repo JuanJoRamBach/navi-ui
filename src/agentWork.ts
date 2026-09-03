@@ -170,3 +170,25 @@ export async function getRunSteps(runId: string): Promise<AgentRunStep[]> {
   const res = await fetch(`${NAVI_BACKEND_URL}/agent/runs/${encodeURIComponent(runId)}/steps`);
   return res.json();
 }
+
+export async function deleteRun(runId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${NAVI_BACKEND_URL}/agent/runs/${encodeURIComponent(runId)}`, { method: "DELETE" });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+// workflowId scopes the clear to one workflow's runs; omitted clears
+// every run across the whole project (2026-09-04, JuanJo: "I don't
+// actually wanna know which runs were done so long ago").
+export async function deleteAllRuns(workflowId?: string): Promise<boolean> {
+  try {
+    const qs = workflowId ? `?workflow_id=${encodeURIComponent(workflowId)}` : "";
+    const res = await fetch(`${NAVI_BACKEND_URL}/agent/runs${qs}`, { method: "DELETE" });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}

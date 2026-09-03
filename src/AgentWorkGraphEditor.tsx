@@ -746,28 +746,42 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
         padding: `${spacing.sm}px ${spacing.md}px`, borderBottom: "1px solid rgba(255,255,255,0.08)", flexShrink: 0,
       }}>
         <div style={{
-          display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.sm,
-          position: "relative",
+          // Real grid tracks, not an absolutely-positioned overlay
+          // (2026-09-04, JuanJo: "the buttons on the top bar still go
+          // over the title if the right side bar is open" — a long
+          // workflow name mathematically centered on the row's total
+          // width can genuinely overlap the button group once the right
+          // sidebar's padding shrinks the available space; absolute
+          // positioning has no awareness of its neighbors to avoid
+          // that). Two equal 1fr outer tracks keep the middle "auto"
+          // track visually centered exactly as before, but because it's
+          // a real grid column — not a layer floating over the others —
+          // it structurally cannot overlap them; it just gets squeezed
+          // and the name truncates instead (maxWidth + ellipsis below).
+          display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: spacing.sm,
           // Compensates for the app's own sidebars, which overlay ON TOP
-          // of this canvas rather than shrinking it — without this, the
-          // absolutely-centered name below drifts off-true the moment
-          // either sidebar is open. Left reads the reactive
-          // --left-panel-width var directly (already 0px when closed);
-          // right has no such unified var, so App.tsx passes its
-          // open/closed state down as rightSidebarOpen instead.
+          // of this canvas rather than shrinking it. Left reads the
+          // reactive --left-panel-width var directly (already 0px when
+          // closed); right has no such unified var, so App.tsx passes
+          // its open/closed state down as rightSidebarOpen instead.
           paddingLeft: "var(--left-panel-width, 0px)",
           paddingRight: rightSidebarOpen ? "var(--right-panel-width, 280px)" : 0,
           transition: "padding 0.2s ease",
         }}>
-          <span style={{ fontSize: fontSize.sm, fontWeight: fontWeight.medium, color: neutral.textPrimary, flexShrink: 0 }}>
+          <span style={{
+            fontSize: fontSize.sm, fontWeight: fontWeight.medium, color: neutral.textPrimary,
+            justifySelf: "start", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          }}>
             Workflow Canvas
           </span>
 
-          {/* Absolutely centered on the row's own (padded) width, not
-              the full canvas — see the padding comment above. A set
-              name reads as a plain title + a small edit button, not a
-              perpetually-open input (2026-09-03, JuanJo). */}
-          <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", display: "flex", alignItems: "center", gap: spacing.xs }}>
+          {/* A set name reads as a plain title + a small edit button,
+              not a perpetually-open input (2026-09-03, JuanJo).
+              maxWidth+ellipsis (not just minWidth:0) since an `auto`
+              grid track otherwise sizes to its content with no cap —
+              a long name would grow the track itself rather than
+              truncate. */}
+          <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, justifySelf: "center", minWidth: 0, maxWidth: "min(320px, 100%)" }}>
             {editingName || !workflowName.trim() ? (
               <input
                 value={workflowName} onChange={e => setWorkflowName(e.target.value)}
@@ -784,7 +798,10 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
               />
             ) : (
               <>
-                <span style={{ fontSize: fontSize.xs, fontWeight: fontWeight.medium, color: neutral.textPrimary, whiteSpace: "nowrap" }}>
+                <span style={{
+                  fontSize: fontSize.xs, fontWeight: fontWeight.medium, color: neutral.textPrimary,
+                  minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                }}>
                   {workflowName}
                 </span>
                 <button
@@ -802,7 +819,7 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
             )}
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, flexShrink: 0, justifySelf: "end" }}>
             <div style={{ position: "relative" }}>
               <button
                 onClick={() => setShowAddNodeMenu(v => !v)}
