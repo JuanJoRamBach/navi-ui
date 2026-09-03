@@ -232,7 +232,16 @@ function WorkflowCard({ wf, lastRun, running, onRun, onDeleteClick }: {
 // now; App.tsx still keeps a fallback CTA in the empty-canvas state too,
 // since the right sidebar defaults closed and auto-closes on a canvas
 // switch, so this alone wouldn't always be reachable.
-export function AgentWorkWorkflows({ onNewWorkflow }: { onNewWorkflow: (e: React.MouseEvent<HTMLButtonElement>) => void }) {
+//
+// fill (2026-09-03): this component now also renders inside the
+// middle-rail "Agents" popover (App.tsx), not just the right sidebar —
+// the popover only sizes itself via maxHeight+overflow:auto on its own
+// outer element, so a child asserting height:"100%" against that
+// intrinsic-height ancestor would collapse to 0. fill=true (the right
+// sidebar's own definite-height slot) keeps the original flex-fill,
+// self-scrolling layout; fill=false lets the list size to its own
+// content and rely on the popover's own scroll instead.
+export function AgentWorkWorkflows({ onNewWorkflow, fill = true }: { onNewWorkflow: (e: React.MouseEvent<HTMLButtonElement>) => void; fill?: boolean }) {
   const [workflows, setWorkflows] = useState<WorkflowDefinition[] | null>(null);
   const [lastRunByWorkflow, setLastRunByWorkflow] = useState<Record<string, AgentRun>>({});
   const [runningId, setRunningId] = useState<string | null>(null);
@@ -316,11 +325,18 @@ export function AgentWorkWorkflows({ onNewWorkflow }: { onNewWorkflow: (e: React
     </div>
   );
 
+  const outerStyle: React.CSSProperties = fill
+    ? { height: "100%", display: "flex", flexDirection: "column", fontFamily }
+    : { display: "flex", flexDirection: "column", fontFamily };
+  const listStyle: React.CSSProperties = fill
+    ? { flex: 1, minHeight: 0, overflowY: "auto", padding: spacing.xs }
+    : { padding: spacing.xs };
+
   if (workflows === null) {
     return (
-      <div style={{ height: "100%", display: "flex", flexDirection: "column", fontFamily }}>
+      <div style={outerStyle}>
         {header}
-        <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", color: neutral.textFaint, fontSize: fontSize.xs }}>
+        <div style={{ ...(fill ? { flex: 1, minHeight: 0 } : { padding: spacing.lg }), display: "flex", alignItems: "center", justifyContent: "center", color: neutral.textFaint, fontSize: fontSize.xs }}>
           Loading…
         </div>
       </div>
@@ -329,10 +345,11 @@ export function AgentWorkWorkflows({ onNewWorkflow }: { onNewWorkflow: (e: React
 
   if (workflows.length === 0) {
     return (
-      <div style={{ height: "100%", display: "flex", flexDirection: "column", fontFamily }}>
+      <div style={outerStyle}>
         {header}
         <div style={{
-          flex: 1, minHeight: 0, display: "flex", flexDirection: "column", alignItems: "center",
+          ...(fill ? { flex: 1, minHeight: 0 } : {}),
+          display: "flex", flexDirection: "column", alignItems: "center",
           justifyContent: "center", padding: spacing.lg, textAlign: "center", color: neutral.textFaint, gap: spacing.xs,
         }}>
           <CommentDiscussionIcon size={22} fill={accent} />
@@ -344,9 +361,9 @@ export function AgentWorkWorkflows({ onNewWorkflow }: { onNewWorkflow: (e: React
   }
 
   return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column", fontFamily }}>
+    <div style={outerStyle}>
       {header}
-      <div className="hide-scrollbar" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: spacing.xs }}>
+      <div className={fill ? "hide-scrollbar" : undefined} style={listStyle}>
       {workflows.map(wf => (
         <WorkflowCard
           key={wf.id}

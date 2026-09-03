@@ -888,7 +888,7 @@ export default function App() {
 
   const [draft, setDraft] = useState("");
   // Which toolbar popover is open, if any — only one at a time.
-  const [openPanel, setOpenPanel] = useState<"branches" | "models" | "routing" | "usage" | "settings" | "commands" | "projects" | "builds" | "agents" | "connections" | null>(null);
+  const [openPanel, setOpenPanel] = useState<"branches" | "models" | "routing" | "usage" | "settings" | "commands" | "projects" | "builds" | "agents" | "newWorkflow" | "connections" | null>(null);
   // V3 sidebar (menu drawer on mobile/tablet, persistent column on
   // desktop — see .sidebar in index.css). Only meaningful below
   // layout.sidebarBreakpoint; CSS forces the sidebar visible above it
@@ -2111,19 +2111,25 @@ export default function App() {
               </>
             )}
             {/* Agent Work's own middle zone — New Workflow / Agents,
-                same New-X/browse-X shape as Chat and Dev Slate. */}
+                same New-X/browse-X shape as Chat and Dev Slate. Two
+                distinct panel keys now (2026-09-03 fix, JuanJo: "wire
+                the saved agents/workflows to show on the Agents
+                button") — both buttons used to open the same "agents"
+                popover (the creation form), so the saved-workflows list
+                was only ever reachable through the right sidebar, never
+                from this button despite its own label. */}
             {activeCanvas === "agentWork" && (
               <>
                 <button
                   className="sidebar-menu-btn"
                   title="New Workflow"
-                  onClick={e => togglePanel("agents", e.currentTarget)}
+                  onClick={e => togglePanel("newWorkflow", e.currentTarget)}
                   style={{
                     display: "flex", alignItems: "center", gap: spacing.sm,
                     height: OUTER_RAIL_ROW_HEIGHT, boxSizing: "border-box",
                     padding: `0 ${spacing.sm}px`,
                     borderRadius: radius.sm, border: "none",
-                    background: "transparent",
+                    background: openPanel === "newWorkflow" ? "rgba(255,255,255,0.06)" : "transparent",
                     color: neutral.textPrimary, cursor: "pointer", textAlign: "left",
                     fontSize: fontSize.xs, fontFamily, fontWeight: fontWeight.medium,
                   }}
@@ -2954,7 +2960,7 @@ export default function App() {
                Slate's code column does. */
             <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
               <div style={{ flex: 7, minHeight: 0 }}>
-                <AgentWorkWorkflows onNewWorkflow={e => togglePanel("agents", e.currentTarget)} />
+                <AgentWorkWorkflows onNewWorkflow={e => togglePanel("newWorkflow", e.currentTarget)} />
               </div>
               <div style={{ height: 1, background: "rgba(255,255,255,0.08)", flexShrink: 0 }} />
               <div style={{ flex: 3, minHeight: 0 }}>
@@ -3840,7 +3846,22 @@ export default function App() {
                 </div>
               )}
 
+              {/* Saved agents/workflows list — the Agents button's own
+                  content (2026-09-03, JuanJo: "wire the saved agents/
+                  workflows to show on the Agents button"). Reuses
+                  AgentWorkWorkflows wholesale rather than a second
+                  fetch/list implementation — same data, same Run/Delete
+                  actions as the right sidebar's copy, just laid out for
+                  a popover's intrinsic height instead of a fixed panel
+                  (fill={false} drops the height:100%/flex:1 sizing that
+                  only makes sense against a definite-height ancestor;
+                  this popover only has maxHeight+overflow:auto, so the
+                  list has to size to its own content instead). */}
               {openPanel === "agents" && (
+                <AgentWorkWorkflows fill={false} onNewWorkflow={() => setOpenPanel("newWorkflow")} />
+              )}
+
+              {openPanel === "newWorkflow" && (
                 <div>
                   <div style={{ fontSize: fontSize.sm, color: neutral.textMuted, marginBottom: spacing.sm }}>
                     New Workflow
