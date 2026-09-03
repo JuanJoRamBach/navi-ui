@@ -185,6 +185,22 @@ export function convertBackendToGraph(graph: WorkflowGraph): { nodes: Node<Agent
   const X_STEP = 320;
   const Y_MAIN = 140;
 
+  // A node with a REAL upstream predecessor already has its live content
+  // source — dispatcher/agent_work.py's own node functions all do
+  // `prior_context or prompt`, so the node's own literal prompt is a
+  // dormant fallback in that case, never actually used unless the whole
+  // chain above it produces nothing. Synthesizing a Write Text box for
+  // it anyway drew it as an ordinary parallel edge, indistinguishable
+  // from the real live one (2026-09-04, JuanJo: caught this exact case
+  // — "there is a loose write text that does nothing" — on a real
+  // chat-created workflow where send_to_telegram's own static prompt
+  // was shown feeding it right alongside the actual AI-generated
+  // summary). Only worth showing as its own box when it's genuinely the
+  // ONLY content source, matching how a hand-built canvas graph already
+  // treats a writeText node feeding an action node with nothing else
+  // upstream.
+  const nodesWithRealPredecessor = new Set(graph.edges.map(e => e.to));
+
   graph.nodes.forEach((n, i) => {
     const tools = n.tools ?? [];
     const kindId: NodeKindId = tools.length === 1 && KIND_FOR_TOOL[tools[0]] ? KIND_FOR_TOOL[tools[0]]! : "generateAi";
@@ -201,7 +217,7 @@ export function convertBackendToGraph(graph: WorkflowGraph): { nodes: Node<Agent
 
     nodes.push({ id: n.id, type: "agentWorkNode", position: { x, y: Y_MAIN }, data: { kindId, values } });
 
-    if (NEEDS_INLINE_TEXT.has(kindId) && prompt) {
+    if (NEEDS_INLINE_TEXT.has(kindId) && prompt && !nodesWithRealPredecessor.has(n.id)) {
       const textId = `${n.id}-text`;
       nodes.push({ id: textId, type: "agentWorkNode", position: { x, y: Y_MAIN - 160 }, data: { kindId: "writeText", values: { text: prompt } } });
       edges.push({ id: `e-${textId}-${n.id}`, source: textId, target: n.id, animated: false, style: EDGE_STYLE });
