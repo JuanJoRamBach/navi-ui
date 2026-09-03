@@ -11,6 +11,14 @@ export interface AgentWorkNodeData {
 
 export interface AgentWorkGroupData {
   label: string;
+  // The actual fan-out ("sub-flow") behavior, not just visual grouping
+  // (2026-09-03, JuanJo: "let's properly make the sub flows, not just an
+  // idea") — every node inside this group runs once per item here
+  // instead of once total, dispatcher/agent_work.py substituting each
+  // item into any "{{item}}" a node's prompt contains. Undefined/empty
+  // means "no fan-out" — the group stays pure visual organization,
+  // exactly as it was before this field existed.
+  items?: string[];
   onDelete?: () => void;
   [key: string]: unknown;
 }
@@ -62,33 +70,42 @@ export function AgentWorkGraphNode({ data, selected }: NodeProps & { data: Agent
   );
 }
 
-// A resizable container nodes can be dropped into — pure visual/
-// organizational grouping for now (2026-09-03, JuanJo: "we must
-// implement the sub-flows from reactflow"), built on React Flow's own
-// parentId/extent mechanism (reactflow.dev/learn/layouting/sub-flows),
-// not a bespoke nesting system. No handles — a group can't itself be
-// wired into the graph, matching the library's own "group node type...
-// has no handles attached" default. Registered under the type key
-// "group" specifically so React Flow's own parent/child ordering rules
-// apply the same way they would to its built-in group node; this is a
-// resizable replacement for that default, not a different concept.
-// Deliberately NOT yet wired to any backend execution semantics ("run
-// this group once per row of a list") — that's the larger, separately-
-// flagged fan-out feature (see IDEAS.md), this is only the visual piece.
+// A resizable container nodes can be dropped into, built on React Flow's
+// own parentId/extent mechanism (reactflow.dev/learn/layouting/sub-
+// flows). No handles — a group can't itself be wired into the graph,
+// matching the library's own "group node type... has no handles
+// attached" default. Registered under the type key "group" specifically
+// so React Flow's own parent/child ordering rules apply the same way
+// they would to its built-in group node; this is a resizable
+// replacement for that default, not a different concept.
+//
+// Real fan-out (2026-09-03, JuanJo: "let's properly make the sub flows,
+// not just an idea") — an amber "N items" badge shows when data.items is
+// set, and the border switches solid amber instead of a neutral dash, so
+// a group that actually changes how the workflow RUNS reads differently
+// from one that's still just visual organization (edited via clicking
+// the group, see GroupInspector in AgentWorkGraphEditor.tsx).
 export function AgentWorkGroupNode({ data, selected }: NodeProps & { data: AgentWorkGroupData }) {
+  const itemCount = data.items?.length ?? 0;
+  const isFanOut = itemCount > 0;
+  const accent = "oklch(70% 0.15 70)";
   return (
     <div style={{
       width: "100%", height: "100%", borderRadius: radius.md,
-      border: `1.5px dashed ${selected ? neutral.textMuted : "rgba(255,255,255,0.18)"}`,
-      background: "rgba(255,255,255,0.02)",
+      border: isFanOut ? `1.5px solid ${accent}88` : `1.5px dashed ${selected ? neutral.textMuted : "rgba(255,255,255,0.18)"}`,
+      background: isFanOut ? "oklch(70% 0.15 70 / 0.05)" : "rgba(255,255,255,0.02)",
     }}>
       <NodeResizer minWidth={200} minHeight={140} isVisible={selected} lineStyle={{ borderColor: neutral.textMuted }} handleStyle={{ background: neutral.textMuted, width: 8, height: 8, borderRadius: 2 }} />
       <div style={{
-        position: "absolute", top: -9, left: spacing.sm, padding: `0 ${spacing.xxs}px`,
-        background: "#0a0a0a", fontSize: fontSize.xxs, fontWeight: fontWeight.medium,
-        color: neutral.textFaint, fontFamily,
+        position: "absolute", top: -9, left: spacing.sm, display: "flex", alignItems: "center", gap: 4,
+        padding: `0 ${spacing.xxs}px`, background: "#0a0a0a", fontFamily,
       }}>
-        {data.label}
+        <span style={{ fontSize: fontSize.xxs, fontWeight: fontWeight.medium, color: neutral.textFaint }}>{data.label}</span>
+        {isFanOut && (
+          <span style={{ fontSize: fontSize.xxs, fontWeight: fontWeight.medium, color: accent }}>
+            · {itemCount} item{itemCount === 1 ? "" : "s"}
+          </span>
+        )}
       </div>
       {data.onDelete && (
         <button

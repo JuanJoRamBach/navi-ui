@@ -300,6 +300,70 @@ function NodeInspector({ node, onChange, onDelete, onClose }: {
   );
 }
 
+// The fan-out editing surface — a group's only real config (2026-09-03,
+// JuanJo: "let's properly make the sub flows, not just an idea"). One
+// textarea, one line per item; blank/whitespace-only lines are dropped
+// on change so "3 blank lines at the end" never silently becomes "3
+// phantom iterations that call the LLM for nothing." Leaving this
+// blank/empty is the explicit way to keep a group purely visual — no
+// separate toggle needed, "no items" already means "no fan-out"
+// everywhere else this data is read (the node's own badge,
+// convertGraphToBackend, the dispatcher).
+function GroupInspector({ node, onChangeItems, onClose }: {
+  node: Node<AgentWorkGroupData>; onChangeItems: (items: string[]) => void; onClose: () => void;
+}) {
+  const itemsText = (node.data.items ?? []).join("\n");
+  return (
+    <div style={{
+      width: 280, display: "flex", flexDirection: "column", borderRadius: radius.md,
+      border: "1px solid rgba(255,255,255,0.12)", background: "#161616",
+      boxShadow: "0 12px 40px rgba(0,0,0,0.55)", maxHeight: 360,
+    }}>
+      <div style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.xs,
+        padding: spacing.sm, borderBottom: "1px solid rgba(255,255,255,0.06)", flexShrink: 0,
+      }}>
+        <span style={{ fontSize: fontSize.xs, fontWeight: fontWeight.medium, color: neutral.textPrimary }}>{node.data.label}</span>
+        <button onClick={onClose} aria-label="Close" style={{ display: "flex", background: "none", border: "none", color: neutral.textFaint, cursor: "pointer" }}>
+          <XIcon size={12} />
+        </button>
+      </div>
+      <div style={{ padding: spacing.sm, display: "flex", flexDirection: "column", gap: spacing.xs, overflowY: "auto", flex: 1 }}>
+        <div style={{ fontSize: fontSize.xxs, color: neutral.textFaint, lineHeight: 1.5 }}>
+          Repeat every node in this group once per line below. Reference the current line in any node's text as <code>{"{{item}}"}</code>.
+        </div>
+        <textarea
+          value={itemsText} rows={7} placeholder={"lead1@company.com\nlead2@company.com\n..."}
+          onChange={e => onChangeItems(e.target.value.split("\n").map(s => s.trim()).filter(Boolean))}
+          style={{
+            width: "100%", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.12)",
+            borderRadius: radius.xs, color: neutral.textPrimary, fontSize: fontSize.xs, fontFamily,
+            padding: `${spacing.xxs}px ${spacing.xs}px`, boxSizing: "border-box", resize: "vertical",
+          }}
+        />
+        {!node.data.items?.length && (
+          <div style={{ fontSize: fontSize.xxs, color: neutral.textFaint }}>Empty — this group is just visual organization, it runs its contents once as normal.</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function GroupInspectorAnchor({ node, onChangeItems, onClose }: {
+  node: Node<AgentWorkGroupData>; onChangeItems: (items: string[]) => void; onClose: () => void;
+}) {
+  const { x, y, zoom } = useViewport();
+  const width = node.measured?.width ?? 320;
+  const height = node.measured?.height ?? 220;
+  const left = node.position.x * zoom + x + (width * zoom) / 2;
+  const top = node.position.y * zoom + y + height * zoom + 8;
+  return (
+    <div style={{ position: "absolute", left, top, transform: "translateX(-50%)", zIndex: 50 }}>
+      <GroupInspector node={node} onChangeItems={onChangeItems} onClose={onClose} />
+    </div>
+  );
+}
+
 // Computes where NodeInspector renders: node position (flow space) run
 // through the live pan/zoom transform (screen = flow * zoom + offset —
 // the same math React Flow itself uses internally), so the popover
@@ -350,6 +414,7 @@ function GraphCanvas() {
   const [nodes, setNodes, onNodesChange] = useNodesState<AgentWorkAnyNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [workflowName, setWorkflowName] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveErrors, setSaveErrors] = useState<string[]>([]);
@@ -513,6 +578,14 @@ function GraphCanvas() {
     setSelectedId(null);
   };
 
+  const selectedGroupNode = nodes.find((n): n is Node<AgentWorkGroupData> => n.id === selectedGroupId && n.type === "group");
+
+  const isGroupNode = (n: AgentWorkAnyNode): n is Node<AgentWorkGroupData> => n.type === "group";
+
+  const updateGroupItems = (groupId: string, items: string[]) => {
+    setNodes(nds => nds.map(n => n.id === groupId && isGroupNode(n) ? { ...n, data: { ...n.data, items } } : n));
+  };
+
   // Real save (2026-09-02) — converts the canvas into storage/
   // agent_work.py's own graph shape and POSTs it through the same
   // /agent/workflows route the chat-created path already uses.
@@ -525,9 +598,13 @@ function GraphCanvas() {
       setSaveErrors(["Name this workflow before saving."]);
       return;
     }
-    // Groups are canvas-only organization, never sent to the backend —
-    // convertGraphToBackend only knows about real execution nodes.
-    const { graph, errors } = convertGraphToBackend(nodes.filter(isExecNode), edges);
+    // A group only ships as real fan-out metadata if it actually has
+    // items — one with none stays exactly what it's always been, pure
+    // canvas organization convertGraphToBackend never sees at all.
+    const groupInputs = nodes
+      .filter((n): n is Node<AgentWorkGroupData> => n.type === "group")
+      .map(n => ({ id: n.id, items: n.data.items ?? [] }));
+    const { graph, errors } = convertGraphToBackend(nodes.filter(isExecNode), edges, groupInputs);
     if (errors.length > 0 || !graph) {
       setSaveErrors(errors);
       return;
@@ -651,14 +728,15 @@ function GraphCanvas() {
             // internal stopPropagation, so closing the menus here is
             // reliable everywhere the outside-click listener wasn't.
             onNodeClick={(_e, node) => {
-              // Groups don't get the field-editing popover — they have
-              // no prompt/tools to configure, only membership (handled
-              // by dragging) and deletion (their own button).
+              // Groups get their own, simpler inspector (just the
+              // fan-out items list) — not the per-field editor exec
+              // nodes use, they have no prompt/tools to configure.
               setSelectedId(node.type === "group" ? null : node.id);
+              setSelectedGroupId(node.type === "group" ? node.id : null);
               setShowAddNodeMenu(false); setConnectDropMenu(null);
             }}
             onNodeDragStop={onNodeDragStop}
-            onPaneClick={() => { setSelectedId(null); setShowAddNodeMenu(false); setConnectDropMenu(null); }}
+            onPaneClick={() => { setSelectedId(null); setSelectedGroupId(null); setShowAddNodeMenu(false); setConnectDropMenu(null); }}
             nodeTypes={AGENT_WORK_NODE_TYPES}
             edgeTypes={AGENT_WORK_EDGE_TYPES}
             snapToGrid snapGrid={[GRID_SIZE, GRID_SIZE]}
@@ -688,6 +766,13 @@ function GraphCanvas() {
               onChange={updateSelectedValues}
               onDelete={deleteSelected}
               onClose={() => setSelectedId(null)}
+            />
+          )}
+          {selectedGroupNode && (
+            <GroupInspectorAnchor
+              node={selectedGroupNode}
+              onChangeItems={items => updateGroupItems(selectedGroupNode.id, items)}
+              onClose={() => setSelectedGroupId(null)}
             />
           )}
           {connectDropMenu && (

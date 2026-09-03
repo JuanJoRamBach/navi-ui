@@ -25,16 +25,31 @@ export interface GraphConversionResult {
   errors: string[];
 }
 
+// One entry per canvas group that actually has a fan-out items list —
+// see AgentWorkGraphEditor.tsx's GroupInspector, the only place `items`
+// gets set. A group with none never reaches here at all (filtered by
+// the GraphCanvas call site), so this input is already "real fan-out
+// groups only," not every group on the canvas.
+export interface GraphGroupInput {
+  id: string;
+  items: string[];
+}
+
 // Turns the canvas (React Flow nodes/edges, editor-only field names like
 // "instructions"/"url") into storage/agent_work.py's real graph shape
-// ({nodes:[{id,prompt,tools?}], edges:[{from,to}]}) — the same shape
-// the chat tool's create_workflow builds, just hand-authored instead of
-// LLM-authored. writeText nodes have no backend node of their own: a
-// literal value someone already typed at build time isn't something to
-// re-generate at run time, so it's inlined directly into whatever node
-// it feeds (matching exactly how a chat-created send_to_telegram step's
-// own literal prompt already works) rather than becoming its own step.
-export function convertGraphToBackend(nodes: Node<AgentWorkNodeData>[], edges: Edge[]): GraphConversionResult {
+// ({nodes:[{id,prompt,tools?}], edges:[{from,to}], groups?:[{id,node_ids,items}]})
+// — the same node/edge shape the chat tool's create_workflow builds,
+// plus groups (2026-09-03, "let's properly make the sub flows, not just
+// an idea") — dispatcher/agent_work.py runs a group's member nodes once
+// per item instead of once total. writeText nodes have no backend node
+// of their own: a literal value someone already typed at build time
+// isn't something to re-generate at run time, so it's inlined directly
+// into whatever node it feeds (matching exactly how a chat-created
+// send_to_telegram step's own literal prompt already works) rather than
+// becoming its own step.
+export function convertGraphToBackend(
+  nodes: Node<AgentWorkNodeData>[], edges: Edge[], groups: GraphGroupInput[] = [],
+): GraphConversionResult {
   if (nodes.length === 0) {
     return { graph: null, errors: ["Add at least one node before saving."] };
   }
@@ -91,5 +106,17 @@ export function convertGraphToBackend(nodes: Node<AgentWorkNodeData>[], edges: E
   }
   if (errors.length > 0) return { graph: null, errors };
 
-  return { graph: { nodes: backendNodes, edges: backendEdges }, errors: [] };
+  const backendGroups = groups
+    .map(g => ({
+      id: g.id, items: g.items,
+      node_ids: nodes.filter(n => n.parentId === g.id && !writeTextIds.has(n.id)).map(n => n.id),
+    }))
+    // A group with items but nothing dragged into it yet is a no-op —
+    // skip it rather than shipping empty fan-out metadata.
+    .filter(g => g.node_ids.length > 0);
+
+  return {
+    graph: { nodes: backendNodes, edges: backendEdges, ...(backendGroups.length ? { groups: backendGroups } : {}) },
+    errors: [],
+  };
 }

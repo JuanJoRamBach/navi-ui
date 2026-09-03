@@ -17,9 +17,21 @@ export interface WorkflowGraphEdge {
   to: string;
 }
 
+// Fan-out ("sub-flow") metadata — dispatcher/agent_work.py runs every
+// node in node_ids once per entry in items instead of once total,
+// substituting "{{item}}" into that node's prompt each pass (2026-09-03).
+// Optional and usually absent: a canvas group with no items list is
+// pure visual organization and never produces one of these at all.
+export interface WorkflowGraphGroup {
+  id: string;
+  node_ids: string[];
+  items: string[];
+}
+
 export interface WorkflowGraph {
   nodes: WorkflowGraphNode[];
   edges: WorkflowGraphEdge[];
+  groups?: WorkflowGraphGroup[];
 }
 
 export type WorkflowTrigger =
