@@ -20,6 +20,7 @@ import {
   SidebarExpandIcon,
   XIcon,
   GearIcon,
+  PersonIcon,
   SearchIcon,
   BookIcon,
   AlertIcon,
@@ -64,6 +65,7 @@ import { DevSlateDockview } from "./DevSlateDockview";
 import { useDevSlateState } from "./devslateStore";
 import { AgentWorkChat } from "./AgentWorkChat";
 import { AgentWorkWorkflows } from "./AgentWorkWorkflows";
+import { ConnectionsOverlay } from "./ConnectionsOverlay";
 import { AgentWorkRunHistory } from "./AgentWorkRunHistory";
 import { AgentWorkCalendar } from "./AgentWorkCalendar";
 import { fetchModelCatalog, setPinnedModel, type ModelCatalog } from "./devslate";
@@ -888,7 +890,15 @@ export default function App() {
 
   const [draft, setDraft] = useState("");
   // Which toolbar popover is open, if any — only one at a time.
-  const [openPanel, setOpenPanel] = useState<"branches" | "models" | "routing" | "usage" | "settings" | "commands" | "projects" | "builds" | "agents" | "newWorkflow" | "connections" | null>(null);
+  const [openPanel, setOpenPanel] = useState<"branches" | "models" | "routing" | "usage" | "settings" | "commands" | "projects" | "builds" | "agents" | "newWorkflow" | "connections" | "profile" | null>(null);
+  // Profile's own Connections option opens a full-screen overlay, not
+  // another corner popover (2026-09-03, JuanJo: "an 'overlay window'
+  // over all the UI" — deliberately NOT the same togglePanel mechanism
+  // openPanel drives, and NOT the same "connections" key Agent Work's
+  // right sidebar already uses for its own, unrelated Activepieces-
+  // status trigger). Separate boolean, closed whenever the Profile
+  // popup itself closes.
+  const [showConnectionsOverlay, setShowConnectionsOverlay] = useState(false);
   // V3 sidebar (menu drawer on mobile/tablet, persistent column on
   // desktop — see .sidebar in index.css). Only meaningful below
   // layout.sidebarBreakpoint; CSS forces the sidebar visible above it
@@ -2246,7 +2256,13 @@ export default function App() {
           </div>
 
           {/* bottom zone — "account stuff": genuinely global regardless
-              of canvas, Settings anchored last (universal convention). */}
+              of canvas, Profile anchored last (universal convention).
+              Settings used to be its own row here; it's now a Profile
+              popup item instead (2026-09-03, JuanJo: "create a Profile
+              button... one is Settings, and there is other,
+              'Connections'... keep connections at 2 clicks... without a
+              Settings pop up"). Usage/Routing/Models stay exactly as
+              they were, unchanged — only Settings moved. */}
           <div style={{
             display: "flex", flexDirection: "column", gap: spacing.xxs, padding: spacing.sm,
             borderTop: "1px solid rgba(255,255,255,0.08)", flexShrink: 0,
@@ -2255,7 +2271,6 @@ export default function App() {
               { key: "usage", icon: <GraphIcon size={iconSize.sm} />, label: "Usage counters" },
               { key: "routing", icon: <GitBranchIcon size={iconSize.sm} />, label: "Routing & fallbacks" },
               { key: "models", icon: <CpuIcon size={iconSize.sm} />, label: "Today's models" },
-              { key: "settings", icon: <GearIcon size={iconSize.sm} />, label: "Settings" },
             ] as const).map(({ key, icon, label }) => (
               <button
                 key={key}
@@ -2276,6 +2291,23 @@ export default function App() {
                 <span className="sidebar-menu-btn-label">{label}</span>
               </button>
             ))}
+            <button
+              className="sidebar-menu-btn"
+              title="Profile"
+              onClick={e => togglePanel("profile", e.currentTarget)}
+              style={{
+                display: "flex", alignItems: "center", gap: spacing.sm,
+                height: OUTER_RAIL_ROW_HEIGHT, boxSizing: "border-box",
+                padding: `0 ${spacing.sm}px`,
+                borderRadius: radius.sm, border: "none",
+                background: openPanel === "profile" ? "rgba(255,255,255,0.06)" : "transparent",
+                color: neutral.textPrimary, cursor: "pointer", textAlign: "left",
+                fontSize: fontSize.xs, fontFamily, fontWeight: fontWeight.medium,
+              }}
+            >
+              <PersonIcon size={iconSize.sm} />
+              <span className="sidebar-menu-btn-label">Profile</span>
+            </button>
             {pushStatus !== "unsupported" && (
               <button
                 className="sidebar-menu-btn"
@@ -3870,6 +3902,35 @@ export default function App() {
                 </div>
               )}
 
+              {openPanel === "profile" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: spacing.xxs }}>
+                  <button
+                    onClick={e => togglePanel("settings", e.currentTarget)}
+                    style={{
+                      display: "flex", alignItems: "center", gap: spacing.sm,
+                      height: OUTER_RAIL_ROW_HEIGHT, boxSizing: "border-box", padding: `0 ${spacing.sm}px`,
+                      borderRadius: radius.sm, border: "none", background: "transparent",
+                      color: neutral.textPrimary, cursor: "pointer", textAlign: "left",
+                      fontSize: fontSize.xs, fontFamily, fontWeight: fontWeight.medium, width: "100%",
+                    }}
+                  >
+                    <GearIcon size={iconSize.sm} /> Settings
+                  </button>
+                  <button
+                    onClick={() => { setOpenPanel(null); setShowConnectionsOverlay(true); }}
+                    style={{
+                      display: "flex", alignItems: "center", gap: spacing.sm,
+                      height: OUTER_RAIL_ROW_HEIGHT, boxSizing: "border-box", padding: `0 ${spacing.sm}px`,
+                      borderRadius: radius.sm, border: "none", background: "transparent",
+                      color: neutral.textPrimary, cursor: "pointer", textAlign: "left",
+                      fontSize: fontSize.xs, fontFamily, fontWeight: fontWeight.medium, width: "100%",
+                    }}
+                  >
+                    <LinkIcon size={iconSize.sm} /> Connections
+                  </button>
+                </div>
+              )}
+
               {openPanel === "connections" && (
                 <div>
                   <div style={{ fontSize: fontSize.sm, color: neutral.textMuted, marginBottom: spacing.sm }}>
@@ -4275,6 +4336,13 @@ export default function App() {
                   {label}
                 </button>
               ))}
+              <button
+                onClick={() => { setMobileAccountMenuOpen(false); setShowConnectionsOverlay(true); }}
+                style={mobileSheetRowStyle}
+              >
+                <LinkIcon size={iconSize.sm} />
+                Connections
+              </button>
             </div>
           )}
 
@@ -4322,6 +4390,7 @@ export default function App() {
           </div>
         </>
       )}
+      {showConnectionsOverlay && <ConnectionsOverlay onClose={() => setShowConnectionsOverlay(false)} />}
     </div>
   );
 }
