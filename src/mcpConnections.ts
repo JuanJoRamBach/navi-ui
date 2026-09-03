@@ -26,6 +26,27 @@ export interface MCPDiscoveredTool {
   status: "approved" | "new" | "changed";
 }
 
+// A real, searchable result from the official MCP Registry
+// (tools/mcp_marketplace.py's proxy) — enough to pre-fill the existing
+// connect form, not a full server.json.
+export interface MCPMarketplaceResult {
+  name: string;
+  title: string;
+  description: string;
+  repository_url: string | null;
+  transport: MCPTransport;
+  requires_auth: boolean;
+  url?: string;
+  command?: string;
+  args?: string[];
+}
+
+export async function searchMCPMarketplace(query: string): Promise<MCPMarketplaceResult[]> {
+  const res = await fetch(`${NAVI_BACKEND_URL}/mcp/marketplace/search?q=${encodeURIComponent(query)}`);
+  const data: { results?: MCPMarketplaceResult[]; error?: string } = await res.json();
+  return data.results ?? [];
+}
+
 export async function listMCPConnections(): Promise<MCPConnection[]> {
   const res = await fetch(`${NAVI_BACKEND_URL}/mcp/connections`);
   return res.json();

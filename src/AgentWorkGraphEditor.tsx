@@ -107,29 +107,61 @@ const EDGE_WIDTH = 3;
 // at the edge's midpoint, always visible but subtle until hovered, is
 // the same pattern n8n uses. Registered as the "default" edge type so
 // every edge gets it without needing an explicit `type` on creation.
-function AgentWorkEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, style, markerEnd }: EdgeProps) {
+function AgentWorkEdge({ id, source, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, style, markerEnd, data }: EdgeProps) {
   const [edgePath, labelX, labelY] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
   const [hovered, setHovered] = useState(false);
-  const { setEdges } = useReactFlow();
+  const { setEdges, getNode } = useReactFlow();
+  // A branch label only means anything leaving a Choose a Path node
+  // (2026-09-04) — dispatcher/agent_work.py's _run_choose_path_node
+  // picks exactly one of these per run, then prunes the rest. Every
+  // other edge stays exactly as it was: just the delete button.
+  const sourceNode = getNode(source);
+  const isChoosePathBranch = (sourceNode?.data as { kindId?: string } | undefined)?.kindId === "choosePath";
+  const label = (data as { label?: string } | undefined)?.label ?? "";
+
   return (
     <>
       <BaseEdge id={id} path={edgePath} style={style} markerEnd={markerEnd} />
       <EdgeLabelRenderer>
-        <button
-          onClick={e => { e.stopPropagation(); setEdges(eds => eds.filter(edge => edge.id !== id)); }}
+        <div
           onMouseEnter={() => setHovered(true)}
           onMouseLeave={() => setHovered(false)}
-          aria-label="Delete connection"
           style={{
             position: "absolute", transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
-            width: 16, height: 16, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
-            border: "1px solid rgba(255,255,255,0.25)", background: hovered ? "#e05a4a" : "#161616",
-            color: hovered ? "#fff" : neutral.textFaint, fontSize: 11, lineHeight: 1, padding: 0,
-            cursor: "pointer", pointerEvents: "all", fontFamily,
+            display: "flex", alignItems: "center", gap: 4, pointerEvents: "all",
           }}
         >
-          ×
-        </button>
+          {isChoosePathBranch && (
+            <input
+              value={label}
+              onChange={e => {
+                const value = e.target.value;
+                setEdges(eds => eds.map(edge => edge.id === id ? { ...edge, data: { ...edge.data, label: value } } : edge));
+              }}
+              onClick={e => e.stopPropagation()}
+              placeholder="branch label"
+              title="This branch's label — the model picks one of these at run time; every other branch off this node is skipped."
+              style={{
+                width: 96, fontSize: 10, padding: "2px 6px", borderRadius: 10,
+                border: `1px solid ${label ? "#e08a3855" : "rgba(255,255,255,0.2)"}`,
+                background: label ? "rgba(224,138,56,0.12)" : "#161616",
+                color: label ? "#e08a38" : neutral.textFaint, fontFamily,
+              }}
+            />
+          )}
+          <button
+            onClick={e => { e.stopPropagation(); setEdges(eds => eds.filter(edge => edge.id !== id)); }}
+            aria-label="Delete connection"
+            style={{
+              width: 16, height: 16, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
+              border: "1px solid rgba(255,255,255,0.25)", background: hovered ? "#e05a4a" : "#161616",
+              color: hovered ? "#fff" : neutral.textFaint, fontSize: 11, lineHeight: 1, padding: 0,
+              cursor: "pointer", flexShrink: 0, fontFamily,
+            }}
+          >
+            ×
+          </button>
+        </div>
       </EdgeLabelRenderer>
     </>
   );

@@ -14,13 +14,13 @@ import { neutral } from "./tokens";
 // through.
 const BACKEND_READY: Record<NodeKindId, boolean> = {
   writeText: true, generateAi: true, searchWeb: true, readPage: true,
-  saveFile: true, sendMessage: true, apiCall: false, sendMail: false, choosePath: false,
+  saveFile: true, sendMessage: true, apiCall: false, sendMail: false, choosePath: true,
   input: true, output: true,
 };
 
 const TOOL_FOR_KIND: Partial<Record<NodeKindId, string>> = {
   searchWeb: "web_search", readPage: "fetch_page", saveFile: "save_note", sendMessage: "send_to_telegram",
-  input: "input", output: "output",
+  input: "input", output: "output", choosePath: "choose_path",
 };
 
 export interface GraphConversionResult {
@@ -87,7 +87,8 @@ export function convertGraphToBackend(
         kindId === "searchWeb" ? (values.instructions ?? "") :
         kindId === "readPage" ? (values.url ?? "") :
         kindId === "input" ? (values.value ?? "") :
-        kindId === "output" ? (values.value ?? "") : "";
+        kindId === "output" ? (values.value ?? "") :
+        kindId === "choosePath" ? (values.condition ?? "") : "";
       const inlined = literalTextByTarget.get(n.id);
       if (inlined) prompt = prompt ? `${prompt}\n\n${inlined}` : inlined;
       const tool = TOOL_FOR_KIND[kindId];
@@ -104,7 +105,10 @@ export function convertGraphToBackend(
 
   const backendEdges = edges
     .filter(e => !writeTextIds.has(e.source) && !writeTextIds.has(e.target))
-    .map(e => ({ from: e.source, to: e.target }));
+    .map(e => {
+      const label = (e.data as { label?: string } | undefined)?.label;
+      return { from: e.source, to: e.target, ...(label ? { label } : {}) };
+    });
 
   // A node whose only content source was an inlined writeText that was
   // left blank silently ships an empty action — catch it now, not as a
@@ -115,6 +119,15 @@ export function convertGraphToBackend(
     const hasIncoming = backendEdges.some(e => e.to === n.id);
     if (isActionKind && !n.prompt.trim() && !hasIncoming) {
       errors.push(`"${NODE_KINDS[kindId].label}" has no content — connect a Write Text/Generate with AI node, or type something in it.`);
+    }
+    // A Choose a Path node with no labeled outgoing edge has nothing for
+    // the dispatcher to pick between at run time — same "catch it at
+    // save time" principle as an empty action node above.
+    if (kindId === "choosePath") {
+      const hasLabeledBranch = backendEdges.some(e => e.from === n.id && e.label);
+      if (!hasLabeledBranch) {
+        errors.push(`"Choose a Path" needs at least one labeled outgoing connection — click an edge leaving it to name a branch.`);
+      }
     }
   }
   if (errors.length > 0) return { graph: null, errors };
@@ -140,7 +153,7 @@ export function convertGraphToBackend(
 // boundary.
 const KIND_FOR_TOOL: Partial<Record<string, NodeKindId>> = {
   web_search: "searchWeb", fetch_page: "readPage", save_note: "saveFile",
-  send_to_telegram: "sendMessage", input: "input", output: "output",
+  send_to_telegram: "sendMessage", input: "input", output: "output", choose_path: "choosePath",
 };
 
 // sendMessage/saveFile have no text field of their own on the canvas
@@ -181,6 +194,7 @@ export function convertBackendToGraph(graph: WorkflowGraph): { nodes: Node<Agent
       kindId === "readPage" ? { url: prompt } :
       kindId === "input" ? { value: prompt } :
       kindId === "output" ? { value: prompt, outputType: n.output_type ?? "chat" } :
+      kindId === "choosePath" ? { condition: prompt } :
       kindId === "sendMessage" ? { channel: "telegram" } :
       kindId === "saveFile" ? {} :
       { instructions: prompt }; // generateAi, searchWeb
@@ -195,7 +209,10 @@ export function convertBackendToGraph(graph: WorkflowGraph): { nodes: Node<Agent
   });
 
   for (const e of graph.edges) {
-    edges.push({ id: `e-${e.from}-${e.to}`, source: e.from, target: e.to, animated: false, style: EDGE_STYLE });
+    edges.push({
+      id: `e-${e.from}-${e.to}`, source: e.from, target: e.to, animated: false, style: EDGE_STYLE,
+      ...(e.label ? { data: { label: e.label } } : {}),
+    });
   }
 
   return { nodes, edges };

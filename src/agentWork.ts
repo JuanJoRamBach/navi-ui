@@ -19,6 +19,10 @@ export interface WorkflowGraphNode {
 export interface WorkflowGraphEdge {
   from: string;
   to: string;
+  // Only meaningful leaving a Choose a Path node — the branch this edge
+  // represents (dispatcher/agent_work.py's _run_choose_path_node picks
+  // one label per run; every OTHER edge out of that node gets pruned).
+  label?: string;
 }
 
 // Fan-out ("sub-flow") metadata — dispatcher/agent_work.py runs every
