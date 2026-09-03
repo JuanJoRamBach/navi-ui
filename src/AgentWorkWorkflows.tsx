@@ -243,6 +243,49 @@ function WorkflowCard({ wf, lastRun, running, starred, starring, onRun, onDelete
   );
 }
 
+// Minimal row for a glanceable "jump to a workflow" list (2026-09-04,
+// JuanJo, after the full WorkflowCard got reused here: "it just needs
+// to be a button, with the name... pressing it shows you the canvas...
+// and a little star button to the left"). Deliberately NOT WorkflowCard
+// — no Run, no Delete, no expandable step/schedule details; those are
+// real, useful information density in the right sidebar's dedicated
+// Workflows panel, but wrong weight for a quick rail dropdown whose
+// only job is "find it, look at it."
+function CompactWorkflowRow({ wf, starred, starring, onToggleStar, onViewInCanvas }: {
+  wf: WorkflowDefinition; starred: boolean; starring: boolean;
+  onToggleStar: () => void; onViewInCanvas: () => void;
+}) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+      <button
+        onClick={onToggleStar}
+        disabled={starring}
+        title={starred ? "Remove from Agent Vault" : "Save to Agent Vault"}
+        style={{
+          display: "flex", alignItems: "center", padding: 3, borderRadius: radius.xs,
+          border: "none", background: "transparent",
+          color: starred ? "#e0b94a" : neutral.textFaint, cursor: starring ? "default" : "pointer",
+          opacity: starring ? 0.5 : 1, flexShrink: 0,
+        }}
+      >
+        {starred ? <StarFillIcon size={11} /> : <StarIcon size={11} />}
+      </button>
+      <button
+        onClick={onViewInCanvas}
+        title="View this workflow's nodes on the canvas"
+        style={{
+          flex: 1, minWidth: 0, textAlign: "left", padding: `${spacing.xxs}px ${spacing.xs}px`,
+          borderRadius: radius.xs, border: "none", background: "transparent",
+          color: neutral.textPrimary, cursor: "pointer", fontSize: fontSize.xxs, fontFamily,
+          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+        }}
+      >
+        {wf.name}
+      </button>
+    </div>
+  );
+}
+
 // Every saved workflow_definition — name, trigger, most recent run
 // (client-side joined against a plain listRuns() call rather than a new
 // backend field, since run volume is small right now), manual "Run Now".
@@ -265,8 +308,11 @@ function WorkflowCard({ wf, lastRun, running, starred, starring, onRun, onDelete
 // sidebar's own definite-height slot) keeps the original flex-fill,
 // self-scrolling layout; fill=false lets the list size to its own
 // content and rely on the popover's own scroll instead.
-export function AgentWorkWorkflows({ onNewWorkflow, fill = true, onViewInCanvas }: {
+export function AgentWorkWorkflows({ onNewWorkflow, fill = true, onViewInCanvas, compact = false }: {
   onNewWorkflow: (e: React.MouseEvent<HTMLButtonElement>) => void; fill?: boolean; onViewInCanvas?: (workflowId: string) => void;
+  // Star + name-only rows, no header, no Run/Delete/expand (see
+  // CompactWorkflowRow above) — for the rail's inline "Agents" dropdown.
+  compact?: boolean;
 }) {
   const [workflows, setWorkflows] = useState<WorkflowDefinition[] | null>(null);
   const [lastRunByWorkflow, setLastRunByWorkflow] = useState<Record<string, AgentRun>>({});
@@ -351,7 +397,7 @@ export function AgentWorkWorkflows({ onNewWorkflow, fill = true, onViewInCanvas 
     }
   };
 
-  const header = (
+  const header = compact ? null : (
     <div style={{
       display: "flex", alignItems: "center", justifyContent: "space-between",
       padding: `${spacing.xs}px ${spacing.sm}px`, borderBottom: "1px solid rgba(255,255,255,0.06)", flexShrink: 0,
@@ -401,11 +447,30 @@ export function AgentWorkWorkflows({ onNewWorkflow, fill = true, onViewInCanvas 
         <div style={{
           ...(fill ? { flex: 1, minHeight: 0 } : {}),
           display: "flex", flexDirection: "column", alignItems: "center",
-          justifyContent: "center", padding: spacing.lg, textAlign: "center", color: neutral.textFaint, gap: spacing.xs,
+          justifyContent: "center", padding: compact ? spacing.sm : spacing.lg, textAlign: "center", color: neutral.textFaint, gap: spacing.xs,
         }}>
-          <CommentDiscussionIcon size={22} fill={accent} />
-          <div style={{ fontSize: fontSize.xs, color: neutral.textMuted, fontWeight: fontWeight.medium }}>No workflows yet</div>
-          <div style={{ fontSize: fontSize.xxs }}>Describe one in the chat, or create one with the button above.</div>
+          {!compact && <CommentDiscussionIcon size={22} fill={accent} />}
+          <div style={{ fontSize: compact ? fontSize.xxs : fontSize.xs, color: neutral.textMuted, fontWeight: fontWeight.medium }}>No workflows yet</div>
+          {!compact && <div style={{ fontSize: fontSize.xxs }}>Describe one in the chat, or create one with the button above.</div>}
+        </div>
+      </div>
+    );
+  }
+
+  if (compact) {
+    return (
+      <div style={outerStyle}>
+        <div className={fill ? "hide-scrollbar" : undefined} style={{ ...listStyle, display: "flex", flexDirection: "column", gap: 2 }}>
+          {workflows.map(wf => (
+            <CompactWorkflowRow
+              key={wf.id}
+              wf={wf}
+              starred={starredWorkflowIds.has(wf.id)}
+              starring={starringId === wf.id}
+              onToggleStar={() => toggleStar(wf.id)}
+              onViewInCanvas={() => onViewInCanvas?.(wf.id)}
+            />
+          ))}
         </div>
       </div>
     );

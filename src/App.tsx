@@ -2236,9 +2236,9 @@ export default function App() {
                   </span>
                 </button>
                 {agentsWorkflowsExpanded && (
-                  <div className="hide-scrollbar" style={{ maxHeight: 320, overflowY: "auto" }}>
+                  <div className="hide-scrollbar" style={{ maxHeight: 320, overflowY: "auto", padding: `0 ${spacing.sm}px` }}>
                     <AgentWorkWorkflows
-                      fill={false}
+                      fill={false} compact
                       onNewWorkflow={() => setOpenPanel("newWorkflow")}
                       onViewInCanvas={setChatCreatedWorkflowId}
                     />
