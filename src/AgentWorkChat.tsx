@@ -363,7 +363,7 @@ export function AgentWorkChat({ onClose, onWorkflowCreated }: { onClose: () => v
       position: "relative",
       width: size.width, height: size.height,
       display: "flex", flexDirection: "column",
-      background: "rgba(10,12,18,0.95)", border: "1px solid rgba(255,255,255,0.12)",
+      background: neutral.surfaceSolid, border: "1px solid rgba(255,255,255,0.12)",
       borderRadius: radius.lg, boxShadow: `0 8px 30px rgba(0,0,0,0.5), 0 0 20px ${CANVAS_ACCENT.agentWork.glow}`,
       overflow: "hidden", fontFamily,
     }}>

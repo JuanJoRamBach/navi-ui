@@ -33,7 +33,7 @@ export function AgentChat({ pending, onAnswer, onClose }: {
         onClick={e => e.stopPropagation()}
         style={{
           width: "min(360px, 100%)", maxHeight: "70vh", display: "flex", flexDirection: "column",
-          background: neutral.surface, borderRadius: radius.md, border: `1px solid ${accent}33`,
+          background: neutral.surfaceSolid, borderRadius: radius.md, border: `1px solid ${accent}33`,
           boxShadow: `0 24px 80px rgba(0,0,0,0.6), 0 0 30px ${CANVAS_ACCENT.agentWork.glow}`, fontFamily,
         }}
       >

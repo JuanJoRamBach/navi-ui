@@ -3930,7 +3930,7 @@ export default function App() {
               width: Math.min(POPOVER_WIDTH, window.innerWidth - POPOVER_MARGIN * 2), // same width for all five panels
               maxHeight: "70vh", overflowY: "auto",
               zIndex: 36, // above the sidebar (30) and its own overlay (35) above
-              background: "rgba(10,12,18,0.95)",
+              background: neutral.surfaceSolid,
               border: "1px solid rgba(255,255,255,0.12)",
               borderRadius: radius.lg,
               boxShadow: "0 8px 30px rgba(0,0,0,0.5)",
@@ -4401,7 +4401,7 @@ export default function App() {
           {mobileCanvasMenuOpen && (activeCanvas === "chat" || activeCanvas === "devSlate" || activeCanvas === "agentWork") && (
             <div style={{
               position: "fixed", left: spacing.md, right: spacing.md, bottom: MOBILE_BAR_HEIGHT + spacing.sm,
-              zIndex: 41, background: "rgba(10,12,18,0.95)", border: "1px solid rgba(255,255,255,0.12)",
+              zIndex: 41, background: neutral.surfaceSolid, border: "1px solid rgba(255,255,255,0.12)",
               borderRadius: radius.lg, boxShadow: "0 8px 30px rgba(0,0,0,0.5)",
               display: "flex", flexDirection: "column", gap: spacing.xxs,
             }}>
@@ -4473,7 +4473,7 @@ export default function App() {
           {mobileAccountMenuOpen && (
             <div style={{
               position: "fixed", left: spacing.md, right: spacing.md, bottom: MOBILE_BAR_HEIGHT + spacing.sm,
-              zIndex: 41, background: "rgba(10,12,18,0.95)", border: "1px solid rgba(255,255,255,0.12)",
+              zIndex: 41, background: neutral.surfaceSolid, border: "1px solid rgba(255,255,255,0.12)",
               borderRadius: radius.lg, boxShadow: "0 8px 30px rgba(0,0,0,0.5)",
               display: "flex", flexDirection: "column", gap: spacing.xxs,
             }}>

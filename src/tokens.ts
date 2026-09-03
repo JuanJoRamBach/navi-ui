@@ -129,6 +129,19 @@ export const neutral = {
   textFaint: "rgba(246, 246, 246, 0.48)",
   textInactive: "rgba(246, 246, 246, 0.55)",
   surface: "rgba(10, 12, 18, 0.6)",
+  // Near-solid sibling of `surface` (2026-09-04) — for a FLOATING/MODAL
+  // panel (sits over a dimmed scrim, needs to read as clearly on top of
+  // everything, not part of it) rather than an embedded one (a search
+  // input, a sidebar container — sits inside the app's own known, fixed
+  // background, where `surface`'s lighter glass treatment is the right
+  // call). JuanJo: "a floating window of settings using transparency
+  // looks weird" — ConnectionsOverlay and AgentChat were both using the
+  // same 60%-opaque `surface` as every embedded input bar, letting the
+  // dimmed backdrop bleed through a panel that should feel authoritative
+  // instead. Matches the value AgentWorkChat.tsx's own floating panel
+  // already used correctly, just as a one-off hardcoded value rather
+  // than a shared token.
+  surfaceSolid: "rgba(10, 12, 18, 0.95)",
   // Bumped from 0.52 (JuanJo, 2026-09-01: "still too transparent") —
   // reads fine over the main Chat's flatter background but nearly
   // vanished over Dev Slate's brighter dot-grid canvas.

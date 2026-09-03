@@ -331,7 +331,7 @@ export function ConnectionsOverlay({ onClose }: { onClose: () => void }) {
         onClick={e => e.stopPropagation()}
         style={{
           width: "min(520px, 100%)", maxHeight: "85vh", display: "flex", flexDirection: "column",
-          background: neutral.surface, borderRadius: radius.md, border: "1px solid rgba(255,255,255,0.1)",
+          background: neutral.surfaceSolid, borderRadius: radius.md, border: "1px solid rgba(255,255,255,0.1)",
           boxShadow: "0 24px 80px rgba(0,0,0,0.6)", fontFamily,
         }}
       >
