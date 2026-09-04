@@ -2041,7 +2041,11 @@ export default function App() {
               { key: "chat", icon: <CommentDiscussionIcon size={iconSize.sm} />, label: "Chat", available: true },
               { key: "agentWork", icon: <RocketIcon size={iconSize.sm} />, label: "Agent Work", available: true },
               { key: "devSlate", icon: <CodeIcon size={iconSize.sm} />, label: "Dev Slate", available: true },
-              { key: "dashboard", icon: <PulseIcon size={iconSize.sm} />, label: "Dashboard", available: false },
+              // Dashboard removed from the switcher (2026-09-04) --
+              // deferred until real usage/cost data exists to show (see
+              // IDEAS.md), not worth a visible-but-disabled button until
+              // then. CanvasKey/activeCanvas still allow "dashboard" as a
+              // value so nothing else needs touching when it comes back.
             ] as const).map(({ key, icon, label, available }) => {
               const accent = key in CANVAS_ACCENT ? CANVAS_ACCENT[key as keyof typeof CANVAS_ACCENT] : null;
               const active = activeCanvas === key;
