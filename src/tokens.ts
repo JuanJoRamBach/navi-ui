@@ -180,9 +180,9 @@ export const actionInk = "var(--ink)";
 // hues (Research=green ~140-150°, Brainstorm=purple ~290-300°) so an
 // accent color never means two different things depending on context.
 export const CANVAS_ACCENT: Record<"chat" | "agentWork" | "devSlate", { hue: number; color: string; glow: string }> = {
-  chat: { hue: 250, color: "oklch(65% 0.12 250)", glow: "oklch(65% 0.12 250 / 0.16)" }, // blue — matches Normal mode, reinforces rather than competes
-  agentWork: { hue: 70, color: "oklch(65% 0.12 70)", glow: "oklch(65% 0.12 70 / 0.16)" }, // amber
-  devSlate: { hue: 200, color: "oklch(65% 0.12 200)", glow: "oklch(65% 0.12 200 / 0.16)" }, // teal
+  chat: { hue: 250, color: "var(--accent-chat)", glow: "var(--accent-chat-glow)" }, // blue — matches Normal mode, reinforces rather than competes
+  agentWork: { hue: 70, color: "var(--accent-agentwork)", glow: "var(--accent-agentwork-glow)" }, // amber
+  devSlate: { hue: 200, color: "var(--accent-devslate)", glow: "var(--accent-devslate-glow)" }, // teal
 } as const;
 
 // Sidebar chrome background — near-black, hue-following. Same "lock
@@ -198,8 +198,15 @@ export const CANVAS_ACCENT: Record<"chat" | "agentWork" | "devSlate", { hue: num
 // mapping than OKLCH's. Reusing it here is what produced a yellow-
 // tinted green instead of true green (caught live, 2026-08-31): HSL 130
 // and OKLCH 130 are not the same color, despite sharing a 0-360 scale.
+export function isDayTheme(): boolean {
+  return typeof document !== "undefined" && document.documentElement.getAttribute("data-theme") === "light";
+}
+
 export function tintedSurface(hue: number, lightness = 9, chroma = 0.015): string {
-  return `oklch(${lightness}% ${chroma} ${hue})`;
+  // Mirror the lightness in day mode so the same call yields a light tint
+  // (9% -> 91%, 21% -> 79%) instead of a dark one.
+  const l = isDayTheme() ? 100 - lightness : lightness;
+  return `oklch(${l}% ${chroma} ${hue})`;
 }
 
 // OKLCH-calibrated hue angles for Chat's three modes — landmark values
@@ -221,7 +228,10 @@ export const OKLCH_HUE: Record<ChatMode, number> = {
 // not the thing the blur/glass research flagged — a shadow doesn't
 // blur content or hurt contrast the way backdrop-filter did).
 export function tintedGlow(hue: number, alpha = 0.16): string {
-  return `oklch(65% 0.12 ${hue} / ${alpha})`;
+  // Night: bright 65% accent; day: deeper 48% accent so buttons stay
+  // legible on the light canvas.
+  const l = isDayTheme() ? 48 : 65;
+  return `oklch(${l}% 0.12 ${hue} / ${alpha})`;
 }
 
 export const MODE_THEME: Record<ChatMode, {
@@ -249,10 +259,10 @@ export const MODE_THEME: Record<ChatMode, {
     // feel — still content-only, chrome stays untouched (see
     // neutralGlow in App.tsx). Text contrast checked: textPrimary at
     // 0.95 alpha against 15% lightness is still comfortably >4.5:1.
-    bubbleBg: `oklch(15% 0.04 ${OKLCH_HUE.normal})`,
-    bubbleBorder: "rgba(90, 140, 220, 0.32)",
-    glow: "rgba(90, 140, 220, 0.24)",
-    dot: "rgb(120, 165, 235)",
+    bubbleBg: "var(--bubble-bg-normal)",
+    bubbleBorder: "var(--bubble-border-normal)",
+    glow: "var(--mode-glow-normal)",
+    dot: "var(--mode-dot-normal)",
     label: "Normal Chat",
   },
   research: {
@@ -260,10 +270,10 @@ export const MODE_THEME: Record<ChatMode, {
     hueBase: 130, hueRange: 30, // true green, was drifting toward cyan/teal at 150-190
     particleAlphaBase: 0.24, particleAlphaRange: 0.2, // brighter, per request
     particleLifeBase: 280, particleLifeRange: 160, // linger longer before fading
-    bubbleBg: `oklch(15% 0.04 ${OKLCH_HUE.research})`,
-    bubbleBorder: "rgba(60, 200, 110, 0.32)", // less blue than before — reads green, not teal
-    glow: "rgba(60, 200, 110, 0.24)",
-    dot: "rgb(90, 210, 140)",
+    bubbleBg: "var(--bubble-bg-research)",
+    bubbleBorder: "var(--bubble-border-research)", // less blue than before — reads green, not teal
+    glow: "var(--mode-glow-research)",
+    dot: "var(--mode-dot-research)",
     label: "Research",
   },
   brainstorm: {
@@ -271,10 +281,10 @@ export const MODE_THEME: Record<ChatMode, {
     hueBase: 220, hueRange: 60, // unused for particle spawn (vortex has its own hue logic) — kept for consistency
     particleAlphaBase: 0.14, particleAlphaRange: 0.18,
     particleLifeBase: 200, particleLifeRange: 120,
-    bubbleBg: `oklch(15% 0.04 ${OKLCH_HUE.brainstorm})`,
-    bubbleBorder: "rgba(160, 100, 255, 0.32)",
-    glow: "rgba(160, 100, 255, 0.24)",
-    dot: "rgb(180, 130, 255)",
+    bubbleBg: "var(--bubble-bg-brainstorm)",
+    bubbleBorder: "var(--bubble-border-brainstorm)",
+    glow: "var(--mode-glow-brainstorm)",
+    dot: "var(--mode-dot-brainstorm)",
     label: "Brainstorm",
   },
 };
