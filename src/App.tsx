@@ -43,6 +43,7 @@ import {
   type Mode, type ChatMode, MODE_THEME, CANVAS_ACCENT, OKLCH_HUE,
   spacing, radius, fontSize, fontWeight, lineHeight, iconSize, controlSize,
   fontFamily, neutral, layout, tintedGlow,
+  status, surface, border, actionInk,
 } from "./tokens";
 import {
   type StoredMessage, type Conversation, type MessageAttachment, type BranchListItem, type Project,
@@ -1028,8 +1029,8 @@ export default function App() {
   // canvas-local, not a separate zone). A third, lighter tier exists
   // for genuinely interactive surfaces (inputs, popovers) — not wired
   // in everywhere yet, applied where it clearly fits.
-  const railBg = "#020202";
-  const canvasBg = "#080808";
+  const railBg = surface.root;
+  const canvasBg = surface.canvas;
   const sidebarBg = railBg;
   // Neutral now, not zone-hue-following — the one piece of tonight's
   // original color system that's gone from chrome entirely. Content
@@ -1361,9 +1362,9 @@ export default function App() {
     { title: "Building offline-first apps, a field guide", domain: "medium.com", tier: "less" as const },
   ];
   const SOURCE_TIER_META = {
-    good: { label: "Good", color: "rgb(96,210,140)", bg: "rgba(96,210,140,0.12)" },
-    likely: { label: "Likely good", color: "rgb(230,180,80)", bg: "rgba(230,180,80,0.12)" },
-    less: { label: "Less likely", color: "rgb(220,100,100)", bg: "rgba(220,100,100,0.12)" },
+    good: { label: "Verified", color: status.success.color, bg: status.success.bg },
+    likely: { label: "Needs review", color: status.warning.color, bg: status.warning.bg },
+    less: { label: "Low confidence", color: status.danger.color, bg: status.danger.bg },
   } as const;
   // Knowledge lives alongside Activity in the left sidebar (moved out
   // of the right Sources panel, JuanJo 2026-08-29) — both are records
@@ -3335,13 +3336,13 @@ export default function App() {
                 <button
                   disabled={!sourceChips.length}
                   style={{
-                    width: "100%", padding: 8, borderRadius: radius.xs + 2, fontSize: 12.5,
+                    width: "100%", padding: 8, borderRadius: radius.xs + 2, fontSize: fontSize.xs,
                     fontWeight: fontWeight.medium, fontFamily,
                     cursor: sourceChips.length ? "pointer" : "not-allowed",
-                    color: sourceChips.length ? neutral.textPrimary : neutral.textFaint,
-                    background: sourceChips.length ? "rgba(255,255,255,0.1)" : "rgba(4,8,18,0.3)",
-                    border: sourceChips.length ? "1px solid rgba(255,255,255,0.18)" : "1px solid rgba(255,255,255,0.1)",
-                    boxShadow: "none",
+                    color: sourceChips.length ? actionInk : neutral.textFaint,
+                    background: sourceChips.length ? CANVAS_ACCENT.chat.color : "rgba(4,8,18,0.3)",
+                    border: sourceChips.length ? "none" : "1px solid rgba(255,255,255,0.1)",
+                    boxShadow: sourceChips.length ? `0 6px 18px -8px ${CANVAS_ACCENT.chat.glow}` : "none",
                   }}
                 >
                   Batch Dispatch
@@ -3387,12 +3388,12 @@ export default function App() {
                             </div>
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div style={{
-                                fontSize: 12.5, color: neutral.textPrimary,
+                                fontSize: fontSize.xs, color: neutral.textPrimary,
                                 overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                               }}>{s.title}</div>
                               <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 1 }}>
-                                <span style={{ fontSize: 10.5, color: neutral.textFaint }}>{s.domain}</span>
-                                <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 100, color: t.color, background: t.bg }}>{t.label}</span>
+                                <span style={{ fontSize: fontSize.xxs, color: neutral.textFaint }}>{s.domain}</span>
+                                <span style={{ fontSize: fontSize.xxs, padding: "1px 6px", borderRadius: 100, color: t.color, background: t.bg }}>{t.label}</span>
                               </div>
                             </div>
                           </div>
@@ -3412,12 +3413,12 @@ export default function App() {
                 {/* term 3: needs input */}
                 <div style={{
                   display: "flex", alignItems: "center", gap: spacing.sm, padding: "6px 8px",
-                  borderRadius: radius.xs + 1, background: "rgba(230,180,80,0.06)",
+                  borderRadius: radius.xs + 1, background: status.warning.bg,
                 }}>
                   <ChevronRightIcon size={12} />
                   <span style={{ flex: 1, fontSize: 13, color: neutral.textPrimary }}>CRDT algorithms</span>
-                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: "rgb(230,180,80)" }} />
-                  <span style={{ fontSize: 11, color: "rgb(230,180,80)" }}>needs input</span>
+                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: status.warning.color }} />
+                  <span style={{ fontSize: fontSize.xxs, color: status.warning.color }}>Needs input</span>
                 </div>
               </div>
             </div>
