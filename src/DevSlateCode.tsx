@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Editor, DiffEditor } from "@monaco-editor/react";
 import { CheckIcon, XIcon, FileIcon } from "@primer/octicons-react";
-import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, status, actionInk } from "./tokens";
+import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, status, actionInk, isDayTheme } from "./tokens";
 import { decideWriteReview, notifyFileWritten, useDevSlateState } from "./devslateStore";
 import { writeLocalFile } from "./devslateFs";
 
@@ -10,11 +10,22 @@ const accent = CANVAS_ACCENT.devSlate.color;
 // Custom Monaco theme matched to Dev Slate's near-black/teal palette,
 // replacing the stock "vs-dark" blue-gray that clashed with the canvas.
 function defineNaviMonacoTheme(monaco: any): void {
+  const day = isDayTheme();
   monaco.editor.defineTheme("navi-devslate", {
-    base: "vs-dark",
+    base: day ? "vs" : "vs-dark",
     inherit: true,
     rules: [],
-    colors: {
+    colors: day ? {
+      "editor.background": "#f7f8fb",
+      "editor.foreground": "#16181f",
+      "editorLineNumber.foreground": "#9aa1b2",
+      "editorCursor.foreground": "#0f7a96",
+      "editor.selectionBackground": "rgba(15, 122, 150, 0.2)",
+      "editor.lineHighlightBackground": "#eef0f6",
+      "editorIndentGuide.background1": "rgba(22, 24, 31, 0.08)",
+      "editorWidget.background": "#ffffff",
+      "editorGutter.background": "#f7f8fb",
+    } : {
       "editor.background": "#10141f",
       "editor.foreground": "#f4f6fb",
       "editorLineNumber.foreground": "#5f6880",

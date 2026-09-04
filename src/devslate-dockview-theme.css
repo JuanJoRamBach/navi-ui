@@ -27,3 +27,13 @@
   width: 100%;
   height: 100%;
 }
+
+[data-theme="light"] .devslate-dockview.dockview-theme-abyss {
+  --dv-color-abyss-dark: #e9ecf3;
+  --dv-color-abyss: #f0f2f8;
+  --dv-color-abyss-light: #ffffff;
+  --dv-color-abyss-lighter: rgba(22, 24, 31, 0.08);
+  --dv-color-abyss-accent: var(--accent-devslate);
+  --dv-color-abyss-primary-text: #16181f;
+  --dv-color-abyss-secondary-text: #454a58;
+}
