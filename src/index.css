@@ -36,6 +36,7 @@
   --bubble-bg-normal: oklch(15% 0.04 250); --bubble-border-normal: rgba(90, 140, 220, 0.32); --mode-glow-normal: rgba(90, 140, 220, 0.24); --mode-dot-normal: rgb(120, 165, 235);
   --bubble-bg-research: oklch(15% 0.04 145); --bubble-border-research: rgba(60, 200, 110, 0.32); --mode-glow-research: rgba(60, 200, 110, 0.24); --mode-dot-research: rgb(90, 210, 140);
   --bubble-bg-brainstorm: oklch(15% 0.04 305); --bubble-border-brainstorm: rgba(160, 100, 255, 0.32); --mode-glow-brainstorm: rgba(160, 100, 255, 0.24); --mode-dot-brainstorm: rgb(180, 130, 255);
+  --dotgrid-bg: #0d0d10;
 }
 [data-theme="light"] {
   --text-primary: #16181f;
@@ -69,6 +70,7 @@
   --bubble-bg-normal: oklch(94% 0.015 250); --bubble-border-normal: rgba(51, 86, 200, 0.28); --mode-glow-normal: rgba(51, 86, 200, 0.14); --mode-dot-normal: rgb(51, 86, 200);
   --bubble-bg-research: oklch(94% 0.015 145); --bubble-border-research: rgba(14, 124, 85, 0.28); --mode-glow-research: rgba(14, 124, 85, 0.14); --mode-dot-research: rgb(14, 124, 85);
   --bubble-bg-brainstorm: oklch(94% 0.015 305); --bubble-border-brainstorm: rgba(111, 47, 204, 0.28); --mode-glow-brainstorm: rgba(111, 47, 204, 0.14); --mode-dot-brainstorm: rgb(111, 47, 204);
+  --dotgrid-bg: #f2f4fa;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
