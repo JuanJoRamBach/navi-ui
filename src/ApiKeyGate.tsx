@@ -1,6 +1,7 @@
 import { useState, type FormEvent, type ReactNode } from "react";
 import { NAVI_BACKEND_URL } from "./config";
 import { API_KEY_HEADER, getApiKey, setApiKey } from "./apiAuth";
+import { status, surface } from "./tokens";
 
 // Blocks the app behind a one-time access-key prompt (2026-09-04) — see
 // apiAuth.ts's own docstring for why this exists and what it does/doesn't
@@ -40,7 +41,7 @@ export function ApiKeyGate({ children }: { children: ReactNode }) {
   return (
     <div style={{
       minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
-      background: "#0b0b0c", fontFamily: "system-ui, -apple-system, sans-serif", padding: 24,
+      background: surface.field, fontFamily: "system-ui, -apple-system, sans-serif", padding: 24,
     }}>
       <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 12, width: "min(360px, 100%)" }}>
         <div style={{ color: "#fff", fontSize: 16, fontWeight: 600 }}>NAVI access key</div>
@@ -55,12 +56,12 @@ export function ApiKeyGate({ children }: { children: ReactNode }) {
             background: "rgba(255,255,255,0.05)", color: "#fff", fontSize: 14, boxSizing: "border-box",
           }}
         />
-        {error && <div style={{ color: "#e05a4a", fontSize: 12.5 }}>{error}</div>}
+        {error && <div style={{ color: status.danger.color, fontSize: 12.5 }}>{error}</div>}
         <button
           type="submit" disabled={checking || !input.trim()}
           style={{
-            padding: "10px 12px", borderRadius: 8, border: "1px solid #3ecf8e55",
-            background: "#3ecf8e15", color: "#3ecf8e", fontSize: 14, fontWeight: 600,
+            padding: "10px 12px", borderRadius: 8, border: `1px solid ${status.success.border}`,
+            background: status.success.bg, color: status.success.color, fontSize: 14, fontWeight: 600,
             cursor: checking ? "default" : "pointer", opacity: checking || !input.trim() ? 0.6 : 1,
           }}
         >

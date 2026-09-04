@@ -3,7 +3,7 @@ import {
   XIcon, MarkGithubIcon, MailIcon, ChecklistIcon, CommentDiscussionIcon, NoteIcon,
   LinkIcon, CheckCircleFillIcon, PlusIcon, SearchIcon,
 } from "@primer/octicons-react";
-import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT } from "./tokens";
+import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, status } from "./tokens";
 import {
   listMCPConnections, createMCPConnection, connectMCP, deleteMCPConnection, searchMCPMarketplace, startMCPOAuth,
   type MCPConnection, type MCPMarketplaceResult,
@@ -141,8 +141,8 @@ function ConnectForm({ serviceLabel, credentialsUrl, credentialsLabel = "reposit
           onClick={() => onSubmit({ url, authHeader })}
           disabled={submitting || !url.trim()}
           style={{
-            padding: `${spacing.xxs}px ${spacing.sm}px`, borderRadius: radius.xs, border: "1px solid #3ecf8e55",
-            background: "#3ecf8e15", color: "#3ecf8e", cursor: submitting ? "default" : "pointer",
+            padding: `${spacing.xxs}px ${spacing.sm}px`, borderRadius: radius.xs, border: `1px solid ${status.success.border}`,
+            background: status.success.bg, color: status.success.color, cursor: submitting ? "default" : "pointer",
             fontSize: fontSize.xs, fontWeight: fontWeight.medium, fontFamily, opacity: submitting ? 0.6 : 1,
           }}
         >
@@ -486,7 +486,7 @@ export function ConnectionsOverlay({ onClose, oauthResult, onDismissOauthResult 
           <div style={{
             display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.sm,
             padding: `${spacing.xs}px ${spacing.md}px`, flexShrink: 0,
-            background: effectiveOauthResult.status === "success" ? "#3ecf8e15" : effectiveOauthResult.status === "partial" ? "#e0a94a15" : "#e05a4a15",
+            background: effectiveOauthResult.status === "success" ? status.success.bg : effectiveOauthResult.status === "partial" ? status.warning.bg : status.danger.bg,
             borderBottom: "1px solid rgba(255,255,255,0.08)",
           }}>
             <div style={{

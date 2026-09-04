@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { PlusIcon, TrashIcon, ChevronDownIcon, ChevronRightIcon, PersonIcon, SparkleFillIcon, ToolsIcon } from "@primer/octicons-react";
-import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, tintedGlow } from "./tokens";
+import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, tintedGlow, status } from "./tokens";
 import { AGENT_VAULT_CHANGED_EVENT, createAgent, deleteAgent, listAgents, type AgentOutputType, type SavedAgent } from "./agents";
 import { getWorkflow, type WorkflowGraph } from "./agentWork";
 import { listMCPConnections } from "./mcpConnections";
@@ -139,7 +139,7 @@ function NewAgentForm({ onCreated, onCancel }: { onCreated: () => void; onCancel
           {OUTPUT_OPTIONS.map(o => <option key={o.label} value={o.value ?? ""}>{o.label}</option>)}
         </select>
       </div>
-      {error && <div style={{ fontSize: fontSize.xxs, color: "#e05a4a" }}>{error}</div>}
+      {error && <div style={{ fontSize: fontSize.xxs, color: status.danger.color }}>{error}</div>}
       <div style={{ display: "flex", justifyContent: "flex-end", gap: spacing.xs }}>
         <button onClick={onCancel} disabled={saving} style={{ padding: `${spacing.xxs}px ${spacing.sm}px`, borderRadius: radius.xs, border: "1px solid rgba(255,255,255,0.15)", background: "transparent", color: neutral.textMuted, cursor: "pointer", fontSize: fontSize.xs, fontFamily }}>
           Cancel

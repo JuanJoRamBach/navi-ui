@@ -2264,7 +2264,7 @@ export default function App() {
                 </button>
                 <button
                   className="sidebar-menu-btn"
-                  title="Agents"
+                  title="Workflows"
                   onClick={() => setAgentsWorkflowsExpanded(v => !v)}
                   style={{
                     display: "flex", alignItems: "center", gap: spacing.sm,
@@ -2277,7 +2277,7 @@ export default function App() {
                   }}
                 >
                   <RocketIcon size={iconSize.sm} />
-                  <span className="sidebar-menu-btn-label" style={{ flex: 1 }}>Agents</span>
+                  <span className="sidebar-menu-btn-label" style={{ flex: 1 }}>Workflows</span>
                   <span
                     className="sidebar-menu-btn-label"
                     style={{ display: "flex", transform: agentsWorkflowsExpanded ? "rotate(180deg)" : undefined, transition: "transform 0.15s ease" }}
