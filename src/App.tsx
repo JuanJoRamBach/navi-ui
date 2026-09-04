@@ -134,15 +134,17 @@ interface RoutingConfig {
 }
 
 // Display label + (for /research, which maps to a chat mode) the dot
-// color carried over from that mode's theme — /code, /graph-data, and
-// /create-image aren't chat modes, so they get no dot. No "brainstorm"
-// entry — the /brainstorm command was retired in favor of Brainstorm
-// mode's own conversational chat, which does its job better.
+// color carried over from that mode's theme — /graph-data isn't a chat
+// mode, so it gets no dot. No "brainstorm" entry — the /brainstorm
+// command was retired in favor of Brainstorm mode's own conversational
+// chat, which does its job better. /code, /tailor, /create-image, and
+// /design-read were retired 2026-09-04 (JuanJo: this is heading toward a
+// commercial harness — /code was redundant with Dev Slate's real
+// conversational chat, the other three weren't pulling their weight for
+// an MVP).
 const COMMAND_ROUTING_LABEL: Record<string, { label: string; dotColor?: string }> = {
   research: { label: "Research", dotColor: MODE_THEME.research.dot },
-  code: { label: "Code" },
   "graph-data": { label: "Graphs" },
-  "create-image": { label: "Images" },
 };
 
 // USAGE_COUNTERS stays a mock on purpose — NAVI doesn't track real usage
@@ -164,12 +166,8 @@ const USAGE_COUNTERS: { provider: string; used: number; quota: number; unit: str
 const COMMANDS: { name: string; description: string; available: boolean }[] = [
   { name: "/research", description: "Deep dive with live web search, source reading, and notes.", available: true },
   { name: "/graph-data", description: "Turns numbers into a real rendered chart instead of a described one.", available: true },
-  { name: "/create-image", description: "Generates an image from a text description.", available: true },
-  { name: "/code", description: "Routes to a coding-specialist model for code-focused requests.", available: true },
   { name: "/summarize", description: "Condenses a long article, PDF, or posting into a tight digest.", available: true },
   { name: "/remind", description: "Sets a reminder that arrives as a push notification when it's due.", available: true },
-  { name: "/tailor", description: "Drafts a tailored cover note and company rundown from a job posting + your CV.", available: true },
-  { name: "/design-read", description: "Reads a design screenshot and describes the pattern, plus a ready prompt for Claude Code.", available: false },
   { name: "/recap", description: "Captures findings and decisions from this conversation as a structured summary.", available: true },
   { name: "/note", description: "Lightly captures a passing thought or tangent — no structure forced.", available: true },
 ];
