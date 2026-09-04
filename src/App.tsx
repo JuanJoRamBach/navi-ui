@@ -35,6 +35,8 @@ import {
   CalendarIcon,
   HistoryIcon,
   LinkIcon,
+  SunIcon,
+  MoonIcon,
   // Reserved for the future step-log UI (not built yet — no host for
   // these until the fairy-animation research mode exists to pair with):
   // SearchIcon, SyncIcon
@@ -331,6 +333,12 @@ export default function App() {
   // just which canvas engine is active.
   const chatModeRef = useRef<ChatMode>("normal");
   const [chatMode, setChatModeState] = useState<ChatMode>("normal");
+  // Theme — flips the whole palette via the data-theme attribute (CSS
+  // variables in index.css) and re-draws canvas surfaces via the
+  // navi-theme-change event (see DevSlateDotGrid).
+  const [colorTheme, setColorTheme] = useState<"night" | "light">(() =>
+    document.documentElement.getAttribute("data-theme") === "light" ? "light" : "night"
+  );
   const themeRef = useRef(MODE_THEME.normal);
   const particlesRef = useRef<Particle[]>([]);
   const orbsRef = useRef<Orb[]>([]);
@@ -2505,6 +2513,27 @@ export default function App() {
             >
               <PersonIcon size={iconSize.sm} />
               <span className="sidebar-menu-btn-label">Profile</span>
+            </button>
+            <button
+              className="sidebar-menu-btn"
+              title={colorTheme === "night" ? "Switch to light theme" : "Switch to dark theme"}
+              onClick={() => {
+                const next = colorTheme === "night" ? "light" : "night";
+                setColorTheme(next);
+                document.documentElement.setAttribute("data-theme", next);
+                window.dispatchEvent(new Event("navi-theme-change"));
+              }}
+              style={{
+                display: "flex", alignItems: "center", gap: spacing.sm,
+                height: OUTER_RAIL_ROW_HEIGHT, boxSizing: "border-box",
+                padding: `0 ${spacing.sm}px`,
+                borderRadius: radius.sm, border: "none", background: "transparent",
+                color: neutral.textPrimary, cursor: "pointer", textAlign: "left",
+                fontSize: fontSize.xs, fontFamily, fontWeight: fontWeight.medium,
+              }}
+            >
+              {colorTheme === "night" ? <SunIcon size={iconSize.sm} /> : <MoonIcon size={iconSize.sm} />}
+              <span className="sidebar-menu-btn-label">{colorTheme === "night" ? "Light theme" : "Dark theme"}</span>
             </button>
             {pushStatus !== "unsupported" && (
               <button
