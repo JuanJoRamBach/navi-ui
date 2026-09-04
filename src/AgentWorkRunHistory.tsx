@@ -15,7 +15,7 @@ function formatWhen(epochSeconds: number): string {
 
 function StepRow({ step }: { step: AgentRunStep }) {
   return (
-    <div style={{ padding: `${spacing.xxs}px ${spacing.sm}px ${spacing.xxs}px ${spacing.xl}px`, borderLeft: `2px solid ${STATUS_COLOR[step.status] ?? neutral.textFaint}22` }}>
+    <div style={{ padding: `${spacing.xxs}px ${spacing.sm}px ${spacing.xxs}px ${spacing.xl}px`, borderLeft: `2px solid ${STATUS_COLOR[step.status] ?? neutral.textFaint}` }}>
       <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, fontSize: fontSize.xxs }}>
         <span style={{ width: 5, height: 5, borderRadius: 9999, background: STATUS_COLOR[step.status] ?? neutral.textFaint, flexShrink: 0 }} />
         <span style={{ color: neutral.textMuted, fontFamily: "monospace" }}>{step.node_id}</span>

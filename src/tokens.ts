@@ -116,23 +116,23 @@ export const neutral = {
   // so the app reads as a designed instrument, not a default dark mode.
   // textFaint was lifted out of the sub-4.5:1 contrast hole the old
   // 0.48 alpha produced against near-black.
-  textPrimary: "#f4f6fb",
-  textMuted: "#b6bdd0",
-  textFaint: "#8b93ab",
-  textInactive: "#5f6880",
+  textPrimary: "var(--text-primary)",
+  textMuted: "var(--text-secondary)",
+  textFaint: "var(--text-tertiary)",
+  textInactive: "var(--text-disabled)",
   // Embedded panels (input bar, search, sidebar containers) — translucent
   // indigo so the canvas still breathes through them.
-  surface: "rgba(21, 26, 38, 0.6)",
+  surface: "var(--surface-panel-a)",
   // Floating/modal panels — near-solid so a dimmed scrim never bleeds
   // through a panel that should read authoritative.
-  surfaceSolid: "rgba(21, 26, 38, 0.96)",
-  userBubbleBg: "rgba(28, 34, 49, 0.85)",
-  userBubbleBorder: "rgba(255, 255, 255, 0.16)",
-  userBubbleGlow: "rgba(255, 255, 255, 0.08)",
-  dotNeutral: "rgb(139, 147, 171)",
-  statusAwake: "#4ad9a0",
-  statusWaking: "#f2bd57",
-  statusUnreachable: "#ef7a6b",
+  surfaceSolid: "var(--surface-raised-a)",
+  userBubbleBg: "var(--user-bubble-bg)",
+  userBubbleBorder: "var(--user-bubble-border)",
+  userBubbleGlow: "var(--user-bubble-glow)",
+  dotNeutral: "var(--dot-neutral)",
+  statusAwake: "var(--status-success)",
+  statusWaking: "var(--status-warning)",
+  statusUnreachable: "var(--status-danger)",
 } as const;
 
 // Unified semantic status — ONE green/amber/red, replacing the scattered
@@ -140,9 +140,9 @@ export const neutral = {
 // across surfaces. Each badge is color + tinted bg + border so it reads
 // as one consistent component everywhere.
 export const status = {
-  success: { color: "#4ad9a0", bg: "rgba(74, 217, 160, 0.13)", border: "rgba(74, 217, 160, 0.25)" },
-  warning: { color: "#f2bd57", bg: "rgba(242, 189, 87, 0.13)", border: "rgba(242, 189, 87, 0.25)" },
-  danger: { color: "#ef7a6b", bg: "rgba(239, 122, 107, 0.13)", border: "rgba(239, 122, 107, 0.25)" },
+  success: { color: "var(--status-success)", bg: "var(--status-success-bg)", border: "var(--status-success-border)" },
+  warning: { color: "var(--status-warning)", bg: "var(--status-warning-bg)", border: "var(--status-warning-border)" },
+  danger: { color: "var(--status-danger)", bg: "var(--status-danger-bg)", border: "var(--status-danger-border)" },
 } as const;
 
 // Elevation ramp (Indigo Ink) — root/rail through raised/floating.
@@ -150,25 +150,26 @@ export const status = {
 // #0e0e10 / #0b0b0c) that had drifted across Agent Work / Dev Slate /
 // Connections panels.
 export const surface = {
-  root: "#0a0c14",
-  canvas: "#0e1119",
-  panel: "#151a26",
-  raised: "#1c2231",
-  field: "#10141f",
+  root: "var(--surface-root)",
+  canvas: "var(--surface-canvas)",
+  panel: "var(--surface-panel)",
+  raised: "var(--surface-raised)",
+  field: "var(--surface-field)",
 } as const;
 
 // Chrome lines + interactive fills — one vocabulary for every border and
 // hover/selected state instead of hand-written rgba(255,255,255,.XX).
 export const border = {
-  subtle: "rgba(255, 255, 255, 0.07)",
-  default: "rgba(255, 255, 255, 0.11)",
-  strong: "rgba(255, 255, 255, 0.17)",
+  subtle: "var(--border-subtle)",
+  default: "var(--border-default)",
+  strong: "var(--border-strong)",
 } as const;
 
-export const hoverBg = "rgba(255, 255, 255, 0.055)";
-export const selectedBg = "rgba(255, 255, 255, 0.07)";
-// Dark ink for text/icons sitting on a full-accent action fill.
-export const actionInk = "#0c0e16";
+export const hoverBg = "var(--hover-bg)";
+export const selectedBg = "var(--selected-bg)";
+// Ink for text/icons sitting on a full-accent action fill (dark ink on
+// bright accents in night mode, white on deep accents in day mode).
+export const actionInk = "var(--ink)";
 
 // Canvas-level accent colors — Chat / Agent Work / Dev Slate, not to be
 // confused with MODE_THEME below (Chat's own three internal modes).
