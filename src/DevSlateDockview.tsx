@@ -8,7 +8,7 @@ import "./devslate-dockview-theme.css";
 import {
   CommentDiscussionIcon, FileDirectoryIcon, CodeIcon, TerminalIcon, GlobeIcon, ChevronDownIcon,
 } from "@primer/octicons-react";
-import { spacing, radius, fontSize, neutral, fontFamily, CANVAS_ACCENT, tintedGlow } from "./tokens";
+import { spacing, radius, fontSize, neutral, fontFamily, CANVAS_ACCENT, tintedGlow, surface } from "./tokens";
 import { DevSlateChat } from "./DevSlateChat";
 import { DevSlateFiles } from "./DevSlateFiles";
 import { DevSlateCode } from "./DevSlateCode";
@@ -149,7 +149,7 @@ function ReopenMenu({ closedIds, onReopen }: { closedIds: string[]; onReopen: (i
       {open && (
         <div style={{
           position: "absolute", top: "100%", right: 0, marginTop: spacing.xxs,
-          width: 180, background: "#111318", border: "1px solid rgba(255,255,255,0.12)",
+          width: 180, background: surface.raised, border: "1px solid rgba(255,255,255,0.12)",
           borderRadius: radius.sm, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", padding: spacing.xs,
         }}>
           {PANEL_DEFS.filter(p => closedIds.includes(p.id)).map(({ id, title, icon: Icon }) => (

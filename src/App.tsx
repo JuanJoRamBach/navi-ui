@@ -35,6 +35,8 @@ import {
   CalendarIcon,
   HistoryIcon,
   LinkIcon,
+  SunIcon,
+  MoonIcon,
   // Reserved for the future step-log UI (not built yet — no host for
   // these until the fairy-animation research mode exists to pair with):
   // SearchIcon, SyncIcon
@@ -43,6 +45,7 @@ import {
   type Mode, type ChatMode, MODE_THEME, CANVAS_ACCENT, OKLCH_HUE,
   spacing, radius, fontSize, fontWeight, lineHeight, iconSize, controlSize,
   fontFamily, neutral, layout, tintedGlow,
+  status, surface, border, actionInk,
 } from "./tokens";
 import {
   type StoredMessage, type Conversation, type MessageAttachment, type BranchListItem, type Project,
@@ -54,6 +57,8 @@ import {
 import { Group, Panel, Separator, type LayoutChangedMeta } from "react-resizable-panels";
 import { sidebarTab, sidebarBreadcrumb, sidebarRow } from "./sidebar-tokens";
 import { isTextLike } from "./fileFormats";
+import { marked } from "marked";
+import DOMPurify from "dompurify";
 // pdf.js/docx-preview are heavy (real PDF/DOCX rendering) — lazy so
 // they only load once someone actually opens a document, not on every
 // app load. isTextLike/extensionOf stay a normal import since they're
@@ -259,6 +264,14 @@ function splitMessageAttachments(text: string): { body: string; attachments: Mes
 // than needing special partial-block handling.
 const CODE_BLOCK_RE = /```(\w*)\n([\s\S]*?)```/g;
 
+// Sanitized markdown render for completed assistant/user messages —
+// bold/italic/links/lists/tables/headings/line breaks, via marked +
+// DOMPurify (the same pair DocumentViewer already uses). Fenced code
+// blocks render through marked too and are styled via .md pre/code.
+function markdownHtml(text: string): string {
+  return DOMPurify.sanitize(marked.parse(text, { gfm: true, breaks: true }) as string);
+}
+
 function renderMessageBody(text: string) {
   const nodes: React.ReactNode[] = [];
   let lastIndex = 0;
@@ -293,6 +306,11 @@ function renderMessageBody(text: string) {
 
 function StreamingMessageText({ text, animate }: { text: string; animate: boolean }) {
   const [revealed, setRevealed] = useState(animate ? 0 : text.length);
+  // Once fully revealed (or for non-streaming/historical messages),
+  // settle into rendered markdown; during the typewriter reveal we keep
+  // the plain pre-wrap text so a half-closed **bold** / [link](…) never
+  // flickers as malformed markup.
+  const done = !animate || revealed >= text.length;
 
   useEffect(() => {
     if (!animate || revealed >= text.length) return;
@@ -300,6 +318,9 @@ function StreamingMessageText({ text, animate }: { text: string; animate: boolea
     return () => clearTimeout(id);
   }, [animate, revealed, text.length]);
 
+  if (done) {
+    return <div className="md" dangerouslySetInnerHTML={{ __html: markdownHtml(text) }} />;
+  }
   return <>{renderMessageBody(text.slice(0, revealed))}</>;
 }
 
@@ -312,6 +333,12 @@ export default function App() {
   // just which canvas engine is active.
   const chatModeRef = useRef<ChatMode>("normal");
   const [chatMode, setChatModeState] = useState<ChatMode>("normal");
+  // Theme — flips the whole palette via the data-theme attribute (CSS
+  // variables in index.css) and re-draws canvas surfaces via the
+  // navi-theme-change event (see DevSlateDotGrid).
+  const [colorTheme, setColorTheme] = useState<"night" | "light">(() =>
+    document.documentElement.getAttribute("data-theme") === "light" ? "light" : "night"
+  );
   const themeRef = useRef(MODE_THEME.normal);
   const particlesRef = useRef<Particle[]>([]);
   const orbsRef = useRef<Orb[]>([]);
@@ -1010,8 +1037,8 @@ export default function App() {
   // canvas-local, not a separate zone). A third, lighter tier exists
   // for genuinely interactive surfaces (inputs, popovers) — not wired
   // in everywhere yet, applied where it clearly fits.
-  const railBg = "#020202";
-  const canvasBg = "#080808";
+  const railBg = surface.root;
+  const canvasBg = surface.canvas;
   const sidebarBg = railBg;
   // Neutral now, not zone-hue-following — the one piece of tonight's
   // original color system that's gone from chrome entirely. Content
@@ -1343,9 +1370,9 @@ export default function App() {
     { title: "Building offline-first apps, a field guide", domain: "medium.com", tier: "less" as const },
   ];
   const SOURCE_TIER_META = {
-    good: { label: "Good", color: "rgb(96,210,140)", bg: "rgba(96,210,140,0.12)" },
-    likely: { label: "Likely good", color: "rgb(230,180,80)", bg: "rgba(230,180,80,0.12)" },
-    less: { label: "Less likely", color: "rgb(220,100,100)", bg: "rgba(220,100,100,0.12)" },
+    good: { label: "Verified", color: status.success.color, bg: status.success.bg },
+    likely: { label: "Needs review", color: status.warning.color, bg: status.warning.bg },
+    less: { label: "Low confidence", color: status.danger.color, bg: status.danger.bg },
   } as const;
   // Knowledge lives alongside Activity in the left sidebar (moved out
   // of the right Sources panel, JuanJo 2026-08-29) — both are records
@@ -1978,7 +2005,7 @@ export default function App() {
   );
 
   return (
-    <div style={{ width: "100vw", height: "100vh", display: "flex", flexDirection: "column", background: "#080808" }}>
+    <div style={{ width: "100vw", height: "100vh", display: "flex", flexDirection: "column", background: "var(--surface-canvas)" }}>
       {/* Wraps everything the app already had — the mobile bottom bar
           below is a normal flex sibling to this, not a fixed overlay,
           so flexbox reserves its height automatically (this wrapper
@@ -2003,7 +2030,7 @@ export default function App() {
           // written literally here (this div renders before that const
           // is declared in the component body; safe either way since
           // it's a fixed value, but kept explicit for clarity).
-          background: "#020202",
+          background: "var(--surface-root)",
           borderRight: "1px solid rgba(255,255,255,0.08)",
           width: outerRailWidth,
         }}>
@@ -2245,7 +2272,7 @@ export default function App() {
                 </button>
                 <button
                   className="sidebar-menu-btn"
-                  title="Agents"
+                  title="Workflows"
                   onClick={() => setAgentsWorkflowsExpanded(v => !v)}
                   style={{
                     display: "flex", alignItems: "center", gap: spacing.sm,
@@ -2258,7 +2285,7 @@ export default function App() {
                   }}
                 >
                   <RocketIcon size={iconSize.sm} />
-                  <span className="sidebar-menu-btn-label" style={{ flex: 1 }}>Agents</span>
+                  <span className="sidebar-menu-btn-label" style={{ flex: 1 }}>Workflows</span>
                   <span
                     className="sidebar-menu-btn-label"
                     style={{ display: "flex", transform: agentsWorkflowsExpanded ? "rotate(180deg)" : undefined, transition: "transform 0.15s ease" }}
@@ -2378,6 +2405,7 @@ export default function App() {
             display: "flex", flexDirection: "column", gap: spacing.xxs, padding: spacing.sm,
             borderTop: "1px solid rgba(255,255,255,0.08)", flexShrink: 0,
           }}>
+            <div style={{ fontSize: fontSize.xxs, letterSpacing: "0.1em", textTransform: "uppercase", color: neutral.textInactive, fontWeight: fontWeight.medium, padding: `${spacing.xs}px ${spacing.sm}px ${spacing.xxs}px`, fontFamily }}>System</div>
             {([
               { key: "usage", icon: <GraphIcon size={iconSize.sm} />, label: "Usage counters" },
               { key: "routing", icon: <GitBranchIcon size={iconSize.sm} />, label: "Routing & fallbacks" },
@@ -2433,7 +2461,7 @@ export default function App() {
                 <span className="sidebar-menu-btn-label" style={{ flex: 1 }}>Agent Chat</span>
                 <span style={{
                   fontSize: fontSize.xxs, minWidth: 16, height: 16, borderRadius: 8,
-                  background: CANVAS_ACCENT.agentWork.color, color: "#0a0a0a",
+                  background: CANVAS_ACCENT.agentWork.color, color: "var(--ink)",
                   display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
                 }}>
                   {pendingAgentInputs.length}
@@ -2449,6 +2477,7 @@ export default function App() {
                 always exactly one click away regardless of that state,
                 same tier as Profile). Opens the sidebar if it's closed;
                 if it's already open, just switches tab. */}
+            <div style={{ fontSize: fontSize.xxs, letterSpacing: "0.1em", textTransform: "uppercase", color: neutral.textInactive, fontWeight: fontWeight.medium, padding: `${spacing.xs}px ${spacing.sm}px ${spacing.xxs}px`, fontFamily }}>Account</div>
             <button
               className="sidebar-menu-btn"
               title="Agents"
@@ -2486,6 +2515,27 @@ export default function App() {
             >
               <PersonIcon size={iconSize.sm} />
               <span className="sidebar-menu-btn-label">Profile</span>
+            </button>
+            <button
+              className="sidebar-menu-btn"
+              title={colorTheme === "night" ? "Switch to light theme" : "Switch to dark theme"}
+              onClick={() => {
+                const next = colorTheme === "night" ? "light" : "night";
+                setColorTheme(next);
+                document.documentElement.setAttribute("data-theme", next);
+                window.dispatchEvent(new Event("navi-theme-change"));
+              }}
+              style={{
+                display: "flex", alignItems: "center", gap: spacing.sm,
+                height: OUTER_RAIL_ROW_HEIGHT, boxSizing: "border-box",
+                padding: `0 ${spacing.sm}px`,
+                borderRadius: radius.sm, border: "none", background: "transparent",
+                color: neutral.textPrimary, cursor: "pointer", textAlign: "left",
+                fontSize: fontSize.xs, fontFamily, fontWeight: fontWeight.medium,
+              }}
+            >
+              {colorTheme === "night" ? <SunIcon size={iconSize.sm} /> : <MoonIcon size={iconSize.sm} />}
+              <span className="sidebar-menu-btn-label">{colorTheme === "night" ? "Light theme" : "Dark theme"}</span>
             </button>
             {pushStatus !== "unsupported" && (
               <button
@@ -3317,13 +3367,13 @@ export default function App() {
                 <button
                   disabled={!sourceChips.length}
                   style={{
-                    width: "100%", padding: 8, borderRadius: radius.xs + 2, fontSize: 12.5,
+                    width: "100%", padding: 8, borderRadius: radius.xs + 2, fontSize: fontSize.xs,
                     fontWeight: fontWeight.medium, fontFamily,
                     cursor: sourceChips.length ? "pointer" : "not-allowed",
-                    color: sourceChips.length ? neutral.textPrimary : neutral.textFaint,
-                    background: sourceChips.length ? "rgba(255,255,255,0.1)" : "rgba(4,8,18,0.3)",
-                    border: sourceChips.length ? "1px solid rgba(255,255,255,0.18)" : "1px solid rgba(255,255,255,0.1)",
-                    boxShadow: "none",
+                    color: sourceChips.length ? actionInk : neutral.textFaint,
+                    background: sourceChips.length ? CANVAS_ACCENT.chat.color : "rgba(4,8,18,0.3)",
+                    border: sourceChips.length ? "none" : "1px solid rgba(255,255,255,0.1)",
+                    boxShadow: sourceChips.length ? `0 6px 18px -8px ${CANVAS_ACCENT.chat.glow}` : "none",
                   }}
                 >
                   Batch Dispatch
@@ -3369,12 +3419,12 @@ export default function App() {
                             </div>
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div style={{
-                                fontSize: 12.5, color: neutral.textPrimary,
+                                fontSize: fontSize.xs, color: neutral.textPrimary,
                                 overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                               }}>{s.title}</div>
                               <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 1 }}>
-                                <span style={{ fontSize: 10.5, color: neutral.textFaint }}>{s.domain}</span>
-                                <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 100, color: t.color, background: t.bg }}>{t.label}</span>
+                                <span style={{ fontSize: fontSize.xxs, color: neutral.textFaint }}>{s.domain}</span>
+                                <span style={{ fontSize: fontSize.xxs, padding: "1px 6px", borderRadius: 100, color: t.color, background: t.bg }}>{t.label}</span>
                               </div>
                             </div>
                           </div>
@@ -3394,12 +3444,12 @@ export default function App() {
                 {/* term 3: needs input */}
                 <div style={{
                   display: "flex", alignItems: "center", gap: spacing.sm, padding: "6px 8px",
-                  borderRadius: radius.xs + 1, background: "rgba(230,180,80,0.06)",
+                  borderRadius: radius.xs + 1, background: status.warning.bg,
                 }}>
                   <ChevronRightIcon size={12} />
                   <span style={{ flex: 1, fontSize: 13, color: neutral.textPrimary }}>CRDT algorithms</span>
-                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: "rgb(230,180,80)" }} />
-                  <span style={{ fontSize: 11, color: "rgb(230,180,80)" }}>needs input</span>
+                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: status.warning.color }} />
+                  <span style={{ fontSize: fontSize.xxs, color: status.warning.color }}>Needs input</span>
                 </div>
               </div>
             </div>
@@ -3512,7 +3562,7 @@ export default function App() {
       {activeCanvas === "agentWork" && (
         <div style={{
           position: "absolute", inset: 0, left: "var(--outer-rail-width, 0px)",
-          zIndex: 20, background: "#080808",
+          zIndex: 20, background: "var(--surface-canvas)",
         }}>
           {/* The graph editor IS Agent Work's canvas now, not a landing
               screen with buttons leading to it (2026-09-02, JuanJo:
@@ -3617,7 +3667,7 @@ export default function App() {
       {activeCanvas === "devSlate" && (
         <div style={{
           position: "absolute", inset: 0, left: "var(--outer-rail-width, 0px)",
-          zIndex: 20, background: "#080808",
+          zIndex: 20, background: "var(--surface-canvas)",
         }}>
           <DevSlateDockview />
         </div>

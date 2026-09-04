@@ -1,6 +1,6 @@
 import { Handle, NodeResizer, Position, type NodeProps } from "@xyflow/react";
 import { XIcon } from "@primer/octicons-react";
-import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, tintedSurface, tintedGlow } from "./tokens";
+import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, tintedSurface, tintedGlow, surface } from "./tokens";
 import { NODE_KINDS, type NodeKindId } from "./agentWorkNodeKinds";
 
 export interface AgentWorkNodeData {
@@ -98,7 +98,7 @@ export function AgentWorkGroupNode({ data, selected }: NodeProps & { data: Agent
       <NodeResizer minWidth={200} minHeight={140} isVisible={selected} lineStyle={{ borderColor: neutral.textMuted }} handleStyle={{ background: neutral.textMuted, width: 8, height: 8, borderRadius: 2 }} />
       <div style={{
         position: "absolute", top: -9, left: spacing.sm, display: "flex", alignItems: "center", gap: 4,
-        padding: `0 ${spacing.xxs}px`, background: "#0a0a0a", fontFamily,
+        padding: `0 ${spacing.xxs}px`, background: surface.root, fontFamily,
       }}>
         <span style={{ fontSize: fontSize.xxs, fontWeight: fontWeight.medium, color: neutral.textFaint }}>{data.label}</span>
         {isFanOut && (
@@ -115,7 +115,7 @@ export function AgentWorkGroupNode({ data, selected }: NodeProps & { data: Agent
           style={{
             position: "absolute", top: -11, right: -11, width: 18, height: 18, borderRadius: "50%",
             display: "flex", alignItems: "center", justifyContent: "center",
-            border: "1px solid rgba(255,255,255,0.18)", background: "#0a0a0a",
+            border: "1px solid rgba(255,255,255,0.18)", background: surface.root,
             color: neutral.textFaint, cursor: "pointer", padding: 0,
           }}
         >

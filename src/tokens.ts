@@ -111,54 +111,65 @@ export const layout = {
 
 // Neutral (mode-independent) surface/text tokens.
 export const neutral = {
-  // Near-white, genuinely neutral (#F6F6F6, R=G=B) — JuanJo's final
-  // pick, 2026-08-31, superseding the earlier warm-cream choice. Not
-  // literal pure white (#FFFFFF reads slightly harsh on dark backgrounds
-  // over long sessions); zero hue bias means it never fights whichever
-  // zone/mode accent color happens to be nearby. All four text tokens
-  // derive from this same base at different alphas.
-  textPrimary: "rgba(246, 246, 246, 0.95)",
-  // Bumped 2026-08-31 — the background went through several rounds of
-  // getting darker (warm gray -> neutral gray -> pure black -> #0F0F0F)
-  // across this same redesign, but these alpha values were tuned back
-  // when it was much lighter and never rechecked. textFaint specifically
-  // was failing real contrast against a near-black background (roughly
-  // 3:1, under WCAG AA's 4.5:1 floor for body text) — not a stylistic
-  // guess, an actual contrast-math problem caught live.
-  textMuted: "rgba(246, 246, 246, 0.62)",
-  textFaint: "rgba(246, 246, 246, 0.48)",
-  textInactive: "rgba(246, 246, 246, 0.55)",
-  surface: "rgba(10, 12, 18, 0.6)",
-  // Near-solid sibling of `surface` (2026-09-04) — for a FLOATING/MODAL
-  // panel (sits over a dimmed scrim, needs to read as clearly on top of
-  // everything, not part of it) rather than an embedded one (a search
-  // input, a sidebar container — sits inside the app's own known, fixed
-  // background, where `surface`'s lighter glass treatment is the right
-  // call). JuanJo: "a floating window of settings using transparency
-  // looks weird" — ConnectionsOverlay and AgentChat were both using the
-  // same 60%-opaque `surface` as every embedded input bar, letting the
-  // dimmed backdrop bleed through a panel that should feel authoritative
-  // instead. Matches the value AgentWorkChat.tsx's own floating panel
-  // already used correctly, just as a one-off hardcoded value rather
-  // than a shared token.
-  surfaceSolid: "rgba(10, 12, 18, 0.95)",
-  // Bumped from 0.52 (JuanJo, 2026-09-01: "still too transparent") —
-  // reads fine over the main Chat's flatter background but nearly
-  // vanished over Dev Slate's brighter dot-grid canvas.
-  userBubbleBg: "rgba(6, 6, 8, 0.78)",
-  userBubbleBorder: "rgba(255, 255, 255, 0.14)",
-  userBubbleGlow: "rgba(255, 255, 255, 0.08)",
-  // Solid (not translucent) fallback for status dots that aren't tied
-  // to a chat mode — the old rgba(255,255,255,0.28) read as too dim to
-  // register as a status indicator.
-  dotNeutral: "rgb(190, 196, 210)",
-  // Server-awake indicator (see the top-right status dot in App.tsx) —
-  // reuses the same solid-dot treatment as dotNeutral, just with
-  // meaning attached: green/amber/red rather than neutral gray.
-  statusAwake: "rgb(96, 210, 140)",
-  statusWaking: "rgb(230, 180, 80)",
-  statusUnreachable: "rgb(220, 100, 100)",
+  // Indigo Ink palette (UI overhaul) — cool near-white text on a deep
+  // indigo-tinted near-black, replacing the flat #F6F6F6-on-#000 default
+  // so the app reads as a designed instrument, not a default dark mode.
+  // textFaint was lifted out of the sub-4.5:1 contrast hole the old
+  // 0.48 alpha produced against near-black.
+  textPrimary: "var(--text-primary)",
+  textMuted: "var(--text-secondary)",
+  textFaint: "var(--text-tertiary)",
+  textInactive: "var(--text-disabled)",
+  // Embedded panels (input bar, search, sidebar containers) — translucent
+  // indigo so the canvas still breathes through them.
+  surface: "var(--surface-panel-a)",
+  // Floating/modal panels — near-solid so a dimmed scrim never bleeds
+  // through a panel that should read authoritative.
+  surfaceSolid: "var(--surface-raised-a)",
+  userBubbleBg: "var(--user-bubble-bg)",
+  userBubbleBorder: "var(--user-bubble-border)",
+  userBubbleGlow: "var(--user-bubble-glow)",
+  dotNeutral: "var(--dot-neutral)",
+  statusAwake: "var(--status-success)",
+  statusWaking: "var(--status-warning)",
+  statusUnreachable: "var(--status-danger)",
 } as const;
+
+// Unified semantic status — ONE green/amber/red, replacing the scattered
+// hardcoded literals that had drifted into 3 greens / 3 ambers / 2 reds
+// across surfaces. Each badge is color + tinted bg + border so it reads
+// as one consistent component everywhere.
+export const status = {
+  success: { color: "var(--status-success)", bg: "var(--status-success-bg)", border: "var(--status-success-border)" },
+  warning: { color: "var(--status-warning)", bg: "var(--status-warning-bg)", border: "var(--status-warning-border)" },
+  danger: { color: "var(--status-danger)", bg: "var(--status-danger-bg)", border: "var(--status-danger-border)" },
+} as const;
+
+// Elevation ramp (Indigo Ink) — root/rail through raised/floating.
+// Replaces the four hand-written near-blacks (#161616 / #111318 /
+// #0e0e10 / #0b0b0c) that had drifted across Agent Work / Dev Slate /
+// Connections panels.
+export const surface = {
+  root: "var(--surface-root)",
+  canvas: "var(--surface-canvas)",
+  panel: "var(--surface-panel)",
+  raised: "var(--surface-raised)",
+  field: "var(--surface-field)",
+} as const;
+
+// Chrome lines + interactive fills — one vocabulary for every border and
+// hover/selected state instead of hand-written rgba(255,255,255,.XX).
+export const border = {
+  subtle: "var(--border-subtle)",
+  default: "var(--border-default)",
+  strong: "var(--border-strong)",
+} as const;
+
+export const hoverBg = "var(--hover-bg)";
+export const selectedBg = "var(--selected-bg)";
+// Ink for text/icons sitting on a full-accent action fill (dark ink on
+// bright accents in night mode, white on deep accents in day mode).
+export const actionInk = "var(--ink)";
 
 // Canvas-level accent colors — Chat / Agent Work / Dev Slate, not to be
 // confused with MODE_THEME below (Chat's own three internal modes).
@@ -169,9 +180,9 @@ export const neutral = {
 // hues (Research=green ~140-150°, Brainstorm=purple ~290-300°) so an
 // accent color never means two different things depending on context.
 export const CANVAS_ACCENT: Record<"chat" | "agentWork" | "devSlate", { hue: number; color: string; glow: string }> = {
-  chat: { hue: 250, color: "oklch(65% 0.12 250)", glow: "oklch(65% 0.12 250 / 0.16)" }, // blue — matches Normal mode, reinforces rather than competes
-  agentWork: { hue: 70, color: "oklch(65% 0.12 70)", glow: "oklch(65% 0.12 70 / 0.16)" }, // amber
-  devSlate: { hue: 200, color: "oklch(65% 0.12 200)", glow: "oklch(65% 0.12 200 / 0.16)" }, // teal
+  chat: { hue: 250, color: "var(--accent-chat)", glow: "var(--accent-chat-glow)" }, // blue — matches Normal mode, reinforces rather than competes
+  agentWork: { hue: 70, color: "var(--accent-agentwork)", glow: "var(--accent-agentwork-glow)" }, // amber
+  devSlate: { hue: 200, color: "var(--accent-devslate)", glow: "var(--accent-devslate-glow)" }, // teal
 } as const;
 
 // Sidebar chrome background — near-black, hue-following. Same "lock
@@ -187,8 +198,15 @@ export const CANVAS_ACCENT: Record<"chat" | "agentWork" | "devSlate", { hue: num
 // mapping than OKLCH's. Reusing it here is what produced a yellow-
 // tinted green instead of true green (caught live, 2026-08-31): HSL 130
 // and OKLCH 130 are not the same color, despite sharing a 0-360 scale.
+export function isDayTheme(): boolean {
+  return typeof document !== "undefined" && document.documentElement.getAttribute("data-theme") === "light";
+}
+
 export function tintedSurface(hue: number, lightness = 9, chroma = 0.015): string {
-  return `oklch(${lightness}% ${chroma} ${hue})`;
+  // Mirror the lightness in day mode so the same call yields a light tint
+  // (9% -> 91%, 21% -> 79%) instead of a dark one.
+  const l = isDayTheme() ? 100 - lightness : lightness;
+  return `oklch(${l}% ${chroma} ${hue})`;
 }
 
 // OKLCH-calibrated hue angles for Chat's three modes — landmark values
@@ -210,7 +228,10 @@ export const OKLCH_HUE: Record<ChatMode, number> = {
 // not the thing the blur/glass research flagged — a shadow doesn't
 // blur content or hurt contrast the way backdrop-filter did).
 export function tintedGlow(hue: number, alpha = 0.16): string {
-  return `oklch(65% 0.12 ${hue} / ${alpha})`;
+  // Night: bright 65% accent; day: deeper 48% accent so buttons stay
+  // legible on the light canvas.
+  const l = isDayTheme() ? 48 : 65;
+  return `oklch(${l}% 0.12 ${hue} / ${alpha})`;
 }
 
 export const MODE_THEME: Record<ChatMode, {
@@ -238,10 +259,10 @@ export const MODE_THEME: Record<ChatMode, {
     // feel — still content-only, chrome stays untouched (see
     // neutralGlow in App.tsx). Text contrast checked: textPrimary at
     // 0.95 alpha against 15% lightness is still comfortably >4.5:1.
-    bubbleBg: `oklch(15% 0.04 ${OKLCH_HUE.normal})`,
-    bubbleBorder: "rgba(90, 140, 220, 0.32)",
-    glow: "rgba(90, 140, 220, 0.24)",
-    dot: "rgb(120, 165, 235)",
+    bubbleBg: "var(--bubble-bg-normal)",
+    bubbleBorder: "var(--bubble-border-normal)",
+    glow: "var(--mode-glow-normal)",
+    dot: "var(--mode-dot-normal)",
     label: "Normal Chat",
   },
   research: {
@@ -249,10 +270,10 @@ export const MODE_THEME: Record<ChatMode, {
     hueBase: 130, hueRange: 30, // true green, was drifting toward cyan/teal at 150-190
     particleAlphaBase: 0.24, particleAlphaRange: 0.2, // brighter, per request
     particleLifeBase: 280, particleLifeRange: 160, // linger longer before fading
-    bubbleBg: `oklch(15% 0.04 ${OKLCH_HUE.research})`,
-    bubbleBorder: "rgba(60, 200, 110, 0.32)", // less blue than before — reads green, not teal
-    glow: "rgba(60, 200, 110, 0.24)",
-    dot: "rgb(90, 210, 140)",
+    bubbleBg: "var(--bubble-bg-research)",
+    bubbleBorder: "var(--bubble-border-research)", // less blue than before — reads green, not teal
+    glow: "var(--mode-glow-research)",
+    dot: "var(--mode-dot-research)",
     label: "Research",
   },
   brainstorm: {
@@ -260,10 +281,10 @@ export const MODE_THEME: Record<ChatMode, {
     hueBase: 220, hueRange: 60, // unused for particle spawn (vortex has its own hue logic) — kept for consistency
     particleAlphaBase: 0.14, particleAlphaRange: 0.18,
     particleLifeBase: 200, particleLifeRange: 120,
-    bubbleBg: `oklch(15% 0.04 ${OKLCH_HUE.brainstorm})`,
-    bubbleBorder: "rgba(160, 100, 255, 0.32)",
-    glow: "rgba(160, 100, 255, 0.24)",
-    dot: "rgb(180, 130, 255)",
+    bubbleBg: "var(--bubble-bg-brainstorm)",
+    bubbleBorder: "var(--bubble-border-brainstorm)",
+    glow: "var(--mode-glow-brainstorm)",
+    dot: "var(--mode-dot-brainstorm)",
     label: "Brainstorm",
   },
 };

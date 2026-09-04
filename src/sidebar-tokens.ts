@@ -22,9 +22,9 @@ import { spacing, radius, fontSize, fontWeight, neutral } from "./tokens";
 // breadcrumb ancestor links, focused states. Deliberately NOT read from
 // MODE_THEME; picking one mode's color (even one that reads as a
 // neutral calm blue) would still make it that mode's color structurally.
-const ACCENT = "rgb(120, 165, 235)";
-const ACCENT_HOVER = "rgb(160, 195, 255)";
-const ACCENT_BORDER = "rgba(120, 165, 235, 0.35)";
+const ACCENT = "rgb(93, 139, 255)";
+const ACCENT_HOVER = "rgb(150, 180, 255)";
+const ACCENT_BORDER = "rgba(93, 139, 255, 0.4)";
 
 export const sidebarTab = {
   // 32px, down from an already-close 30px — JuanJo, 2026-09-01: "as of

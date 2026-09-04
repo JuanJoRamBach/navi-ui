@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDownIcon, CheckIcon, PencilIcon, ZapIcon, PaperAirplaneIcon } from "@primer/octicons-react";
-import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, tintedSurface, tintedGlow } from "./tokens";
+import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, tintedSurface, tintedGlow, surface } from "./tokens";
 import { DevSlateDotGrid } from "./DevSlateDotGrid";
 import { fetchModelCatalog, setPinnedModel, type ModelCatalog } from "./devslate";
 import { NAVI_BACKEND_URL } from "./config";
@@ -73,7 +73,7 @@ function ModelBadge() {
         <div style={{
           position: "absolute", bottom: "100%", right: 0, marginBottom: spacing.xxs, zIndex: 50,
           width: 280, maxHeight: 320, overflowY: "auto",
-          background: "#111318", border: "1px solid rgba(255,255,255,0.12)", borderRadius: radius.sm,
+          background: surface.raised, border: "1px solid rgba(255,255,255,0.12)", borderRadius: radius.sm,
           boxShadow: "0 8px 24px rgba(0,0,0,0.5)", padding: spacing.xs,
         }}>
           <div style={{ fontSize: fontSize.xxs, color: neutral.textFaint, padding: `${spacing.xxs}px ${spacing.xs}px` }}>
@@ -142,7 +142,7 @@ function EditModeSelector({ autoAccept, onChange }: { autoAccept: boolean; onCha
       {open && (
         <div style={{
           position: "absolute", bottom: "100%", left: 0, marginBottom: spacing.xxs, zIndex: 50,
-          width: 180, background: "#111318", border: "1px solid rgba(255,255,255,0.12)",
+          width: 180, background: surface.raised, border: "1px solid rgba(255,255,255,0.12)",
           borderRadius: radius.sm, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", padding: spacing.xs,
         }}>
           {OPTIONS.map(({ value, label, icon: Icon }) => {

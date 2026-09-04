@@ -100,3 +100,27 @@
 .devslate-grapesjs .gjs-pn-btn[title="Export"] {
   display: none;
 }
+
+/* Light theme (cool near-white) — mirrors the dark values above. */
+[data-theme="light"] .devslate-grapesjs .gjs-editor,
+[data-theme="light"] .devslate-grapesjs .gjs-cv-canvas { background: #f7f8fb; }
+[data-theme="light"] .devslate-grapesjs .gjs-one-bg { background-color: #f0f2f8; }
+[data-theme="light"] .devslate-grapesjs .gjs-two-color { color: #454a58; }
+[data-theme="light"] .devslate-grapesjs .gjs-three-bg { background-color: var(--accent-devslate); color: #ffffff; }
+[data-theme="light"] .devslate-grapesjs .gjs-four-color,
+[data-theme="light"] .devslate-grapesjs .gjs-four-color-h:hover { color: var(--accent-devslate); }
+[data-theme="light"] .devslate-grapesjs .gjs-pn-panel { background: #f0f2f8; border-color: rgba(22, 24, 31, 0.08); }
+[data-theme="light"] .devslate-grapesjs .gjs-pn-btn { color: #454a58; }
+[data-theme="light"] .devslate-grapesjs .gjs-pn-btn:hover { color: #16181f; }
+[data-theme="light"] .devslate-grapesjs .gjs-pn-active,
+[data-theme="light"] .devslate-grapesjs .gjs-pn-btn.gjs-pn-active { background-color: rgba(22, 24, 31, 0.07); color: var(--accent-devslate); }
+[data-theme="light"] .devslate-grapesjs .gjs-block { background: #f0f2f8; border-color: rgba(22, 24, 31, 0.08); color: #16181f; }
+[data-theme="light"] .devslate-grapesjs .gjs-block:hover { background: rgba(22, 24, 31, 0.05); border-color: var(--accent-devslate); }
+[data-theme="light"] .devslate-grapesjs .gjs-layer { background: #f0f2f8; border-color: rgba(22, 24, 31, 0.06); color: #16181f; }
+[data-theme="light"] .devslate-grapesjs .gjs-layer.gjs-selected { background: rgba(22, 24, 31, 0.08); }
+[data-theme="light"] .devslate-grapesjs .gjs-sm-sector .gjs-sm-title { background: #f0f2f8; color: #16181f; border-color: rgba(22, 24, 31, 0.06); }
+[data-theme="light"] .devslate-grapesjs .gjs-field { background: #ffffff; border-color: rgba(22, 24, 31, 0.12); color: #16181f; }
+[data-theme="light"] .devslate-grapesjs .gjs-label { color: #6b7280; }
+[data-theme="light"] .devslate-grapesjs .gjs-toolbar { background: var(--accent-devslate); }
+[data-theme="light"] .devslate-grapesjs .gjs-toolbar-item { color: #ffffff; }
+[data-theme="light"] .devslate-grapesjs .gjs-badge { background: var(--accent-devslate); color: #ffffff; }

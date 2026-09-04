@@ -1,5 +1,5 @@
-import { useEffect, useRef } from "react";
-import { CANVAS_ACCENT } from "./tokens";
+import { useEffect, useRef, useState } from "react";
+import { CANVAS_ACCENT, isDayTheme } from "./tokens";
 
 // Adapted from a canvas dot-grid reference component (2026-09-01) — idle
 // dots glow white, cursor proximity shifts them toward an accent color
@@ -19,7 +19,7 @@ const SPACING = 20; // px between dots
 const RADIUS = 130; // px of pointer influence
 const BASE_A = 0.22; // resting dot opacity
 const PEAK_A = 0.95; // fully-lit dot opacity
-const BACKGROUND = "#0d0d10"; // a step lighter than the canvas's own #080808, so this pane reads as its own zone
+const BACKGROUND = "var(--dotgrid-bg)"; // theme-aware: near-black in night, light in day
 
 // Converts any CSS color (including oklch(), which canvas fillStyle
 // can't reliably per-channel-interpolate frame by frame) to a plain RGB
@@ -40,6 +40,12 @@ export function DevSlateDotGrid({ accentColor = CANVAS_ACCENT.devSlate.color }: 
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mouseRef = useRef<{ x: number; y: number } | null>(null);
+  const [themeTick, setThemeTick] = useState(0);
+  useEffect(() => {
+    const onTheme = () => setThemeTick(t => t + 1);
+    window.addEventListener("navi-theme-change", onTheme);
+    return () => window.removeEventListener("navi-theme-change", onTheme);
+  }, []);
 
   useEffect(() => {
     const updateFromClient = (clientX: number, clientY: number) => {
@@ -73,7 +79,7 @@ export function DevSlateDotGrid({ accentColor = CANVAS_ACCENT.devSlate.color }: 
   useEffect(() => {
     const canvas = canvasRef.current!;
     const ctx = canvas.getContext("2d")!;
-    const [r0, g0, b0] = [255, 255, 255]; // idle: white
+    const [r0, g0, b0] = isDayTheme() ? [122, 128, 145] : [255, 255, 255]; // idle: dark gray in day, white in night
     const [r1, g1, b1] = cssColorToRgb(accentColor); // lit: resolved via the DOM so it can never drift from whatever token the caller passed
 
     type Dot = { x: number; y: number; b: number };
@@ -144,7 +150,7 @@ export function DevSlateDotGrid({ accentColor = CANVAS_ACCENT.devSlate.color }: 
       cancelAnimationFrame(animId);
       ro.disconnect();
     };
-  }, [accentColor]);
+  }, [accentColor, themeTick]);
 
   return (
     <div ref={containerRef} style={{ position: "absolute", inset: 0, overflow: "hidden", background: BACKGROUND, pointerEvents: "none" }}>

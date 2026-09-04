@@ -1,11 +1,43 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Editor, DiffEditor } from "@monaco-editor/react";
 import { CheckIcon, XIcon, FileIcon } from "@primer/octicons-react";
-import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT } from "./tokens";
+import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, status, actionInk, isDayTheme } from "./tokens";
 import { decideWriteReview, notifyFileWritten, useDevSlateState } from "./devslateStore";
 import { writeLocalFile } from "./devslateFs";
 
 const accent = CANVAS_ACCENT.devSlate.color;
+
+// Custom Monaco theme matched to Dev Slate's near-black/teal palette,
+// replacing the stock "vs-dark" blue-gray that clashed with the canvas.
+function defineNaviMonacoTheme(monaco: any): void {
+  const day = isDayTheme();
+  monaco.editor.defineTheme("navi-devslate", {
+    base: day ? "vs" : "vs-dark",
+    inherit: true,
+    rules: [],
+    colors: day ? {
+      "editor.background": "#f7f8fb",
+      "editor.foreground": "#16181f",
+      "editorLineNumber.foreground": "#9aa1b2",
+      "editorCursor.foreground": "#0f7a96",
+      "editor.selectionBackground": "rgba(15, 122, 150, 0.2)",
+      "editor.lineHighlightBackground": "#eef0f6",
+      "editorIndentGuide.background1": "rgba(22, 24, 31, 0.08)",
+      "editorWidget.background": "#ffffff",
+      "editorGutter.background": "#f7f8fb",
+    } : {
+      "editor.background": "#10141f",
+      "editor.foreground": "#f4f6fb",
+      "editorLineNumber.foreground": "#5f6880",
+      "editorCursor.foreground": "#40b7d6",
+      "editor.selectionBackground": "rgba(64, 183, 214, 0.28)",
+      "editor.lineHighlightBackground": "#151a26",
+      "editorIndentGuide.background1": "rgba(255, 255, 255, 0.08)",
+      "editorWidget.background": "#1c2231",
+      "editorGutter.background": "#10141f",
+    },
+  });
+}
 
 const LANGUAGE_BY_EXTENSION: Record<string, string> = {
   ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript",
@@ -103,7 +135,7 @@ export function DevSlateCode() {
           <span style={{ flexShrink: 0, color: neutral.textFaint }}>Saving…</span>
         )}
         {!pendingWrite && !saving && saveError && (
-          <span style={{ flexShrink: 0, color: "#e05a4a" }} title={saveError}>Couldn't save — {saveError}</span>
+          <span style={{ flexShrink: 0, color: status.danger.color }} title={saveError}>Couldn't save — {saveError}</span>
         )}
         {pendingWrite && (
           <div style={{ display: "flex", gap: spacing.xs, flexShrink: 0 }}>
@@ -117,7 +149,7 @@ export function DevSlateCode() {
             <button onClick={() => decideWriteReview(true)} style={{
               display: "flex", alignItems: "center", gap: 4, padding: `${spacing.xxs}px ${spacing.sm}px`,
               borderRadius: radius.xs, border: "none", background: accent,
-              color: "#08110d", cursor: "pointer", fontSize: fontSize.xxs, fontFamily, fontWeight: fontWeight.medium,
+              color: actionInk, cursor: "pointer", fontSize: fontSize.xxs, fontFamily, fontWeight: fontWeight.medium,
             }}>
               <CheckIcon size={12} /> Accept
             </button>
@@ -130,7 +162,8 @@ export function DevSlateCode() {
             language={language}
             original={pendingWrite.before}
             modified={pendingWrite.after}
-            theme="vs-dark"
+            theme="navi-devslate"
+            beforeMount={defineNaviMonacoTheme}
             options={{ readOnly: true, minimap: { enabled: false }, fontSize: 13 }}
           />
         ) : (
@@ -139,7 +172,8 @@ export function DevSlateCode() {
             language={language}
             value={localContent}
             onChange={handleChange}
-            theme="vs-dark"
+            theme="navi-devslate"
+            beforeMount={defineNaviMonacoTheme}
             options={{ readOnly: false, minimap: { enabled: false }, fontSize: 13 }}
           />
         )}

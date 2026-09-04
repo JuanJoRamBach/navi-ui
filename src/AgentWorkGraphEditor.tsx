@@ -7,7 +7,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { XIcon, PlusIcon, SquareIcon, PencilIcon, ClockIcon } from "@primer/octicons-react";
-import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, tintedGlow } from "./tokens";
+import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, tintedGlow, status, surface } from "./tokens";
 import { NODE_KIND_LIST, NODE_KINDS, type NodeKindId } from "./agentWorkNodeKinds";
 import { AGENT_WORK_NODE_TYPES, type AgentWorkNodeData, type AgentWorkGroupData } from "./AgentWorkGraphNode";
 import { convertBackendToGraph, convertGraphToBackend } from "./agentWorkGraphConvert";
@@ -144,7 +144,7 @@ function AgentWorkEdge({ id, source, sourceX, sourceY, targetX, targetY, sourceP
               style={{
                 width: 96, fontSize: 10, padding: "2px 6px", borderRadius: 10,
                 border: `1px solid ${label ? "#e08a3855" : "rgba(255,255,255,0.2)"}`,
-                background: label ? "rgba(224,138,56,0.12)" : "#161616",
+                background: label ? "rgba(224,138,56,0.12)" : surface.raised,
                 color: label ? "#e08a38" : neutral.textFaint, fontFamily,
               }}
             />
@@ -154,7 +154,7 @@ function AgentWorkEdge({ id, source, sourceX, sourceY, targetX, targetY, sourceP
             aria-label="Delete connection"
             style={{
               width: 16, height: 16, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
-              border: "1px solid rgba(255,255,255,0.25)", background: hovered ? "#e05a4a" : "#161616",
+              border: "1px solid rgba(255,255,255,0.25)", background: hovered ? status.danger.color : surface.raised,
               color: hovered ? "#fff" : neutral.textFaint, fontSize: 11, lineHeight: 1, padding: 0,
               cursor: "pointer", flexShrink: 0, fontFamily,
             }}
@@ -235,7 +235,7 @@ function AddNodeMenu({ onPick, onClose }: { onPick: (kind: NodeKindId) => void; 
   return (
     <div ref={ref} style={{
       position: "absolute", top: "100%", left: 0, marginTop: 4, zIndex: 321,
-      width: 200, background: "#161616", border: "1px solid rgba(255,255,255,0.1)",
+      width: 200, background: surface.raised, border: "1px solid rgba(255,255,255,0.1)",
       borderRadius: radius.sm, padding: spacing.xs, display: "flex", flexDirection: "column", gap: 3,
       boxShadow: "0 12px 40px rgba(0,0,0,0.5)", maxHeight: 360, overflowY: "auto",
     }}>
@@ -266,7 +266,7 @@ function ScheduleMenu({ scheduled, onScheduledChange, intervalMinutes, onInterva
   return (
     <div ref={ref} style={{
       position: "absolute", top: "100%", right: 0, marginTop: 4, zIndex: 321,
-      width: 240, background: "#161616", border: "1px solid rgba(255,255,255,0.1)",
+      width: 240, background: surface.raised, border: "1px solid rgba(255,255,255,0.1)",
       borderRadius: radius.sm, padding: spacing.sm, display: "flex", flexDirection: "column", gap: spacing.xs,
       boxShadow: "0 12px 40px rgba(0,0,0,0.5)", fontFamily,
     }}>
@@ -312,7 +312,7 @@ function ConnectDropMenu({ left, top, onPick, onClose }: { left: number; top: nu
   return (
     <div ref={ref} style={{
       position: "absolute", left, top, transform: "translate(-50%, -50%)", zIndex: 50,
-      width: 200, background: "#161616", border: "1px solid rgba(255,255,255,0.1)",
+      width: 200, background: surface.raised, border: "1px solid rgba(255,255,255,0.1)",
       borderRadius: radius.sm, padding: spacing.xs, display: "flex", flexDirection: "column", gap: 3,
       boxShadow: "0 12px 40px rgba(0,0,0,0.5)", maxHeight: 360, overflowY: "auto",
     }}>
@@ -341,7 +341,7 @@ function NodeInspector({ node, onChange, onDelete, onClose }: {
   return (
     <div style={{
       width: 260, display: "flex", flexDirection: "column", borderRadius: radius.md,
-      border: "1px solid rgba(255,255,255,0.12)", background: "#161616",
+      border: "1px solid rgba(255,255,255,0.12)", background: surface.raised,
       boxShadow: "0 12px 40px rgba(0,0,0,0.55)", maxHeight: 360,
     }}>
       <div style={{
@@ -399,7 +399,7 @@ function NodeInspector({ node, onChange, onDelete, onClose }: {
           onClick={onDelete}
           style={{
             width: "100%", padding: `${spacing.xs}px ${spacing.sm}px`, borderRadius: radius.xs,
-            border: "1px solid #e05a4a55", background: "#e05a4a15", color: "#e05a4a",
+            border: `1px solid ${status.danger.border}`, background: status.danger.bg, color: status.danger.color,
             cursor: "pointer", fontSize: fontSize.xs, fontFamily,
           }}
         >
@@ -426,7 +426,7 @@ function GroupInspector({ node, onChangeItems, onClose }: {
   return (
     <div style={{
       width: 280, display: "flex", flexDirection: "column", borderRadius: radius.md,
-      border: "1px solid rgba(255,255,255,0.12)", background: "#161616",
+      border: "1px solid rgba(255,255,255,0.12)", background: surface.raised,
       boxShadow: "0 12px 40px rgba(0,0,0,0.55)", maxHeight: 360,
     }}>
       <div style={{
@@ -976,7 +976,7 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
         {saveErrors.length > 0 && (
           <div style={{
             display: "flex", flexDirection: "column", gap: 2, padding: `${spacing.xs}px ${spacing.sm}px`,
-            borderRadius: radius.xs, border: "1px solid #e05a4a55", background: "#e05a4a15",
+            borderRadius: radius.xs, border: `1px solid ${status.danger.border}`, background: status.danger.bg,
             fontSize: fontSize.xxs, color: "#e08a7a",
           }}>
             {saveErrors.map((err, i) => <div key={i}>{err}</div>)}
@@ -985,8 +985,8 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
         {savedName && (
           <div style={{
             padding: `${spacing.xs}px ${spacing.sm}px`, borderRadius: radius.xs,
-            border: "1px solid #3ecf8e55", background: "#3ecf8e15",
-            fontSize: fontSize.xxs, color: "#3ecf8e",
+            border: `1px solid ${status.success.border}`, background: status.success.bg,
+            fontSize: fontSize.xxs, color: status.success.color,
           }}>
             Saved "{savedName}" — find it in the Workflows sidebar.
           </div>
