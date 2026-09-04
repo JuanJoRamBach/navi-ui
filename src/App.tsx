@@ -2405,7 +2405,7 @@ export default function App() {
             display: "flex", flexDirection: "column", gap: spacing.xxs, padding: spacing.sm,
             borderTop: "1px solid rgba(255,255,255,0.08)", flexShrink: 0,
           }}>
-            <div style={{ fontSize: fontSize.xxs, letterSpacing: "0.1em", textTransform: "uppercase", color: neutral.textInactive, fontWeight: fontWeight.medium, padding: `${spacing.xs}px ${spacing.sm}px ${spacing.xxs}px`, fontFamily }}>System</div>
+            <div className="sidebar-menu-btn-label" style={{ fontSize: fontSize.xxs, letterSpacing: "0.1em", textTransform: "uppercase", color: neutral.textInactive, fontWeight: fontWeight.medium, padding: `${spacing.xs}px ${spacing.sm}px ${spacing.xxs}px`, fontFamily }}>System</div>
             {([
               { key: "usage", icon: <GraphIcon size={iconSize.sm} />, label: "Usage counters" },
               { key: "routing", icon: <GitBranchIcon size={iconSize.sm} />, label: "Routing & fallbacks" },
@@ -2477,7 +2477,7 @@ export default function App() {
                 always exactly one click away regardless of that state,
                 same tier as Profile). Opens the sidebar if it's closed;
                 if it's already open, just switches tab. */}
-            <div style={{ fontSize: fontSize.xxs, letterSpacing: "0.1em", textTransform: "uppercase", color: neutral.textInactive, fontWeight: fontWeight.medium, padding: `${spacing.xs}px ${spacing.sm}px ${spacing.xxs}px`, fontFamily }}>Account</div>
+            <div className="sidebar-menu-btn-label" style={{ fontSize: fontSize.xxs, letterSpacing: "0.1em", textTransform: "uppercase", color: neutral.textInactive, fontWeight: fontWeight.medium, padding: `${spacing.xs}px ${spacing.sm}px ${spacing.xxs}px`, fontFamily }}>Account</div>
             <button
               className="sidebar-menu-btn"
               title="Agents"
