@@ -54,6 +54,8 @@ import {
 import { Group, Panel, Separator, type LayoutChangedMeta } from "react-resizable-panels";
 import { sidebarTab, sidebarBreadcrumb, sidebarRow } from "./sidebar-tokens";
 import { isTextLike } from "./fileFormats";
+import { marked } from "marked";
+import DOMPurify from "dompurify";
 // pdf.js/docx-preview are heavy (real PDF/DOCX rendering) — lazy so
 // they only load once someone actually opens a document, not on every
 // app load. isTextLike/extensionOf stay a normal import since they're
@@ -259,6 +261,14 @@ function splitMessageAttachments(text: string): { body: string; attachments: Mes
 // than needing special partial-block handling.
 const CODE_BLOCK_RE = /```(\w*)\n([\s\S]*?)```/g;
 
+// Sanitized markdown render for completed assistant/user messages —
+// bold/italic/links/lists/tables/headings/line breaks, via marked +
+// DOMPurify (the same pair DocumentViewer already uses). Fenced code
+// blocks render through marked too and are styled via .md pre/code.
+function markdownHtml(text: string): string {
+  return DOMPurify.sanitize(marked.parse(text, { gfm: true, breaks: true }) as string);
+}
+
 function renderMessageBody(text: string) {
   const nodes: React.ReactNode[] = [];
   let lastIndex = 0;
@@ -293,6 +303,11 @@ function renderMessageBody(text: string) {
 
 function StreamingMessageText({ text, animate }: { text: string; animate: boolean }) {
   const [revealed, setRevealed] = useState(animate ? 0 : text.length);
+  // Once fully revealed (or for non-streaming/historical messages),
+  // settle into rendered markdown; during the typewriter reveal we keep
+  // the plain pre-wrap text so a half-closed **bold** / [link](…) never
+  // flickers as malformed markup.
+  const done = !animate || revealed >= text.length;
 
   useEffect(() => {
     if (!animate || revealed >= text.length) return;
@@ -300,6 +315,9 @@ function StreamingMessageText({ text, animate }: { text: string; animate: boolea
     return () => clearTimeout(id);
   }, [animate, revealed, text.length]);
 
+  if (done) {
+    return <div className="md" dangerouslySetInnerHTML={{ __html: markdownHtml(text) }} />;
+  }
   return <>{renderMessageBody(text.slice(0, revealed))}</>;
 }
 

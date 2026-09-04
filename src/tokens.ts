@@ -111,54 +111,64 @@ export const layout = {
 
 // Neutral (mode-independent) surface/text tokens.
 export const neutral = {
-  // Near-white, genuinely neutral (#F6F6F6, R=G=B) — JuanJo's final
-  // pick, 2026-08-31, superseding the earlier warm-cream choice. Not
-  // literal pure white (#FFFFFF reads slightly harsh on dark backgrounds
-  // over long sessions); zero hue bias means it never fights whichever
-  // zone/mode accent color happens to be nearby. All four text tokens
-  // derive from this same base at different alphas.
-  textPrimary: "rgba(246, 246, 246, 0.95)",
-  // Bumped 2026-08-31 — the background went through several rounds of
-  // getting darker (warm gray -> neutral gray -> pure black -> #0F0F0F)
-  // across this same redesign, but these alpha values were tuned back
-  // when it was much lighter and never rechecked. textFaint specifically
-  // was failing real contrast against a near-black background (roughly
-  // 3:1, under WCAG AA's 4.5:1 floor for body text) — not a stylistic
-  // guess, an actual contrast-math problem caught live.
-  textMuted: "rgba(246, 246, 246, 0.62)",
-  textFaint: "rgba(246, 246, 246, 0.48)",
-  textInactive: "rgba(246, 246, 246, 0.55)",
-  surface: "rgba(10, 12, 18, 0.6)",
-  // Near-solid sibling of `surface` (2026-09-04) — for a FLOATING/MODAL
-  // panel (sits over a dimmed scrim, needs to read as clearly on top of
-  // everything, not part of it) rather than an embedded one (a search
-  // input, a sidebar container — sits inside the app's own known, fixed
-  // background, where `surface`'s lighter glass treatment is the right
-  // call). JuanJo: "a floating window of settings using transparency
-  // looks weird" — ConnectionsOverlay and AgentChat were both using the
-  // same 60%-opaque `surface` as every embedded input bar, letting the
-  // dimmed backdrop bleed through a panel that should feel authoritative
-  // instead. Matches the value AgentWorkChat.tsx's own floating panel
-  // already used correctly, just as a one-off hardcoded value rather
-  // than a shared token.
-  surfaceSolid: "rgba(10, 12, 18, 0.95)",
-  // Bumped from 0.52 (JuanJo, 2026-09-01: "still too transparent") —
-  // reads fine over the main Chat's flatter background but nearly
-  // vanished over Dev Slate's brighter dot-grid canvas.
-  userBubbleBg: "rgba(6, 6, 8, 0.78)",
-  userBubbleBorder: "rgba(255, 255, 255, 0.14)",
+  // Indigo Ink palette (UI overhaul) — cool near-white text on a deep
+  // indigo-tinted near-black, replacing the flat #F6F6F6-on-#000 default
+  // so the app reads as a designed instrument, not a default dark mode.
+  // textFaint was lifted out of the sub-4.5:1 contrast hole the old
+  // 0.48 alpha produced against near-black.
+  textPrimary: "#f4f6fb",
+  textMuted: "#b6bdd0",
+  textFaint: "#8b93ab",
+  textInactive: "#5f6880",
+  // Embedded panels (input bar, search, sidebar containers) — translucent
+  // indigo so the canvas still breathes through them.
+  surface: "rgba(21, 26, 38, 0.6)",
+  // Floating/modal panels — near-solid so a dimmed scrim never bleeds
+  // through a panel that should read authoritative.
+  surfaceSolid: "rgba(21, 26, 38, 0.96)",
+  userBubbleBg: "rgba(28, 34, 49, 0.85)",
+  userBubbleBorder: "rgba(255, 255, 255, 0.16)",
   userBubbleGlow: "rgba(255, 255, 255, 0.08)",
-  // Solid (not translucent) fallback for status dots that aren't tied
-  // to a chat mode — the old rgba(255,255,255,0.28) read as too dim to
-  // register as a status indicator.
-  dotNeutral: "rgb(190, 196, 210)",
-  // Server-awake indicator (see the top-right status dot in App.tsx) —
-  // reuses the same solid-dot treatment as dotNeutral, just with
-  // meaning attached: green/amber/red rather than neutral gray.
-  statusAwake: "rgb(96, 210, 140)",
-  statusWaking: "rgb(230, 180, 80)",
-  statusUnreachable: "rgb(220, 100, 100)",
+  dotNeutral: "rgb(139, 147, 171)",
+  statusAwake: "#4ad9a0",
+  statusWaking: "#f2bd57",
+  statusUnreachable: "#ef7a6b",
 } as const;
+
+// Unified semantic status — ONE green/amber/red, replacing the scattered
+// hardcoded literals that had drifted into 3 greens / 3 ambers / 2 reds
+// across surfaces. Each badge is color + tinted bg + border so it reads
+// as one consistent component everywhere.
+export const status = {
+  success: { color: "#4ad9a0", bg: "rgba(74, 217, 160, 0.13)", border: "rgba(74, 217, 160, 0.25)" },
+  warning: { color: "#f2bd57", bg: "rgba(242, 189, 87, 0.13)", border: "rgba(242, 189, 87, 0.25)" },
+  danger: { color: "#ef7a6b", bg: "rgba(239, 122, 107, 0.13)", border: "rgba(239, 122, 107, 0.25)" },
+} as const;
+
+// Elevation ramp (Indigo Ink) — root/rail through raised/floating.
+// Replaces the four hand-written near-blacks (#161616 / #111318 /
+// #0e0e10 / #0b0b0c) that had drifted across Agent Work / Dev Slate /
+// Connections panels.
+export const surface = {
+  root: "#0a0c14",
+  canvas: "#0e1119",
+  panel: "#151a26",
+  raised: "#1c2231",
+  field: "#10141f",
+} as const;
+
+// Chrome lines + interactive fills — one vocabulary for every border and
+// hover/selected state instead of hand-written rgba(255,255,255,.XX).
+export const border = {
+  subtle: "rgba(255, 255, 255, 0.07)",
+  default: "rgba(255, 255, 255, 0.11)",
+  strong: "rgba(255, 255, 255, 0.17)",
+} as const;
+
+export const hoverBg = "rgba(255, 255, 255, 0.055)";
+export const selectedBg = "rgba(255, 255, 255, 0.07)";
+// Dark ink for text/icons sitting on a full-accent action fill.
+export const actionInk = "#0c0e16";
 
 // Canvas-level accent colors — Chat / Agent Work / Dev Slate, not to be
 // confused with MODE_THEME below (Chat's own three internal modes).
