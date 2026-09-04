@@ -125,7 +125,7 @@ function ConnectForm({ serviceLabel, credentialsUrl, credentialsLabel = "reposit
         <input type="password" value={authHeader} onChange={e => setAuthHeader(e.target.value)} placeholder="Bearer …" style={fieldStyle} />
       </div>
 
-      {error && <div style={{ fontSize: fontSize.xxs, color: "#e05a4a" }}>{error}</div>}
+      {error && <div style={{ fontSize: fontSize.xxs, color: status.danger.color }}>{error}</div>}
 
       <div style={{ display: "flex", justifyContent: "flex-end", gap: spacing.xs, marginTop: spacing.xxs }}>
         <button
@@ -200,7 +200,7 @@ function RegistryCard({ icon, title, description, hostedLabel, requiresAuth, con
         <div style={{ fontSize: fontSize.xs, fontWeight: fontWeight.medium, color: neutral.textPrimary, minWidth: 0 }}>{title}</div>
         {description && <div style={{ fontSize: fontSize.xxs, color: neutral.textFaint, lineHeight: 1.4 }}>{description}</div>}
         <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: spacing.xs, marginTop: 2 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: fontSize.xxs, color: connected ? "#3ecf8e" : neutral.textFaint, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: fontSize.xxs, color: connected ? status.success.color : neutral.textFaint, minWidth: 0 }}>
             {connected && <CheckCircleFillIcon size={10} />}
             <span>{connected ? `Connected · ${connection?.tools.length ?? 0} tool${connection?.tools.length === 1 ? "" : "s"}` : hostedLabel}</span>
             {requiresAuth && !connected && <span style={{ color: accent }}>· needs a token</span>}
@@ -384,7 +384,7 @@ export function ConnectionsOverlay({ onClose, oauthResult, onDismissOauthResult 
               gridColumn: "1 / -1", display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.xs,
               background: CARD_BG, border: CARD_BORDER, borderRadius: radius.sm, padding: spacing.sm,
             }}>
-              <span style={{ fontSize: fontSize.xxs, color: "#e05a4a" }}>{formError}</span>
+              <span style={{ fontSize: fontSize.xxs, color: status.danger.color }}>{formError}</span>
               <button
                 onClick={() => setOpenFormFor(null)}
                 style={{ padding: `2px ${spacing.xs}px`, borderRadius: radius.xs, border: "1px solid rgba(255,255,255,0.15)", background: "transparent", color: neutral.textMuted, cursor: "pointer", fontSize: fontSize.xxs, fontFamily }}
@@ -491,7 +491,7 @@ export function ConnectionsOverlay({ onClose, oauthResult, onDismissOauthResult 
           }}>
             <div style={{
               display: "flex", alignItems: "center", gap: 6, fontSize: fontSize.xxs,
-              color: effectiveOauthResult.status === "success" ? "#3ecf8e" : effectiveOauthResult.status === "partial" ? "#e0a94a" : "#e05a4a",
+              color: effectiveOauthResult.status === "success" ? status.success.color : effectiveOauthResult.status === "partial" ? status.warning.color : status.danger.color,
             }}>
               {effectiveOauthResult.status === "success" && <CheckCircleFillIcon size={11} />}
               {effectiveOauthResult.status === "success" && `Connected to ${effectiveOauthResult.connection ?? "the service"}.`}

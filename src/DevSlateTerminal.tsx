@@ -1,14 +1,14 @@
 import { useEffect, useRef } from "react";
 import { TerminalIcon } from "@primer/octicons-react";
-import { spacing, fontSize, neutral, fontFamily, CANVAS_ACCENT } from "./tokens";
+import { spacing, fontSize, neutral, fontFamily, CANVAS_ACCENT, status } from "./tokens";
 import { clearTerminal, useDevSlateState } from "./devslateStore";
 
 const accent = CANVAS_ACCENT.devSlate.color;
 
 const COLOR_BY_LEVEL: Record<string, string> = {
   log: neutral.textMuted,
-  warn: "#e0b94a",
-  error: "#e0685a",
+  warn: status.warning.color,
+  error: status.danger.color,
 };
 
 // Deliberately a plain scrollback log, not xterm.js — there's no real
