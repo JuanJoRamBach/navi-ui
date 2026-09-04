@@ -899,6 +899,22 @@ export default function App() {
   // status trigger). Separate boolean, closed whenever the Profile
   // popup itself closes.
   const [showConnectionsOverlay, setShowConnectionsOverlay] = useState(false);
+  // Picks up the redirect back from an MCP OAuth flow (2026-09-04) —
+  // server.py's /mcp/oauth/callback sends the browser to
+  // "/?mcp_oauth=success|error|partial&connection=...", since that route
+  // is a real full-page redirect from the provider (GitHub), not
+  // something the SPA's own state survives across. Reopens Connections
+  // so the result (now connected, or the error) is immediately visible,
+  // then strips the query params so a reload doesn't replay this.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has("mcp_oauth")) return;
+    setShowConnectionsOverlay(true);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("mcp_oauth");
+    url.searchParams.delete("connection");
+    window.history.replaceState({}, "", url.toString());
+  }, []);
   // V3 sidebar (menu drawer on mobile/tablet, persistent column on
   // desktop — see .sidebar in index.css). Only meaningful below
   // layout.sidebarBreakpoint; CSS forces the sidebar visible above it

@@ -5,7 +5,7 @@ import {
 } from "@primer/octicons-react";
 import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT } from "./tokens";
 import {
-  listMCPConnections, createMCPConnection, connectMCP, deleteMCPConnection, searchMCPMarketplace,
+  listMCPConnections, createMCPConnection, connectMCP, deleteMCPConnection, searchMCPMarketplace, startMCPOAuth,
   type MCPConnection, type MCPMarketplaceResult,
 } from "./mcpConnections";
 
@@ -37,12 +37,13 @@ interface ConnectTarget { id: string; label: string; credentialsUrl?: string }
 // a generic monogram, never a real brand icon. Core's icons are real
 // because these five are hardcoded, not because the registry provided
 // them.
-const CORE_SERVICES: { id: string; label: string; icon: typeof MarkGithubIcon; credentialsUrl: string; defaultUrl?: string; description: string }[] = [
+const CORE_SERVICES: { id: string; label: string; icon: typeof MarkGithubIcon; credentialsUrl: string; defaultUrl?: string; description: string; oauth?: boolean }[] = [
   {
     id: "github", label: "GitHub", icon: MarkGithubIcon,
     credentialsUrl: "https://github.com/settings/tokens",
     defaultUrl: "https://api.githubcopilot.com/mcp/",
-    description: "GitHub's own official hosted MCP server — URL pre-filled, just add a token.",
+    description: "GitHub's own official hosted MCP server — sign in with GitHub, no token to paste.",
+    oauth: true,
   },
   {
     id: "google-workspace", label: "Google Workspace", icon: MailIcon,
@@ -160,7 +161,7 @@ function ConnectForm({ serviceLabel, credentialsUrl, credentialsLabel = "reposit
 // container in ConnectionsOverlay below; spanFull lets an open
 // ConnectForm take the full width instead of being squeezed into one
 // half-width column.
-function RegistryCard({ icon, title, description, hostedLabel, requiresAuth, connection, spanFull, onOpenForm, onDisconnect }: {
+function RegistryCard({ icon, title, description, hostedLabel, requiresAuth, connection, spanFull, busy, onOpenForm, onDisconnect }: {
   icon: React.ReactNode;
   title: string;
   description: string;
@@ -168,6 +169,11 @@ function RegistryCard({ icon, title, description, hostedLabel, requiresAuth, con
   requiresAuth: boolean;
   connection: MCPConnection | undefined;
   spanFull: boolean;
+  // True while an OAuth flow is being started for this card specifically
+  // (network round-trip before the browser redirects away) — the manual
+  // paste-a-URL form has no equivalent wait, so this only ever matters
+  // for an oauth: true CORE_SERVICES entry.
+  busy?: boolean;
   onOpenForm: () => void;
   onDisconnect: () => void;
 }) {
@@ -204,8 +210,11 @@ function RegistryCard({ icon, title, description, hostedLabel, requiresAuth, con
               Disconnect
             </button>
           ) : (
-            <button onClick={onOpenForm} style={{ ...smallButtonStyle, border: "1px solid rgba(255,255,255,0.15)", background: "transparent", color: neutral.textPrimary, fontWeight: fontWeight.medium }}>
-              <PlusIcon size={10} /> Connect
+            <button
+              onClick={onOpenForm} disabled={busy}
+              style={{ ...smallButtonStyle, border: "1px solid rgba(255,255,255,0.15)", background: "transparent", color: neutral.textPrimary, fontWeight: fontWeight.medium, opacity: busy ? 0.6 : 1, cursor: busy ? "default" : "pointer" }}
+            >
+              <PlusIcon size={10} /> {busy ? "Connecting…" : "Connect"}
             </button>
           )}
         </div>
@@ -287,10 +296,72 @@ export function ConnectionsOverlay({ onClose }: { onClose: () => void }) {
     refresh();
   };
 
+  // OAuth path (2026-09-04) — real MCP-spec flow (server.py's /oauth/
+  // start + /oauth/callback), not a form: ensure the connection exists
+  // with its known-good URL, ask the backend to run discovery and hand
+  // back an authorize_url, then navigate the WHOLE browser there — the
+  // user needs to actually see and approve the provider's own consent
+  // screen. There's nothing to do after that in this tab; the provider
+  // redirects back to server.py's callback, which lands the browser back
+  // here (App.tsx's mcp_oauth effect reopens this overlay).
+  const handleOAuthConnect = async (service: typeof CORE_SERVICES[number]) => {
+    setSubmitting(true);
+    setFormError(null);
+    setOpenFormFor(service.id);
+    try {
+      if (!byName.get(service.id)) {
+        const created = await createMCPConnection({ name: service.id, transport: "http", url: service.defaultUrl! });
+        if (created.error) {
+          setFormError(created.error);
+          return;
+        }
+      }
+      const result = await startMCPOAuth(service.id);
+      if (result.error || !result.authorize_url) {
+        setFormError(result.error ?? "Couldn't start the OAuth flow.");
+        return;
+      }
+      window.location.href = result.authorize_url; // full-page navigation — nothing more to do here
+    } catch {
+      setFormError("Couldn't reach NAVI — check it's running.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const renderCoreService = (service: typeof CORE_SERVICES[number]) => {
-    const target: ConnectTarget = { id: service.id, label: service.label, credentialsUrl: service.credentialsUrl };
     const isOpen = openFormFor === service.id;
     const Icon = service.icon;
+
+    if (service.oauth) {
+      return (
+        <Fragment key={service.id}>
+          <RegistryCard
+            icon={<Icon size={16} />} title={service.label} description={service.description}
+            hostedLabel="Hosted" requiresAuth={false} busy={isOpen && submitting}
+            connection={byName.get(service.id)} spanFull={isOpen && !!formError}
+            onOpenForm={() => handleOAuthConnect(service)}
+            onDisconnect={() => handleDisconnect(service.id)}
+          />
+          {isOpen && !submitting && formError && (
+            <div style={{
+              gridColumn: "1 / -1", display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.xs,
+              background: CARD_BG, border: CARD_BORDER, borderRadius: radius.sm, padding: spacing.sm,
+            }}>
+              <span style={{ fontSize: fontSize.xxs, color: "#e05a4a" }}>{formError}</span>
+              <button
+                onClick={() => setOpenFormFor(null)}
+                style={{ padding: `2px ${spacing.xs}px`, borderRadius: radius.xs, border: "1px solid rgba(255,255,255,0.15)", background: "transparent", color: neutral.textMuted, cursor: "pointer", fontSize: fontSize.xxs, fontFamily }}
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+        </Fragment>
+      );
+    }
+
+    const target: ConnectTarget = { id: service.id, label: service.label, credentialsUrl: service.credentialsUrl };
     return (
       <Fragment key={service.id}>
         <RegistryCard

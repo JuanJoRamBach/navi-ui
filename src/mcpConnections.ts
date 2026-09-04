@@ -89,6 +89,19 @@ export async function connectMCP(name: string): Promise<{ tools?: MCPDiscoveredT
   return res.json();
 }
 
+// Real MCP-spec OAuth (2026-09-04) — replaces "paste a token" for
+// servers that support it (currently GitHub; see server.py's own
+// discovery-chain findings). Returns a URL to navigate the WHOLE browser
+// to (not fetch further) — the user needs to actually see and approve
+// the provider's own consent screen, then GitHub redirects back to
+// server.py's /mcp/oauth/callback, which lands the browser back on this
+// app with a mcp_oauth=... query param (see App.tsx's own effect for
+// picking that up).
+export async function startMCPOAuth(name: string): Promise<{ authorize_url?: string; error?: string }> {
+  const res = await fetch(`${NAVI_BACKEND_URL}/mcp/connections/${encodeURIComponent(name)}/oauth/start`, { method: "POST" });
+  return res.json();
+}
+
 export async function approveMCPTools(name: string, toolNames: string[]): Promise<{ approved?: string[]; error?: string }> {
   const res = await fetch(`${NAVI_BACKEND_URL}/mcp/connections/${encodeURIComponent(name)}/approve`, {
     method: "POST",
