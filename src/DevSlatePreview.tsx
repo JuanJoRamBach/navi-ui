@@ -4,7 +4,7 @@ import gjsPresetWebpage from "grapesjs-preset-webpage";
 import "grapesjs/dist/css/grapes.min.css";
 import "./devslate-grapesjs-theme.css";
 import { ArrowLeftIcon, ArrowRightIcon, GlobeIcon, PencilIcon, EyeIcon, SyncIcon } from "@primer/octicons-react";
-import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT } from "./tokens";
+import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, actionInk } from "./tokens";
 import { isLocalFileError, readLocalFile, writeLocalFile } from "./devslateFs";
 import { appendTerminalLine, notifyFileWritten, useDevSlateState } from "./devslateStore";
 
@@ -331,7 +331,7 @@ export function DevSlatePreview() {
                 style={{
                   padding: `2px ${spacing.xs}px`, borderRadius: radius.xs, border: "none",
                   background: dirty ? accent : "rgba(8,8,10,0.85)",
-                  color: dirty ? "#08110d" : neutral.textFaint,
+                  color: dirty ? actionInk : neutral.textFaint,
                   cursor: dirty && !saving ? "pointer" : "default",
                   fontSize: fontSize.xxs, fontWeight: fontWeight.medium, fontFamily,
                 }}

@@ -2460,7 +2460,7 @@ export default function App() {
                 <span className="sidebar-menu-btn-label" style={{ flex: 1 }}>Agent Chat</span>
                 <span style={{
                   fontSize: fontSize.xxs, minWidth: 16, height: 16, borderRadius: 8,
-                  background: CANVAS_ACCENT.agentWork.color, color: "#0a0a0a",
+                  background: CANVAS_ACCENT.agentWork.color, color: "var(--ink)",
                   display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
                 }}>
                   {pendingAgentInputs.length}
