@@ -93,7 +93,7 @@ function ModelBadge({ conversationId }: { conversationId: string }) {
           // would get clipped by the pane's own bottom boundary.
           position: "absolute", bottom: "100%", right: 0, marginBottom: spacing.xxs, zIndex: 50,
           width: 280, maxHeight: 320, overflowY: "auto",
-          background: surface.raised, border: "1px solid rgba(255,255,255,0.12)", borderRadius: radius.sm,
+          background: surface.raised, border: "1px solid var(--border-default)", borderRadius: radius.sm,
           boxShadow: "0 8px 24px rgba(0,0,0,0.5)", padding: spacing.xs,
         }}>
           <div style={{ fontSize: fontSize.xxs, color: neutral.textFaint, padding: `${spacing.xxs}px ${spacing.xs}px` }}>
@@ -163,7 +163,7 @@ function EditModeSelector({ autoAccept, onChange }: { autoAccept: boolean; onCha
       {open && (
         <div style={{
           position: "absolute", bottom: "100%", left: 0, marginBottom: spacing.xxs, zIndex: 50,
-          width: 180, background: surface.raised, border: "1px solid rgba(255,255,255,0.12)",
+          width: 180, background: surface.raised, border: "1px solid var(--border-default)",
           borderRadius: radius.sm, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", padding: spacing.xs,
         }}>
           {OPTIONS.map(({ value, label, icon: Icon }) => {
@@ -226,7 +226,7 @@ function AttachFilePicker({ attached, onAttach }: { attached: string[]; onAttach
         <div style={{
           position: "absolute", bottom: "100%", left: 0, marginBottom: spacing.xxs, zIndex: 50,
           width: 260, maxHeight: 280, display: "flex", flexDirection: "column",
-          background: surface.raised, border: "1px solid rgba(255,255,255,0.12)", borderRadius: radius.sm,
+          background: surface.raised, border: "1px solid var(--border-default)", borderRadius: radius.sm,
           boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
         }}>
           <input
