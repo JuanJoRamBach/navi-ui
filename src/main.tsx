@@ -2,10 +2,19 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
 import './index.css'
+import { installApiAuth } from './apiAuth'
+import { ApiKeyGate } from './ApiKeyGate'
+
+// Installed before the app renders — every backend fetch from here on
+// (mcpConnections.ts, agentWork.ts, App.tsx, etc.) gets the access-key
+// header injected automatically. See apiAuth.ts's own docstring.
+installApiAuth()
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <App />
+    <ApiKeyGate>
+      <App />
+    </ApiKeyGate>
   </React.StrictMode>,
 )
 

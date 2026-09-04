@@ -6,6 +6,7 @@
 // conversation memory and a persistent connection, a genuinely different
 // shape, not a variant of the same thing.
 import { NAVI_BACKEND_URL } from "./config";
+import { getApiKey } from "./apiAuth";
 import { handleDevSlateToolCall, readLocalFile, writeLocalFile } from "./devslateFs";
 import { notifyFileWritten, type DevSlateTaskState } from "./devslateStore";
 
@@ -38,7 +39,13 @@ export interface ModelCatalog {
 function wsUrl(conversationId: string): string {
   const httpUrl = new URL(NAVI_BACKEND_URL);
   const scheme = httpUrl.protocol === "https:" ? "wss:" : "ws:";
-  return `${scheme}//${httpUrl.host}/ws/devslate/${conversationId}`;
+  // The browser's native WebSocket API can't set custom headers, so the
+  // access key (see apiAuth.ts) has to travel as a query param instead
+  // of X-Navi-Api-Key here — server.py's devslate_ws checks it the same
+  // way before accept()ing the connection.
+  const key = getApiKey();
+  const query = key ? `?key=${encodeURIComponent(key)}` : "";
+  return `${scheme}//${httpUrl.host}/ws/devslate/${conversationId}${query}`;
 }
 
 export async function createSlate(parentId?: string): Promise<{ id: string; parent_id: string | null }> {

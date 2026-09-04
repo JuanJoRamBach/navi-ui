@@ -1,7 +1,14 @@
 // MCP connections client — REST calls for server.py's /mcp/connections*
 // (see dispatcher/mcp_client.py for the actual security model this sits
 // on top of: rug-pull hash-pinning, tool-poisoning sanitization, the
-// read/write confirmation gate). Plain fetch, same shape as agentWork.ts.
+// destructive-action confirmation gate). Plain fetch, same shape as
+// agentWork.ts.
+//
+// http-only (2026-09-04): "stdio" still exists as a type/value here only
+// because the MCP Registry's own server.json format reports it (see
+// MCPMarketplaceResult.transport) — the backend filters stdio-only
+// marketplace results out before they ever reach this client, and
+// createMCPConnection only ever sends "http". No UI here offers stdio.
 import { NAVI_BACKEND_URL } from "./config";
 
 export type MCPTransport = "stdio" | "http";
@@ -9,6 +16,7 @@ export type MCPTransport = "stdio" | "http";
 export interface MCPConnectionTool {
   name: string;
   read_only: boolean;
+  destructive: boolean;
   approved_at: number;
 }
 
@@ -23,12 +31,14 @@ export interface MCPDiscoveredTool {
   name: string;
   description: string;
   read_only: boolean;
+  destructive: boolean;
   status: "approved" | "new" | "changed";
 }
 
 // A real, searchable result from the official MCP Registry
 // (tools/mcp_marketplace.py's proxy) — enough to pre-fill the existing
-// connect form, not a full server.json.
+// connect form, not a full server.json. Already filtered to http-only
+// server-side.
 export interface MCPMarketplaceResult {
   name: string;
   title: string;
@@ -37,8 +47,6 @@ export interface MCPMarketplaceResult {
   transport: MCPTransport;
   requires_auth: boolean;
   url?: string;
-  command?: string;
-  args?: string[];
 }
 
 export async function searchMCPMarketplace(query: string): Promise<MCPMarketplaceResult[]> {
@@ -53,8 +61,7 @@ export async function listMCPConnections(): Promise<MCPConnection[]> {
 }
 
 export async function createMCPConnection(config: {
-  name: string; transport: MCPTransport;
-  command?: string; args?: string[]; url?: string; auth_header?: string;
+  name: string; transport: "http"; url: string; auth_header?: string;
 }): Promise<{ ok?: boolean; error?: string }> {
   const res = await fetch(`${NAVI_BACKEND_URL}/mcp/connections`, {
     method: "POST",

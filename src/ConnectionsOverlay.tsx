@@ -6,7 +6,7 @@ import {
 import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, tintedGlow, CANVAS_ACCENT } from "./tokens";
 import {
   listMCPConnections, createMCPConnection, connectMCP, deleteMCPConnection, searchMCPMarketplace,
-  type MCPConnection, type MCPTransport, type MCPMarketplaceResult,
+  type MCPConnection, type MCPMarketplaceResult,
 } from "./mcpConnections";
 
 // A connect target from either source — the fixed catalog below, or a
@@ -51,14 +51,12 @@ function ConnectForm({ serviceLabel, credentialsUrl, initial, onCancel, onSubmit
   serviceLabel: string; credentialsUrl?: string; submitting: boolean; error: string | null;
   // Pre-fills the form from a marketplace result's real transport info
   // (2026-09-04) — the user still reviews/edits before submitting,
-  // never a silent one-click connect.
-  initial?: { transport: MCPTransport; url?: string; command?: string; args?: string[] };
+  // never a silent one-click connect. Marketplace results are already
+  // filtered to http-only server-side, so `initial` never carries stdio.
+  initial?: { url?: string };
   onCancel: () => void;
-  onSubmit: (config: { transport: MCPTransport; command: string; args: string; url: string; authHeader: string }) => void;
+  onSubmit: (config: { url: string; authHeader: string }) => void;
 }) {
-  const [transport, setTransport] = useState<MCPTransport>(initial?.transport ?? "http");
-  const [command, setCommand] = useState(initial?.command ?? "");
-  const [args, setArgs] = useState(initial?.args?.join(" ") ?? "");
   const [url, setUrl] = useState(initial?.url ?? "");
   const [authHeader, setAuthHeader] = useState("");
 
@@ -74,9 +72,8 @@ function ConnectForm({ serviceLabel, credentialsUrl, initial, onCancel, onSubmit
       <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted, lineHeight: 1.5 }}>
         {credentialsUrl ? (
           <>
-            Get credentials from {serviceLabel}'s own settings page, then point NAVI at the MCP
-            server that talks to it — a locally-run command, or a hosted URL if the service
-            provides one.{" "}
+            Get credentials from {serviceLabel}'s own settings page, then point NAVI at that
+            service's hosted MCP server URL.{" "}
             <a href={credentialsUrl} target="_blank" rel="noreferrer" style={{ color: neutral.textPrimary }}>
               Open {serviceLabel}'s credentials page <LinkIcon size={10} />
             </a>
@@ -84,43 +81,14 @@ function ConnectForm({ serviceLabel, credentialsUrl, initial, onCancel, onSubmit
         ) : initial ? (
           "Pulled from the MCP Registry — review before connecting, and add an access token below if the server needs one."
         ) : (
-          "Point NAVI at the MCP server that talks to this service — a locally-run command, or a hosted URL if it provides one."
+          "Point NAVI at this service's hosted MCP server URL."
         )}
       </div>
 
-      <div style={{ display: "flex", gap: spacing.xs }}>
-        {(["http", "stdio"] as const).map(t => (
-          <button
-            key={t} onClick={() => setTransport(t)}
-            style={{
-              flex: 1, padding: `${spacing.xxs}px ${spacing.sm}px`, borderRadius: radius.xs,
-              border: `1px solid ${transport === t ? neutral.textPrimary : "rgba(255,255,255,0.12)"}`,
-              background: transport === t ? "rgba(255,255,255,0.08)" : "transparent",
-              color: neutral.textPrimary, cursor: "pointer", fontSize: fontSize.xs, fontFamily,
-            }}
-          >
-            {t === "http" ? "Hosted URL" : "Local command"}
-          </button>
-        ))}
+      <div>
+        <div style={labelStyle}>Server URL</div>
+        <input value={url} onChange={e => setUrl(e.target.value)} placeholder="https://…/mcp" style={fieldStyle} />
       </div>
-
-      {transport === "http" ? (
-        <div>
-          <div style={labelStyle}>Server URL</div>
-          <input value={url} onChange={e => setUrl(e.target.value)} placeholder="https://…/mcp" style={fieldStyle} />
-        </div>
-      ) : (
-        <>
-          <div>
-            <div style={labelStyle}>Command</div>
-            <input value={command} onChange={e => setCommand(e.target.value)} placeholder="npx" style={fieldStyle} />
-          </div>
-          <div>
-            <div style={labelStyle}>Arguments (space-separated)</div>
-            <input value={args} onChange={e => setArgs(e.target.value)} placeholder="-y @vendor/server-name" style={fieldStyle} />
-          </div>
-        </>
-      )}
 
       <div>
         <div style={labelStyle}>Access token (optional)</div>
@@ -140,8 +108,8 @@ function ConnectForm({ serviceLabel, credentialsUrl, initial, onCancel, onSubmit
           Cancel
         </button>
         <button
-          onClick={() => onSubmit({ transport, command, args, url, authHeader })}
-          disabled={submitting || (transport === "http" ? !url.trim() : !command.trim())}
+          onClick={() => onSubmit({ url, authHeader })}
+          disabled={submitting || !url.trim()}
           style={{
             padding: `${spacing.xxs}px ${spacing.sm}px`, borderRadius: radius.xs, border: "1px solid #3ecf8e55",
             background: "#3ecf8e15", color: "#3ecf8e", cursor: submitting ? "default" : "pointer",
@@ -221,7 +189,7 @@ function MarketplaceResultRow({ result, connection, onOpenForm, onDisconnect }: 
         <div style={{ fontSize: fontSize.xxs, color: neutral.textFaint, lineHeight: 1.4, marginTop: 2 }}>{result.description}</div>
         <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: fontSize.xxs, color: connected ? "#3ecf8e" : neutral.textFaint, marginTop: 4 }}>
           {connected && <CheckCircleFillIcon size={10} />}
-          <span>{connected ? `Connected · ${connection?.tools.length ?? 0} tool${connection?.tools.length === 1 ? "" : "s"}` : result.transport === "http" ? "Hosted" : "Local (npx)"}</span>
+          <span>{connected ? `Connected · ${connection?.tools.length ?? 0} tool${connection?.tools.length === 1 ? "" : "s"}` : "Hosted"}</span>
           {result.requires_auth && !connected && <span style={{ color: accent }}>· needs a token</span>}
         </div>
       </div>
@@ -281,16 +249,14 @@ export function ConnectionsOverlay({ onClose }: { onClose: () => void }) {
 
   const handleConnect = async (
     service: ConnectTarget,
-    form: { transport: MCPTransport; command: string; args: string; url: string; authHeader: string },
+    form: { url: string; authHeader: string },
   ) => {
     setSubmitting(true);
     setFormError(null);
     try {
       const created = await createMCPConnection({
-        name: service.id, transport: form.transport,
-        command: form.transport === "stdio" ? form.command.trim() : undefined,
-        args: form.transport === "stdio" ? form.args.trim().split(/\s+/).filter(Boolean) : undefined,
-        url: form.transport === "http" ? form.url.trim() : undefined,
+        name: service.id, transport: "http",
+        url: form.url.trim(),
         auth_header: form.authHeader.trim() || undefined,
       });
       if (created.error) {
@@ -456,7 +422,7 @@ export function ConnectionsOverlay({ onClose }: { onClose: () => void }) {
                           {openFormFor === result.name && (
                             <ConnectForm
                               serviceLabel={result.title} credentialsUrl={result.repository_url ?? undefined}
-                              initial={{ transport: result.transport, url: result.url, command: result.command, args: result.args }}
+                              initial={{ url: result.url }}
                               submitting={submitting} error={formError}
                               onCancel={() => setOpenFormFor(null)}
                               onSubmit={form => handleConnect(target, form)}
