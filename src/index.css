@@ -102,8 +102,14 @@ body {
    itself should read once it IS in desktop mode. */
 @media (min-width: 1024px) {
   .chat-column {
-    max-width: 850px; /* narrower, more elegant reading width (2026-09-03, JuanJo, sized off Google's own chat width) — was 1000px */
-    margin: 0 auto;
+    /* Positioning (left/right/width/margin) now lives entirely in the
+       sidebar-floor media query below, not here — this rule used to ALSO
+       set max-width+margin:0 auto, which combined with that other
+       rule's left+right+margin:0 to over-constrain the box (see that
+       rule's own comment for the real bug this caused). Only the
+       non-positioning concern — inner reading-width padding — stays
+       here. 850px (2026-09-03, JuanJo, sized off Google's own chat
+       width) now lives as part of the width formula below instead. */
     padding-left: 24px;
     padding-right: 24px;
   }
@@ -135,8 +141,13 @@ body {
    natural value and the chat is genuinely full-page-centered, sidebar
    or not; only near the boundary does the floor take over instead, and
    it does so continuously as the viewport shrinks, not as a jump.
-   Applied identically to .chat-column and .centered-col so the whole
-   vertical stack (mode tabs, model picker, chat) moves together. */
+   The `left` formula itself is shared by .chat-column and .centered-col
+   (both need the same sidebar-aware floor so the whole vertical stack —
+   mode tabs, model picker, chat — moves together), but each now sizes
+   itself differently below: .centered-col mirrors it with `right` too
+   (width solved as the free variable); .chat-column uses an explicit
+   `width` instead of `right`, to avoid the real over-constraint bug
+   documented on its own rule. */
 :root {
   --sidebar-width: 280px;
   /* Set by App.tsx to var(--sidebar-width) while the left sidebar is
@@ -150,7 +161,6 @@ body {
   :root {
     --sidebar-width: clamp(280px, calc((100vw - 1000px) / 2 - 24px), 480px);
   }
-  .chat-column,
   .centered-col {
     /* +outer-rail-width: the rail sits further left than .sidebar's own
        floor accounted for — without adding it here, .sidebar and the
@@ -164,19 +174,41 @@ body {
        left floors to 304 but right's own floor only kicks in below 0,
        so right stays at its small natural ~12px) — the box ends up
        off-center relative to the true page center instead of just
-       narrower-but-still-centered in that transition zone. */
+       narrower-but-still-centered in that transition zone. This works
+       correctly for .centered-col specifically because it has no
+       separate width constraint anywhere — width here is genuinely the
+       free variable CSS solves for from left+right (the well-defined,
+       exactly-2-unknowns case). margin was never set here, so nothing
+       to reset. */
     right: calc((100% - 1000px) / 2);
-    /* .chat-column inherits margin:0 auto from the max-width tier
-       below (same 1024px breakpoint now, previously a separate 860px
-       one) — combined with explicit left+right+an implied width
-       (max-width) here, that's 4 positioning constraints active at
-       once, a genuinely over-constrained case CSS engines can
-       legitimately resolve differently (Chromium vs Firefox have real
-       history of
-       diverging on exactly this). Reset to margin:0 so there's nothing
-       left for any engine to auto-resolve — left/right alone fully
-       determine the box now. .centered-col never had margin set, so
-       this is a no-op there, just explicit for the same safety. */
+  }
+  .chat-column {
+    /* Real bug, found live (2026-09-04): this used to share the exact
+       rule above with .centered-col — left + right + a separate
+       max-width:850px (previous rule) + margin:0 (all four pinned at
+       once) is a genuinely over-constrained box per CSS2.1 §10.3.7. Per
+       spec, an over-constrained absolutely-positioned box in an LTR
+       context has its 'left' value silently DISCARDED and recomputed
+       from right+width instead — meaning the sidebar-aware floor formula
+       written into 'left' never actually took effect, at any sidebar
+       state; the box's real position was driven entirely by the plain
+       'right' formula the whole time, which has no sidebar-awareness at
+       all. (The earlier margin:0 here was a good-faith attempt at fixing
+       this but doesn't actually work — pinning margin to a concrete
+       value doesn't remove a degree of freedom the way margin:auto
+       would; it just adds a fourth pinned constraint on top of the other
+       three, which is the over-constraint itself, not a fix for it.)
+       Real fix: give this box exactly TWO horizontal constraints instead
+       of four — left (the sidebar-aware formula, kept) and width
+       (explicit, folding the old separate max-width:850 rule in here) —
+       and leave right and the margins to be derived, not pinned. Two
+       knowns, three unknowns (right, margin-left, margin-right) with no
+       possible contradiction between them is the actually well-defined
+       case, not something any two engines could legitimately disagree
+       on. */
+    left: max(calc((100% - 1000px) / 2), calc(var(--outer-rail-width) + var(--left-panel-width) + 24px));
+    width: min(850px, calc(100% - var(--outer-rail-width) - var(--left-panel-width) - 48px));
+    right: auto;
     margin: 0;
   }
 }
@@ -495,11 +527,21 @@ body {
   /* Only applies while the right panel is actually open (App.tsx toggles
      this class on <body> based on rightPanelOpen) — otherwise .chat-
      column/.centered-col would stay permanently shifted left even with
-     the panel closed. Higher specificity than the plain .chat-column/
-     .centered-col rule above wins regardless of source order. */
-  body.right-panel-open .chat-column,
+     the panel closed. Higher specificity than the plain .centered-col
+     rule above wins regardless of source order. */
   body.right-panel-open .centered-col {
     right: max(calc((100% - 1000px) / 2), calc(var(--right-panel-width) + 24px));
+  }
+  /* .chat-column deliberately does NOT get a `right` override here the
+     way .centered-col does above — see .chat-column's own rule for why
+     it stays on left+width instead of left+right (the over-constraint
+     bug this whole area had). Adding `right` back here for the right-
+     panel-open case specifically would reintroduce exactly that bug
+     whenever the right panel is open. Same outcome (room made for the
+     panel) via width instead: subtract the panel's width + a matching
+     24px gap from the same min() the base rule already uses. */
+  body.right-panel-open .chat-column {
+    width: min(850px, calc(100% - var(--outer-rail-width) - var(--left-panel-width) - var(--right-panel-width) - 72px));
   }
 }
 .right-panel {
