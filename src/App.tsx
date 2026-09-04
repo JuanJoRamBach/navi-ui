@@ -3780,15 +3780,10 @@ export default function App() {
               exactly where the real reply will land once it arrives. */}
           {pendingStep && (
             <div className="step-pulse" style={{
-              alignSelf: "flex-start", maxWidth: "78%",
-              padding: `${spacing.md - 1}px ${spacing.lg}px`,
-              borderRadius: radius.lg,
-              fontSize: fontSize.sm,
-              color: neutral.textMuted,
-              background: theme.bubbleBg,
-              border: `1px solid ${theme.bubbleBorder}`,
-              boxShadow: `0 4px 18px rgba(0,0,0,0.35), 0 0 20px ${theme.glow}`,
+              alignSelf: "flex-start", display: "flex", alignItems: "center", gap: spacing.xs,
+              fontSize: fontSize.xxs, color: neutral.textMuted, fontFamily,
             }}>
+              <span style={{ width: 6, height: 6, borderRadius: 9999, background: neutral.textMuted }} />
               {pendingStep}
             </div>
           )}
@@ -3806,96 +3801,24 @@ export default function App() {
             }
             const m = item.message;
             const { body, attachments } = splitMessageAttachments(m.text);
+            const isNavi = m.role === "navi";
             return (
               <div key={item.key} style={{
-                alignSelf: m.role === "navi" ? "flex-start" : "flex-end",
-                maxWidth: "78%",
-                padding: `${spacing.md - 1}px ${spacing.lg}px`,
-                borderRadius: radius.lg,
-                fontSize: fontSize.sm,
-                lineHeight: lineHeight.base,
-                color: neutral.textPrimary,
-                // Heavier blur does the legibility work here instead of a
-                // solid fill, so the color underneath can go darker/more
-                // transparent without the text losing contrast.
-                // NAVI's bubble fully carries the active mode's tint — that's
-                // the "content" layer, meant to feel immersive. Your own
-                // messages stay neutral on purpose (see the button-color
-                // discussion: chrome stays stable, content shifts).
-                background: m.role === "navi" ? theme.bubbleBg : neutral.userBubbleBg,
-                border: m.role === "navi"
-                  ? `1px solid ${theme.bubbleBorder}`
-                  : `1px solid ${neutral.userBubbleBorder}`,
-                boxShadow: m.role === "navi"
-                  ? `0 4px 18px rgba(0,0,0,0.35), 0 0 20px ${theme.glow}`
-                  : `0 4px 18px rgba(0,0,0,0.35), 0 0 14px ${neutral.userBubbleGlow}`,
+                display: "flex", flexDirection: "column", gap: spacing.xs, minWidth: 0,
+                alignSelf: isNavi ? "stretch" : "flex-end",
+                maxWidth: isNavi ? "100%" : "82%",
               }}>
-                <StreamingMessageText
-                  text={body}
-                  animate={m.role === "navi" && item.index >= hydratedCountRef.current}
-                />
-                {attachments.length > 0 && (
-                  <div style={{ display: "flex", flexDirection: "column", gap: spacing.xs, marginTop: spacing.sm }}>
-                    {attachments.map(a => (
-                      <div
-                        key={a.filename}
-                        style={{
-                          display: "flex", alignItems: "center", gap: spacing.xs,
-                          padding: `${spacing.xs}px ${spacing.sm}px`, borderRadius: radius.sm,
-                          background: "rgba(255,255,255,0.06)",
-                          border: "1px solid rgba(255,255,255,0.12)",
-                          fontSize: fontSize.xs,
-                        }}
-                      >
-                        <FileIcon size={iconSize.sm} />
-                        <span style={{
-                          flex: 1, overflow: "hidden", textOverflow: "ellipsis",
-                          whiteSpace: "nowrap", color: neutral.textPrimary,
-                        }}>
-                          {a.filename}
-                        </span>
-                        {/* View only shows up for /code's bundled-HTML
-                            output (viewUrl set) — every other saved file
-                            only ever gets a download action. */}
-                        {a.viewUrl && (
-                          <a
-                            href={a.viewUrl} target="_blank" rel="noopener noreferrer"
-                            title="View" aria-label="View in browser"
-                            style={{ display: "flex", flexShrink: 0, color: neutral.textMuted }}
-                          >
-                            <GlobeIcon size={iconSize.sm} />
-                          </a>
-                        )}
-                        <a
-                          href={a.downloadUrl} target="_blank" rel="noopener noreferrer"
-                          title="Download" aria-label="Download"
-                          style={{ display: "flex", flexShrink: 0, color: neutral.textMuted }}
-                        >
-                          <DownloadIcon size={iconSize.sm} />
-                        </a>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {/* Only the most recent message's choices are actionable
-                    — a stale option from an earlier turn wouldn't make
-                    sense once the conversation's moved on. */}
-                {m.choices && m.choices.length > 0 && item.index === messages.length - 1 && (
-                  <ChoiceButtons
-                    options={m.choices} hue={OKLCH_HUE[chatMode]}
-                    disabled={!!pendingStep}
-                    onPick={(text) => sendMessage(text)}
-                  />
-                )}
+                {/* Author / metadata line. NAVI replies are content-first,
+                    edge-to-edge rows — no bubble container. */}
                 <div style={{
-                  display: "flex",
-                  justifyContent: m.role === "navi" ? "space-between" : "flex-end",
-                  alignItems: "center", marginTop: spacing.xs, gap: spacing.xs,
+                  display: "flex", alignItems: "center", gap: spacing.xs,
+                  justifyContent: isNavi ? "space-between" : "flex-end",
+                  fontSize: fontSize.xxs, color: neutral.textMuted, fontFamily,
                 }}>
-                  <span style={{ fontSize: fontSize.xxs, color: neutral.textMuted }}>
-                    {formatTime(m.timestamp)}
+                  <span style={{ fontWeight: fontWeight.medium }}>
+                    {isNavi ? "NAVI" : "You"} · {formatTime(m.timestamp)}
                   </span>
-                  {m.role === "navi" && (
+                  {isNavi && (
                     <button
                       aria-label="Pin this response"
                       title="Pin this response"
@@ -3908,6 +3831,68 @@ export default function App() {
                     >
                       <PinIcon size={iconSize.sm} />
                     </button>
+                  )}
+                </div>
+                <div style={isNavi ? {
+                  fontSize: fontSize.sm, lineHeight: lineHeight.base,
+                  color: neutral.textPrimary, minWidth: 0, paddingRight: spacing.xxs,
+                } : {
+                  alignSelf: "flex-end", maxWidth: "100%", minWidth: 0,
+                  padding: `${spacing.md - 1}px ${spacing.lg}px`,
+                  borderRadius: radius.lg, fontSize: fontSize.sm, lineHeight: lineHeight.base,
+                  color: neutral.textPrimary, background: neutral.userBubbleBg,
+                  border: `1px solid ${neutral.userBubbleBorder}`,
+                }}>
+                  <StreamingMessageText
+                    text={body}
+                    animate={isNavi && item.index >= hydratedCountRef.current}
+                  />
+                  {attachments.length > 0 && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: spacing.xs, marginTop: spacing.sm }}>
+                      {attachments.map(a => (
+                        <div
+                          key={a.filename}
+                          style={{
+                            display: "flex", alignItems: "center", gap: spacing.xs,
+                            padding: `${spacing.xs}px ${spacing.sm}px`, borderRadius: radius.sm,
+                            background: "var(--surface-panel)",
+                            border: "1px solid var(--border-default)",
+                            fontSize: fontSize.xs,
+                          }}
+                        >
+                          <FileIcon size={iconSize.sm} />
+                          <span style={{
+                            flex: 1, overflow: "hidden", textOverflow: "ellipsis",
+                            whiteSpace: "nowrap", color: neutral.textPrimary,
+                          }}>
+                            {a.filename}
+                          </span>
+                          {a.viewUrl && (
+                            <a
+                              href={a.viewUrl} target="_blank" rel="noopener noreferrer"
+                              title="View" aria-label="View in browser"
+                              style={{ display: "flex", flexShrink: 0, color: neutral.textMuted }}
+                            >
+                              <GlobeIcon size={iconSize.sm} />
+                            </a>
+                          )}
+                          <a
+                            href={a.downloadUrl} target="_blank" rel="noopener noreferrer"
+                            title="Download" aria-label="Download"
+                            style={{ display: "flex", flexShrink: 0, color: neutral.textMuted }}
+                          >
+                            <DownloadIcon size={iconSize.sm} />
+                          </a>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {m.choices && m.choices.length > 0 && item.index === messages.length - 1 && (
+                    <ChoiceButtons
+                      options={m.choices} hue={OKLCH_HUE[chatMode]}
+                      disabled={!!pendingStep}
+                      onPick={(text) => sendMessage(text)}
+                    />
                   )}
                 </div>
               </div>
