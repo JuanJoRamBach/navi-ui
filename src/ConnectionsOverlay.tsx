@@ -272,6 +272,21 @@ export function ConnectionsOverlay({ onClose, oauthResult, onDismissOauthResult 
 
   const byName = new Map(connections?.map(c => [c.name, c]) ?? []);
 
+  // Reconciles a possibly-stale OAuth redirect result against the real,
+  // freshly-fetched connection state (2026-09-04, live bug): clicking
+  // Connect more than once fires overlapping OAuth attempts, each with
+  // its own `state` — whichever attempt's redirect happens to be the one
+  // the browser lands on last can show "error" or "partial" even after a
+  // DIFFERENT attempt already fully succeeded. The actual backend record
+  // is the source of truth; a redirect signal that disagrees with it is
+  // outdated, not a real error to show.
+  const effectiveOauthResult = (() => {
+    if (!oauthResult || oauthResult.status === "success" || !oauthResult.connection) return oauthResult;
+    return byName.get(oauthResult.connection)?.connected
+      ? { status: "success", connection: oauthResult.connection }
+      : oauthResult;
+  })();
+
   const handleConnect = async (
     target: ConnectTarget,
     form: { url: string; authHeader: string },
@@ -457,21 +472,21 @@ export function ConnectionsOverlay({ onClose, oauthResult, onDismissOauthResult 
           </button>
         </div>
 
-        {oauthResult && (
+        {effectiveOauthResult && (
           <div style={{
             display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.sm,
             padding: `${spacing.xs}px ${spacing.md}px`, flexShrink: 0,
-            background: oauthResult.status === "success" ? "#3ecf8e15" : oauthResult.status === "partial" ? "#e0a94a15" : "#e05a4a15",
+            background: effectiveOauthResult.status === "success" ? "#3ecf8e15" : effectiveOauthResult.status === "partial" ? "#e0a94a15" : "#e05a4a15",
             borderBottom: "1px solid rgba(255,255,255,0.08)",
           }}>
             <div style={{
               display: "flex", alignItems: "center", gap: 6, fontSize: fontSize.xxs,
-              color: oauthResult.status === "success" ? "#3ecf8e" : oauthResult.status === "partial" ? "#e0a94a" : "#e05a4a",
+              color: effectiveOauthResult.status === "success" ? "#3ecf8e" : effectiveOauthResult.status === "partial" ? "#e0a94a" : "#e05a4a",
             }}>
-              {oauthResult.status === "success" && <CheckCircleFillIcon size={11} />}
-              {oauthResult.status === "success" && `Connected to ${oauthResult.connection ?? "the service"}.`}
-              {oauthResult.status === "partial" && `Signed in to ${oauthResult.connection ?? "the service"}, but couldn't list its tools yet — try Connect again.`}
-              {oauthResult.status === "error" && "Sign-in didn't complete — try again."}
+              {effectiveOauthResult.status === "success" && <CheckCircleFillIcon size={11} />}
+              {effectiveOauthResult.status === "success" && `Connected to ${effectiveOauthResult.connection ?? "the service"}.`}
+              {effectiveOauthResult.status === "partial" && `Signed in to ${effectiveOauthResult.connection ?? "the service"}, but couldn't list its tools yet — try Connect again.`}
+              {effectiveOauthResult.status === "error" && "Sign-in didn't complete — try again."}
             </div>
             <button
               onClick={onDismissOauthResult}
