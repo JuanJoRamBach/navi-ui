@@ -903,13 +903,18 @@ export default function App() {
   // server.py's /mcp/oauth/callback sends the browser to
   // "/?mcp_oauth=success|error|partial&connection=...", since that route
   // is a real full-page redirect from the provider (GitHub), not
-  // something the SPA's own state survives across. Reopens Connections
-  // so the result (now connected, or the error) is immediately visible,
-  // then strips the query params so a reload doesn't replay this.
+  // something the SPA's own state survives across. The actual
+  // success/error/partial value is kept (not just used to decide whether
+  // to reopen) so ConnectionsOverlay can show it — "partial" specifically
+  // means the token exchange worked but listing the server's tools right
+  // after didn't, which looks identical to a plain failure if dropped.
+  const [oauthResult, setOauthResult] = useState<{ status: string; connection: string | null } | null>(null);
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (!params.has("mcp_oauth")) return;
+    const status = params.get("mcp_oauth");
+    if (!status) return;
     setShowConnectionsOverlay(true);
+    setOauthResult({ status, connection: params.get("connection") });
     const url = new URL(window.location.href);
     url.searchParams.delete("mcp_oauth");
     url.searchParams.delete("connection");
@@ -4606,7 +4611,12 @@ export default function App() {
           </div>
         </>
       )}
-      {showConnectionsOverlay && <ConnectionsOverlay onClose={() => setShowConnectionsOverlay(false)} />}
+      {showConnectionsOverlay && (
+        <ConnectionsOverlay
+          onClose={() => setShowConnectionsOverlay(false)}
+          oauthResult={oauthResult} onDismissOauthResult={() => setOauthResult(null)}
+        />
+      )}
       {showAgentChat && pendingAgentInputs.length > 0 && (
         <AgentChat
           pending={pendingAgentInputs}

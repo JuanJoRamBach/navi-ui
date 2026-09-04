@@ -223,7 +223,18 @@ function RegistryCard({ icon, title, description, hostedLabel, requiresAuth, con
   );
 }
 
-export function ConnectionsOverlay({ onClose }: { onClose: () => void }) {
+export function ConnectionsOverlay({ onClose, oauthResult, onDismissOauthResult }: {
+  onClose: () => void;
+  // Set by App.tsx when this mount is the redirect-back from an OAuth
+  // flow (server.py's /mcp/oauth/callback) — "partial" means the token
+  // exchange itself worked but discover_tools right after it failed, so
+  // the connection is NOT actually marked connected yet even though the
+  // user just approved it on GitHub's side. Surfacing this distinctly
+  // matters: it looks identical to a plain failure if collapsed into one
+  // generic error message.
+  oauthResult?: { status: string; connection: string | null } | null;
+  onDismissOauthResult?: () => void;
+}) {
   const [connections, setConnections] = useState<MCPConnection[] | null>(null);
   const [openFormFor, setOpenFormFor] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -445,6 +456,31 @@ export function ConnectionsOverlay({ onClose }: { onClose: () => void }) {
             <XIcon size={16} />
           </button>
         </div>
+
+        {oauthResult && (
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.sm,
+            padding: `${spacing.xs}px ${spacing.md}px`, flexShrink: 0,
+            background: oauthResult.status === "success" ? "#3ecf8e15" : oauthResult.status === "partial" ? "#e0a94a15" : "#e05a4a15",
+            borderBottom: "1px solid rgba(255,255,255,0.08)",
+          }}>
+            <div style={{
+              display: "flex", alignItems: "center", gap: 6, fontSize: fontSize.xxs,
+              color: oauthResult.status === "success" ? "#3ecf8e" : oauthResult.status === "partial" ? "#e0a94a" : "#e05a4a",
+            }}>
+              {oauthResult.status === "success" && <CheckCircleFillIcon size={11} />}
+              {oauthResult.status === "success" && `Connected to ${oauthResult.connection ?? "the service"}.`}
+              {oauthResult.status === "partial" && `Signed in to ${oauthResult.connection ?? "the service"}, but couldn't list its tools yet — try Connect again.`}
+              {oauthResult.status === "error" && "Sign-in didn't complete — try again."}
+            </div>
+            <button
+              onClick={onDismissOauthResult}
+              style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", opacity: 0.7, display: "flex" }}
+            >
+              <XIcon size={12} />
+            </button>
+          </div>
+        )}
 
         <div className="hide-scrollbar" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: spacing.md, display: "flex", flexDirection: "column", gap: spacing.md }}>
           {connections === null ? (
