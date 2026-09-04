@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDownIcon, CheckIcon, PaperclipIcon, XIcon, FileIcon, PencilIcon, ZapIcon, PaperAirplaneIcon } from "@primer/octicons-react";
-import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, tintedSurface, tintedGlow } from "./tokens";
+import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, tintedSurface, tintedGlow, surface, status as statusColors } from "./tokens";
 import {
   connectDevSlate, createSlate, fetchModelCatalog, loadSlateHistory, setPinnedModel,
   type DevSlateConnection, type DevSlateMessage, type ModelCatalog,
@@ -93,7 +93,7 @@ function ModelBadge({ conversationId }: { conversationId: string }) {
           // would get clipped by the pane's own bottom boundary.
           position: "absolute", bottom: "100%", right: 0, marginBottom: spacing.xxs, zIndex: 50,
           width: 280, maxHeight: 320, overflowY: "auto",
-          background: "#111318", border: "1px solid rgba(255,255,255,0.12)", borderRadius: radius.sm,
+          background: surface.raised, border: "1px solid rgba(255,255,255,0.12)", borderRadius: radius.sm,
           boxShadow: "0 8px 24px rgba(0,0,0,0.5)", padding: spacing.xs,
         }}>
           <div style={{ fontSize: fontSize.xxs, color: neutral.textFaint, padding: `${spacing.xxs}px ${spacing.xs}px` }}>
@@ -163,7 +163,7 @@ function EditModeSelector({ autoAccept, onChange }: { autoAccept: boolean; onCha
       {open && (
         <div style={{
           position: "absolute", bottom: "100%", left: 0, marginBottom: spacing.xxs, zIndex: 50,
-          width: 180, background: "#111318", border: "1px solid rgba(255,255,255,0.12)",
+          width: 180, background: surface.raised, border: "1px solid rgba(255,255,255,0.12)",
           borderRadius: radius.sm, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", padding: spacing.xs,
         }}>
           {OPTIONS.map(({ value, label, icon: Icon }) => {
@@ -226,7 +226,7 @@ function AttachFilePicker({ attached, onAttach }: { attached: string[]; onAttach
         <div style={{
           position: "absolute", bottom: "100%", left: 0, marginBottom: spacing.xxs, zIndex: 50,
           width: 260, maxHeight: 280, display: "flex", flexDirection: "column",
-          background: "#111318", border: "1px solid rgba(255,255,255,0.12)", borderRadius: radius.sm,
+          background: surface.raised, border: "1px solid rgba(255,255,255,0.12)", borderRadius: radius.sm,
           boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
         }}>
           <input
@@ -456,7 +456,7 @@ export function DevSlateChat() {
           <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, flexWrap: "wrap", minWidth: 0 }}>
             <span style={{
               width: 6, height: 6, borderRadius: 9999, flexShrink: 0,
-              background: status === "open" ? "#3ecf8e" : status === "connecting" ? "#e0b94a" : "#e05a4a",
+              background: status === "open" ? statusColors.success.color : status === "connecting" ? statusColors.warning.color : statusColors.danger.color,
             }} title={`Connection ${status}`} />
             {folderName ? (
               <span style={{ fontSize: fontSize.xxs, color: neutral.textFaint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
