@@ -245,25 +245,35 @@ export function ConnectionsOverlay({ onClose, oauthResult, onDismissOauthResult 
   const [marketplaceQuery, setMarketplaceQuery] = useState("");
   const [marketplaceResults, setMarketplaceResults] = useState<MCPMarketplaceResult[] | null>(null);
   const [marketplaceSearching, setMarketplaceSearching] = useState(false);
+  // Cursor-based pagination (2026-09-04, live feedback: "the browse has
+  // no sections to filter, shows 11 random MCPs... and doesn't show
+  // more") — an empty query returns the registry's most-recently-
+  // published entries, not a curated or ranked list, so there's no
+  // natural stopping point short of a real "Load more."
+  const [marketplaceNextCursor, setMarketplaceNextCursor] = useState<string | null>(null);
+  const [marketplaceLoadingMore, setMarketplaceLoadingMore] = useState(false);
 
   const refresh = () => { listMCPConnections().then(setConnections).catch(() => setConnections([])); };
   useEffect(refresh, []);
 
-  const runMarketplaceSearch = async (query: string) => {
-    setMarketplaceSearching(true);
+  const runMarketplaceSearch = async (query: string, append = false) => {
+    if (append) setMarketplaceLoadingMore(true); else setMarketplaceSearching(true);
     try {
-      setMarketplaceResults(await searchMCPMarketplace(query));
+      const { results, next_cursor } = await searchMCPMarketplace(query, append ? marketplaceNextCursor : null);
+      setMarketplaceResults(prev => (append && prev ? [...prev, ...results] : results));
+      setMarketplaceNextCursor(next_cursor);
     } catch {
-      setMarketplaceResults([]);
+      if (!append) setMarketplaceResults([]);
     } finally {
-      setMarketplaceSearching(false);
+      if (append) setMarketplaceLoadingMore(false); else setMarketplaceSearching(false);
     }
   };
 
   // Debounced live search — fires 400ms after the last keystroke,
   // including once immediately on mount (empty query), which is what
   // populates the section with real results before the user types
-  // anything at all.
+  // anything at all. A fresh query always replaces (append=false),
+  // resetting pagination.
   useEffect(() => {
     const handle = setTimeout(() => { runMarketplaceSearch(marketplaceQuery.trim()); }, 400);
     return () => clearTimeout(handle);
@@ -532,14 +542,35 @@ export function ConnectionsOverlay({ onClose, oauthResult, onDismissOauthResult 
                 </div>
                 {marketplaceResults === null ? (
                   <div style={{ fontSize: fontSize.xxs, color: neutral.textFaint, padding: `${spacing.xs}px 0` }}>
-                    {marketplaceSearching ? "Searching…" : "Loading real, live results from the official MCP Registry…"}
+                    {marketplaceSearching ? "Searching…" : "Loading…"}
                   </div>
                 ) : marketplaceResults.length === 0 ? (
                   <div style={{ fontSize: fontSize.xxs, color: neutral.textFaint, padding: `${spacing.xs}px 0` }}>No results.</div>
                 ) : (
-                  <div style={gridStyle}>
-                    {marketplaceResults.map(result => renderResult(result, <span>{monogram(result.title)}</span>))}
-                  </div>
+                  <>
+                    {!marketplaceQuery.trim() && (
+                      <div style={{ fontSize: fontSize.xxs, color: neutral.textFaint, marginBottom: spacing.xs }}>
+                        Recently published on the registry — not curated or ranked, search above for something specific.
+                      </div>
+                    )}
+                    <div style={gridStyle}>
+                      {marketplaceResults.map(result => renderResult(result, <span>{monogram(result.title)}</span>))}
+                    </div>
+                    {marketplaceNextCursor && (
+                      <button
+                        onClick={() => runMarketplaceSearch(marketplaceQuery.trim(), true)}
+                        disabled={marketplaceLoadingMore}
+                        style={{
+                          marginTop: spacing.xs, width: "100%", padding: `${spacing.xs}px`, borderRadius: radius.xs,
+                          border: "1px solid rgba(255,255,255,0.12)", background: "transparent", color: neutral.textMuted,
+                          cursor: marketplaceLoadingMore ? "default" : "pointer", fontSize: fontSize.xxs, fontFamily,
+                          opacity: marketplaceLoadingMore ? 0.6 : 1,
+                        }}
+                      >
+                        {marketplaceLoadingMore ? "Loading…" : "Load more"}
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
             </>

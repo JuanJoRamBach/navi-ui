@@ -49,10 +49,15 @@ export interface MCPMarketplaceResult {
   url?: string;
 }
 
-export async function searchMCPMarketplace(query: string): Promise<MCPMarketplaceResult[]> {
-  const res = await fetch(`${NAVI_BACKEND_URL}/mcp/marketplace/search?q=${encodeURIComponent(query)}`);
-  const data: { results?: MCPMarketplaceResult[]; error?: string } = await res.json();
-  return data.results ?? [];
+// `cursor` (from a previous call's `next_cursor`) pages through results —
+// the registry's empty-query listing is recency-only, not curated, so
+// there's no natural stopping point short of paging ("Load more").
+export async function searchMCPMarketplace(query: string, cursor?: string | null): Promise<{ results: MCPMarketplaceResult[]; next_cursor: string | null }> {
+  const params = new URLSearchParams({ q: query });
+  if (cursor) params.set("cursor", cursor);
+  const res = await fetch(`${NAVI_BACKEND_URL}/mcp/marketplace/search?${params}`);
+  const data: { results?: MCPMarketplaceResult[]; next_cursor?: string | null; error?: string } = await res.json();
+  return { results: data.results ?? [], next_cursor: data.next_cursor ?? null };
 }
 
 export async function listMCPConnections(): Promise<MCPConnection[]> {
