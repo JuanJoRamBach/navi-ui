@@ -6,12 +6,12 @@ import {
   type Node, type Edge, type Connection, type OnConnectEnd, type FinalConnectionState, type EdgeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { XIcon, PlusIcon, SquareIcon, PencilIcon } from "@primer/octicons-react";
+import { XIcon, PlusIcon, SquareIcon, PencilIcon, ClockIcon } from "@primer/octicons-react";
 import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, tintedGlow } from "./tokens";
 import { NODE_KIND_LIST, NODE_KINDS, type NodeKindId } from "./agentWorkNodeKinds";
 import { AGENT_WORK_NODE_TYPES, type AgentWorkNodeData, type AgentWorkGroupData } from "./AgentWorkGraphNode";
 import { convertBackendToGraph, convertGraphToBackend } from "./agentWorkGraphConvert";
-import { createWorkflow, getWorkflow, WORKFLOW_CREATED_EVENT } from "./agentWork";
+import { createWorkflow, getWorkflow, WORKFLOW_CREATED_EVENT, type WorkflowTrigger } from "./agentWork";
 
 // The Agent Vault "Open in canvas" fork (2026-09-03) — one-way, per the
 // design: seeds a real Input -> Generate with AI -> Output starter
@@ -240,6 +240,63 @@ function AddNodeMenu({ onPick, onClose }: { onPick: (kind: NodeKindId) => void; 
       boxShadow: "0 12px 40px rgba(0,0,0,0.5)", maxHeight: 360, overflowY: "auto",
     }}>
       <NodeKindItems onPick={onPick} onDragStart={onClose} />
+    </div>
+  );
+}
+
+const scheduleInputStyle: React.CSSProperties = {
+  background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.12)",
+  borderRadius: radius.xs, color: neutral.textPrimary, fontSize: fontSize.xxs, fontFamily,
+  padding: `${spacing.xxs}px ${spacing.xs}px`, boxSizing: "border-box",
+};
+
+// Same fields/logic as AgentWorkNewWorkflowForm.tsx's own schedule
+// section, reused rather than reinvented — the ONLY schedule-setting UI
+// used to live on that older manual step-list form, never reachable
+// from the visual graph canvas at all (2026-09-04, JuanJo: "how do we
+// schedule an Agent... I don't see how"). Values are held in
+// GraphCanvas's own state and applied at save time by handleSave.
+function ScheduleMenu({ scheduled, onScheduledChange, intervalMinutes, onIntervalChange, repeatCountInput, onRepeatCountChange, onClose }: {
+  scheduled: boolean; onScheduledChange: (v: boolean) => void;
+  intervalMinutes: number; onIntervalChange: (v: number) => void;
+  repeatCountInput: string; onRepeatCountChange: (v: string) => void;
+  onClose: () => void;
+}) {
+  const ref = useClickOutside(onClose);
+  return (
+    <div ref={ref} style={{
+      position: "absolute", top: "100%", right: 0, marginTop: 4, zIndex: 321,
+      width: 240, background: "#161616", border: "1px solid rgba(255,255,255,0.1)",
+      borderRadius: radius.sm, padding: spacing.sm, display: "flex", flexDirection: "column", gap: spacing.xs,
+      boxShadow: "0 12px 40px rgba(0,0,0,0.5)", fontFamily,
+    }}>
+      <label style={{ display: "flex", alignItems: "center", gap: spacing.xs, fontSize: fontSize.xxs, color: neutral.textMuted, cursor: "pointer" }}>
+        <input type="checkbox" checked={scheduled} onChange={e => onScheduledChange(e.target.checked)} />
+        Run on a schedule (otherwise manual only)
+      </label>
+      {scheduled && (
+        <>
+          <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, fontSize: fontSize.xxs, color: neutral.textMuted, flexWrap: "wrap" }}>
+            Every
+            <input
+              type="number" min={1} value={intervalMinutes}
+              onChange={e => onIntervalChange(Math.max(1, Number(e.target.value) || 1))}
+              style={{ ...scheduleInputStyle, width: 60 }}
+            />
+            minutes, starting now
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, fontSize: fontSize.xxs, color: neutral.textMuted, flexWrap: "wrap" }}>
+            Repeat
+            <input
+              type="number" min={1} value={repeatCountInput}
+              onChange={e => onRepeatCountChange(e.target.value)}
+              placeholder="No expiration"
+              style={{ ...scheduleInputStyle, width: 90 }}
+            />
+            times
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -482,6 +539,15 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
   const [saveErrors, setSaveErrors] = useState<string[]>([]);
   const [savedName, setSavedName] = useState<string | null>(null);
   const [showAddNodeMenu, setShowAddNodeMenu] = useState(false);
+  // Schedule (2026-09-04, JuanJo: "how do we schedule an Agent... I
+  // don't see how") — handleSave below hardcoded {type:"manual"}, the
+  // ONLY schedule-setting UI anywhere was the older manual step-list
+  // form (AgentWorkNewWorkflowForm.tsx), never the visual graph canvas.
+  // Same fields/logic as that form, reused here rather than reinvented.
+  const [showScheduleMenu, setShowScheduleMenu] = useState(false);
+  const [scheduled, setScheduled] = useState(false);
+  const [intervalMinutes, setIntervalMinutes] = useState(60);
+  const [repeatCountInput, setRepeatCountInput] = useState("");
   const [connectDropMenu, setConnectDropMenu] = useState<{
     left: number; top: number; flowPosition: { x: number; y: number }; sourceId: string; handleType: "source" | "target";
   } | null>(null);
@@ -509,6 +575,9 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
     ]);
     setWorkflowName(seed.agentName);
     setEditingName(false);
+    // A fresh fork starts manual-only, never inheriting whatever
+    // schedule state happened to be left on the canvas beforehand.
+    setScheduled(false); setIntervalMinutes(60); setRepeatCountInput("");
     onSeedConsumed?.();
   }, [seed, nodes.length, setNodes, setEdges, onSeedConsumed]);
 
@@ -530,6 +599,17 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
       setEdges(loadedEdges);
       setWorkflowName(wf.name);
       setEditingName(false);
+      // Reflect the REAL loaded trigger, not whatever was left over from
+      // a previous session on this canvas — otherwise viewing an already-
+      // scheduled workflow and saving again without touching the
+      // Schedule button would silently downgrade it to manual-only.
+      if (wf.trigger.type === "scheduled") {
+        setScheduled(true);
+        setIntervalMinutes(wf.trigger.interval_seconds ? Math.max(1, Math.round(wf.trigger.interval_seconds / 60)) : 60);
+        setRepeatCountInput(wf.trigger.remaining_runs != null ? String(wf.trigger.remaining_runs) : "");
+      } else {
+        setScheduled(false); setIntervalMinutes(60); setRepeatCountInput("");
+      }
       onWorkflowLoaded?.();
     }).catch(() => onWorkflowLoaded?.());
     return () => { cancelled = true; };
@@ -722,7 +802,15 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
     setSaving(true);
     try {
       const saved = workflowName.trim();
-      await createWorkflow(saved, null, graph, { type: "manual" });
+      const repeatCount = repeatCountInput.trim() ? Math.max(1, Number(repeatCountInput) || 1) : null;
+      const trigger: WorkflowTrigger = scheduled
+        ? {
+            type: "scheduled", interval_seconds: intervalMinutes * 60,
+            next_run_at: Date.now() / 1000 + intervalMinutes * 60,
+            remaining_runs: repeatCount,
+          }
+        : { type: "manual" };
+      await createWorkflow(saved, null, graph, trigger);
       window.dispatchEvent(new Event(WORKFLOW_CREATED_EVENT));
       // No "close" to return to — this canvas IS Agent Work now, not an
       // overlay opened on top of it (2026-09-02: eliminated the empty-
@@ -730,6 +818,7 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
       // building the next workflow starts clean, with a brief
       // confirmation instead of silently vanishing.
       setNodes([]); setEdges([]); setSelectedId(null); setWorkflowName(""); setEditingName(true);
+      setScheduled(false); setIntervalMinutes(60); setRepeatCountInput("");
       setSavedName(saved);
       setTimeout(() => setSavedName(null), 4000);
     } catch {
@@ -846,6 +935,30 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
             >
               <SquareIcon size={11} /> Group
             </button>
+            <div style={{ position: "relative" }}>
+              <button
+                onClick={() => setShowScheduleMenu(v => !v)}
+                title="Set when this workflow runs — manual only (default) or on a repeating schedule"
+                style={{
+                  display: "flex", alignItems: "center", gap: 4, padding: `${spacing.xxs}px ${spacing.sm}px`,
+                  borderRadius: radius.xs,
+                  border: `1px solid ${scheduled ? `${accent}55` : "rgba(255,255,255,0.15)"}`,
+                  background: scheduled ? tintedGlow(CANVAS_ACCENT.agentWork.hue, 0.1) : "transparent",
+                  color: scheduled ? accent : neutral.textMuted, cursor: "pointer",
+                  fontSize: fontSize.xs, fontWeight: fontWeight.medium, fontFamily,
+                }}
+              >
+                <ClockIcon size={11} /> {scheduled ? `Every ${intervalMinutes}m` : "Manual"}
+              </button>
+              {showScheduleMenu && (
+                <ScheduleMenu
+                  scheduled={scheduled} onScheduledChange={setScheduled}
+                  intervalMinutes={intervalMinutes} onIntervalChange={setIntervalMinutes}
+                  repeatCountInput={repeatCountInput} onRepeatCountChange={setRepeatCountInput}
+                  onClose={() => setShowScheduleMenu(false)}
+                />
+              )}
+            </div>
             <button
               onClick={handleSave}
               disabled={saving}

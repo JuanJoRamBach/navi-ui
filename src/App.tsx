@@ -956,6 +956,14 @@ export default function App() {
   // agent into a brand-new starter graph; this one shows the EXACT graph
   // that workflow already has, verbatim.
   const [chatCreatedWorkflowId, setChatCreatedWorkflowId] = useState<string | null>(null);
+  // Which workflow's nodes are actually showing on the canvas right now
+  // (2026-09-04, JuanJo: "denote in the left rail that we are standing
+  // on that agent") — distinct from chatCreatedWorkflowId above, which
+  // is a one-shot "load this" signal consumed and cleared the instant
+  // the graph loads. This one persists as long as you're looking at
+  // that workflow, so the matching row in the Agents rail dropdown can
+  // stay highlighted with the canvas's own accent color.
+  const [activeWorkflowId, setActiveWorkflowId] = useState<string | null>(null);
   // "Agent Chat" — the needs-your-input surface (2026-09-03). Real UI
   // mechanism (conditional rail button, badge count, the chat itself
   // below), deliberately fed by an always-empty local array rather than
@@ -2241,6 +2249,7 @@ export default function App() {
                       fill={false} compact
                       onNewWorkflow={() => setOpenPanel("newWorkflow")}
                       onViewInCanvas={setChatCreatedWorkflowId}
+                      activeWorkflowId={activeWorkflowId}
                     />
                   </div>
                 )}
@@ -3493,7 +3502,7 @@ export default function App() {
             seed={agentSeed}
             onSeedConsumed={() => setAgentSeed(null)}
             loadWorkflowId={chatCreatedWorkflowId}
-            onWorkflowLoaded={() => setChatCreatedWorkflowId(null)}
+            onWorkflowLoaded={() => { setActiveWorkflowId(chatCreatedWorkflowId); setChatCreatedWorkflowId(null); }}
           />
 
           {/* Chat popup — bottom-right, collapsed by default. Shifts left

@@ -251,12 +251,19 @@ function WorkflowCard({ wf, lastRun, running, starred, starring, onRun, onDelete
 // real, useful information density in the right sidebar's dedicated
 // Workflows panel, but wrong weight for a quick rail dropdown whose
 // only job is "find it, look at it."
-function CompactWorkflowRow({ wf, starred, starring, onToggleStar, onViewInCanvas }: {
-  wf: WorkflowDefinition; starred: boolean; starring: boolean;
+function CompactWorkflowRow({ wf, starred, starring, active, onToggleStar, onViewInCanvas }: {
+  wf: WorkflowDefinition; starred: boolean; starring: boolean; active: boolean;
   onToggleStar: () => void; onViewInCanvas: () => void;
 }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+    <div style={{
+      display: "flex", alignItems: "center", gap: 4, borderRadius: radius.xs,
+      // "Standing on that agent" (2026-09-04, JuanJo) — whichever
+      // workflow's nodes are actually showing on the canvas right now
+      // gets denoted in this rail dropdown with the canvas's own accent
+      // color, not a generic selection highlight.
+      background: active ? tintedGlow(CANVAS_ACCENT.agentWork.hue, 0.1) : "transparent",
+    }}>
       <button
         onClick={onToggleStar}
         disabled={starring}
@@ -272,11 +279,12 @@ function CompactWorkflowRow({ wf, starred, starring, onToggleStar, onViewInCanva
       </button>
       <button
         onClick={onViewInCanvas}
-        title="View this workflow's nodes on the canvas"
+        title={active ? "Currently on the canvas" : "View this workflow's nodes on the canvas"}
         style={{
           flex: 1, minWidth: 0, textAlign: "left", padding: `${spacing.xxs}px ${spacing.xs}px`,
           borderRadius: radius.xs, border: "none", background: "transparent",
-          color: neutral.textPrimary, cursor: "pointer", fontSize: fontSize.xxs, fontFamily,
+          color: active ? accent : neutral.textPrimary, fontWeight: active ? fontWeight.medium : fontWeight.regular,
+          cursor: "pointer", fontSize: fontSize.xxs, fontFamily,
           overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
         }}
       >
@@ -308,11 +316,14 @@ function CompactWorkflowRow({ wf, starred, starring, onToggleStar, onViewInCanva
 // sidebar's own definite-height slot) keeps the original flex-fill,
 // self-scrolling layout; fill=false lets the list size to its own
 // content and rely on the popover's own scroll instead.
-export function AgentWorkWorkflows({ onNewWorkflow, fill = true, onViewInCanvas, compact = false }: {
+export function AgentWorkWorkflows({ onNewWorkflow, fill = true, onViewInCanvas, compact = false, activeWorkflowId }: {
   onNewWorkflow: (e: React.MouseEvent<HTMLButtonElement>) => void; fill?: boolean; onViewInCanvas?: (workflowId: string) => void;
   // Star + name-only rows, no header, no Run/Delete/expand (see
   // CompactWorkflowRow above) — for the rail's inline "Agents" dropdown.
   compact?: boolean;
+  // Highlights whichever row matches — "standing on that agent" — only
+  // meaningful in compact mode.
+  activeWorkflowId?: string | null;
 }) {
   const [workflows, setWorkflows] = useState<WorkflowDefinition[] | null>(null);
   const [lastRunByWorkflow, setLastRunByWorkflow] = useState<Record<string, AgentRun>>({});
@@ -467,6 +478,7 @@ export function AgentWorkWorkflows({ onNewWorkflow, fill = true, onViewInCanvas,
               wf={wf}
               starred={starredWorkflowIds.has(wf.id)}
               starring={starringId === wf.id}
+              active={activeWorkflowId === wf.id}
               onToggleStar={() => toggleStar(wf.id)}
               onViewInCanvas={() => onViewInCanvas?.(wf.id)}
             />
