@@ -245,6 +245,13 @@ export function ConnectionsOverlay({ onClose }: { onClose: () => void }) {
     }
   };
 
+  // Runs once on open with an empty query — mcp_marketplace.py's search()
+  // already supports this ("empty returns whatever's most recently
+  // published"), so the marketplace leads with real results immediately
+  // instead of an empty "type something" prompt (2026-09-04, JuanJo:
+  // "let's use the marketplace to show what connections can be done").
+  useEffect(() => { runMarketplaceSearch(""); }, []);
+
   const byName = new Map(connections?.map(c => [c.name, c]) ?? []);
 
   const handleConnect = async (
@@ -321,7 +328,72 @@ export function ConnectionsOverlay({ onClose }: { onClose: () => void }) {
             <>
               <div>
                 <div style={{ fontSize: fontSize.xxs, fontWeight: fontWeight.medium, color: neutral.textMuted, letterSpacing: "0.04em", marginBottom: spacing.xs }}>
-                  CORE
+                  BROWSE — MCP REGISTRY
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, marginBottom: spacing.xs }}>
+                  <div style={{ flex: 1, position: "relative" }}>
+                    <span style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", display: "flex" }}>
+                      <SearchIcon size={11} fill={neutral.textFaint} />
+                    </span>
+                    <input
+                      value={marketplaceQuery}
+                      onChange={e => setMarketplaceQuery(e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter") runMarketplaceSearch(marketplaceQuery.trim()); }}
+                      placeholder="Search — e.g. github, slack, notion… (or leave blank to browse)"
+                      style={{
+                        width: "100%", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.12)",
+                        borderRadius: radius.xs, color: neutral.textPrimary, fontSize: fontSize.xs, fontFamily,
+                        padding: `${spacing.xxs}px ${spacing.xs}px ${spacing.xxs}px 26px`, boxSizing: "border-box",
+                      }}
+                    />
+                  </div>
+                  <button
+                    onClick={() => runMarketplaceSearch(marketplaceQuery.trim())}
+                    disabled={marketplaceSearching}
+                    style={{
+                      padding: `${spacing.xxs}px ${spacing.sm}px`, borderRadius: radius.xs,
+                      border: `1px solid ${CANVAS_ACCENT.agentWork.color}55`, background: tintedGlow(CANVAS_ACCENT.agentWork.hue, 0.1),
+                      color: CANVAS_ACCENT.agentWork.color, cursor: "pointer", fontSize: fontSize.xxs, fontFamily,
+                      opacity: marketplaceSearching ? 0.5 : 1,
+                    }}
+                  >
+                    {marketplaceSearching ? "Searching…" : "Search"}
+                  </button>
+                </div>
+                {marketplaceResults === null ? (
+                  <div style={{ fontSize: fontSize.xxs, color: neutral.textFaint, padding: `${spacing.xs}px 0` }}>Loading real, live results from the official MCP Registry…</div>
+                ) : marketplaceResults.length === 0 ? (
+                  <div style={{ fontSize: fontSize.xxs, color: neutral.textFaint, padding: `${spacing.xs}px 0` }}>No results.</div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: spacing.xs }}>
+                    {marketplaceResults.map(result => {
+                      const target: ConnectTarget = { id: result.name, label: result.title, credentialsUrl: result.repository_url ?? undefined };
+                      return (
+                        <div key={result.name}>
+                          <MarketplaceResultRow
+                            result={result} connection={byName.get(result.name)}
+                            onOpenForm={() => { setOpenFormFor(result.name); setFormError(null); }}
+                            onDisconnect={() => handleDisconnect(result.name)}
+                          />
+                          {openFormFor === result.name && (
+                            <ConnectForm
+                              serviceLabel={result.title} credentialsUrl={result.repository_url ?? undefined}
+                              initial={{ url: result.url }}
+                              submitting={submitting} error={formError}
+                              onCancel={() => setOpenFormFor(null)}
+                              onSubmit={form => handleConnect(target, form)}
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <div style={{ fontSize: fontSize.xxs, fontWeight: fontWeight.medium, color: neutral.textMuted, letterSpacing: "0.04em", marginBottom: spacing.xs }}>
+                  CORE — QUICK CONNECT
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: spacing.xs }}>
                   {core.map(service => (
@@ -366,73 +438,6 @@ export function ConnectionsOverlay({ onClose }: { onClose: () => void }) {
                     </div>
                   ))}
                 </div>
-              </div>
-
-              <div>
-                <div style={{ fontSize: fontSize.xxs, fontWeight: fontWeight.medium, color: neutral.textMuted, letterSpacing: "0.04em", marginBottom: spacing.xs }}>
-                  MARKETPLACE
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, marginBottom: spacing.xs }}>
-                  <div style={{ flex: 1, position: "relative" }}>
-                    <span style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", display: "flex" }}>
-                      <SearchIcon size={11} fill={neutral.textFaint} />
-                    </span>
-                    <input
-                      value={marketplaceQuery}
-                      onChange={e => setMarketplaceQuery(e.target.value)}
-                      onKeyDown={e => { if (e.key === "Enter" && marketplaceQuery.trim()) runMarketplaceSearch(marketplaceQuery.trim()); }}
-                      placeholder="Search the MCP Registry — e.g. github, slack, notion…"
-                      style={{
-                        width: "100%", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.12)",
-                        borderRadius: radius.xs, color: neutral.textPrimary, fontSize: fontSize.xs, fontFamily,
-                        padding: `${spacing.xxs}px ${spacing.xs}px ${spacing.xxs}px 26px`, boxSizing: "border-box",
-                      }}
-                    />
-                  </div>
-                  <button
-                    onClick={() => marketplaceQuery.trim() && runMarketplaceSearch(marketplaceQuery.trim())}
-                    disabled={marketplaceSearching || !marketplaceQuery.trim()}
-                    style={{
-                      padding: `${spacing.xxs}px ${spacing.sm}px`, borderRadius: radius.xs,
-                      border: `1px solid ${CANVAS_ACCENT.agentWork.color}55`, background: tintedGlow(CANVAS_ACCENT.agentWork.hue, 0.1),
-                      color: CANVAS_ACCENT.agentWork.color, cursor: "pointer", fontSize: fontSize.xxs, fontFamily,
-                      opacity: marketplaceSearching || !marketplaceQuery.trim() ? 0.5 : 1,
-                    }}
-                  >
-                    {marketplaceSearching ? "Searching…" : "Search"}
-                  </button>
-                </div>
-                {marketplaceResults === null ? (
-                  <div style={{ fontSize: fontSize.xxs, color: neutral.textFaint, padding: `${spacing.xs}px 0` }}>
-                    Real, live results from the official MCP Registry — not the fixed list above.
-                  </div>
-                ) : marketplaceResults.length === 0 ? (
-                  <div style={{ fontSize: fontSize.xxs, color: neutral.textFaint, padding: `${spacing.xs}px 0` }}>No results.</div>
-                ) : (
-                  <div style={{ display: "flex", flexDirection: "column", gap: spacing.xs }}>
-                    {marketplaceResults.map(result => {
-                      const target: ConnectTarget = { id: result.name, label: result.title, credentialsUrl: result.repository_url ?? undefined };
-                      return (
-                        <div key={result.name}>
-                          <MarketplaceResultRow
-                            result={result} connection={byName.get(result.name)}
-                            onOpenForm={() => { setOpenFormFor(result.name); setFormError(null); }}
-                            onDisconnect={() => handleDisconnect(result.name)}
-                          />
-                          {openFormFor === result.name && (
-                            <ConnectForm
-                              serviceLabel={result.title} credentialsUrl={result.repository_url ?? undefined}
-                              initial={{ url: result.url }}
-                              submitting={submitting} error={formError}
-                              onCancel={() => setOpenFormFor(null)}
-                              onSubmit={form => handleConnect(target, form)}
-                            />
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
               </div>
             </>
           )}
