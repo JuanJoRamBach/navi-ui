@@ -93,7 +93,7 @@ function ModelBadge({ conversationId }: { conversationId: string }) {
           // would get clipped by the pane's own bottom boundary.
           position: "absolute", bottom: "100%", right: 0, marginBottom: spacing.xxs, zIndex: 50,
           width: 280, maxHeight: 320, overflowY: "auto",
-          background: surface.raised, border: "1px solid rgba(255,255,255,0.12)", borderRadius: radius.sm,
+          background: surface.raised, border: "1px solid var(--border-default)", borderRadius: radius.sm,
           boxShadow: "0 8px 24px rgba(0,0,0,0.5)", padding: spacing.xs,
         }}>
           <div style={{ fontSize: fontSize.xxs, color: neutral.textFaint, padding: `${spacing.xxs}px ${spacing.xs}px` }}>
@@ -163,7 +163,7 @@ function EditModeSelector({ autoAccept, onChange }: { autoAccept: boolean; onCha
       {open && (
         <div style={{
           position: "absolute", bottom: "100%", left: 0, marginBottom: spacing.xxs, zIndex: 50,
-          width: 180, background: surface.raised, border: "1px solid rgba(255,255,255,0.12)",
+          width: 180, background: surface.raised, border: "1px solid var(--border-default)",
           borderRadius: radius.sm, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", padding: spacing.xs,
         }}>
           {OPTIONS.map(({ value, label, icon: Icon }) => {
@@ -226,7 +226,7 @@ function AttachFilePicker({ attached, onAttach }: { attached: string[]; onAttach
         <div style={{
           position: "absolute", bottom: "100%", left: 0, marginBottom: spacing.xxs, zIndex: 50,
           width: 260, maxHeight: 280, display: "flex", flexDirection: "column",
-          background: surface.raised, border: "1px solid rgba(255,255,255,0.12)", borderRadius: radius.sm,
+          background: surface.raised, border: "1px solid var(--border-default)", borderRadius: radius.sm,
           boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
         }}>
           <input
@@ -399,34 +399,31 @@ export function DevSlateChat() {
           {reversedMessages.map((m, i) => (
             <div key={reversedMessages.length - i} style={{
               display: "flex", flexDirection: "column", gap: 4, minWidth: 0,
-              alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "90%",
+              alignSelf: m.role === "user" ? "flex-end" : "stretch",
+              maxWidth: m.role === "user" ? "90%" : "100%",
             }}>
-            <div style={{
-              // Same bubble treatment as the main Chat canvas — heavier
-              // blur/glow carries legibility instead of a solid fill,
-              // NAVI's replies fully carry this canvas's own tint (teal,
-              // not Normal mode's blue — JuanJo, 2026-09-01: "respecting
-              // the color of the canvas"), the user's own messages stay
-              // neutral (chrome stays stable, content shifts).
-              // Lightness bumped 15→21 and text below dropped off
-              // full-white (JuanJo, 2026-09-01: "contrast... causes eye
-              // strain") — the near-black bubble against 0.95-opacity
-              // white text was too harsh a jump; this narrows it while
-              // keeping the teal tint and legibility.
-              background: m.role === "user" ? neutral.userBubbleBg : tintedSurface(CANVAS_ACCENT.devSlate.hue, 21, 0.045),
-              border: m.role === "user"
-                ? `1px solid ${neutral.userBubbleBorder}`
-                : `1px solid oklch(65% 0.12 ${CANVAS_ACCENT.devSlate.hue} / 0.3)`,
-              boxShadow: m.role === "user"
-                ? `0 4px 18px rgba(0,0,0,0.35), 0 0 14px ${neutral.userBubbleGlow}`
-                : `0 4px 18px rgba(0,0,0,0.35), 0 0 14px ${CANVAS_ACCENT.devSlate.glow}`,
-              borderRadius: radius.lg, padding: `${spacing.sm}px ${spacing.md}px`,
-              fontSize: fontSize.sm,
-              color: m.role === "user" ? neutral.textPrimary : "rgba(246, 246, 246, 0.85)",
-              whiteSpace: "pre-wrap", overflowWrap: "anywhere",
-            }}>
-              {m.text}
-            </div>
+              {/* Author line — NAVI replies are content-first, no bubble. */}
+              <div style={{
+                fontSize: fontSize.xxs, color: neutral.textFaint, fontFamily,
+                alignSelf: m.role === "user" ? "flex-end" : "flex-start",
+              }}>
+                <span style={{ fontWeight: fontWeight.medium, color: neutral.textMuted }}>
+                  {m.role === "user" ? "You" : "NAVI"}
+                </span>
+              </div>
+              <div style={m.role === "user" ? {
+                alignSelf: "flex-end", maxWidth: "100%",
+                background: neutral.userBubbleBg,
+                border: `1px solid ${neutral.userBubbleBorder}`,
+                borderRadius: radius.lg, padding: `${spacing.sm}px ${spacing.md}px`,
+                fontSize: fontSize.sm, color: neutral.textPrimary,
+                whiteSpace: "pre-wrap", overflowWrap: "anywhere",
+              } : {
+                fontSize: fontSize.sm, color: neutral.textPrimary,
+                whiteSpace: "pre-wrap", overflowWrap: "anywhere", minWidth: 0,
+              }}>
+                {m.text}
+              </div>
               {i === 0 && m.choices && m.choices.length > 0 && (
                 <ChoiceButtons
                   options={m.choices} hue={CANVAS_ACCENT.devSlate.hue}
@@ -502,8 +499,7 @@ export function DevSlateChat() {
           <div style={{
             display: "flex", alignItems: "flex-end", gap: spacing.xs,
             padding: spacing.xs, borderRadius: radius.xl,
-            background: neutral.surface, border: "1px solid rgba(255,255,255,0.12)",
-            boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+            background: neutral.surface, border: "1px solid var(--border-default)",
           }}>
             {folderName && (
               <AttachFilePicker

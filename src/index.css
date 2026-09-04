@@ -15,9 +15,9 @@
   --surface-panel: #151a26;
   --surface-raised: #1c2231;
   --surface-field: #10141f;
-  --surface-panel-a: rgba(21, 26, 38, 0.6);
-  --surface-raised-a: rgba(21, 26, 38, 0.96);
-  --user-bubble-bg: rgba(28, 34, 49, 0.85);
+  --surface-panel-a: #151a26;
+  --surface-raised-a: #1c2231;
+  --user-bubble-bg: #161a26;
   --user-bubble-border: rgba(255, 255, 255, 0.16);
   --user-bubble-glow: rgba(255, 255, 255, 0.08);
   --dot-neutral: rgb(139, 147, 171);
@@ -49,8 +49,8 @@
   --surface-panel: #f0f2f8;
   --surface-raised: #ffffff;
   --surface-field: #e8ebf2;
-  --surface-panel-a: rgba(240, 242, 248, 0.6);
-  --surface-raised-a: rgba(255, 255, 255, 0.96);
+  --surface-panel-a: #f0f2f8;
+  --surface-raised-a: #ffffff;
   --user-bubble-bg: #ffffff;
   --user-bubble-border: rgba(22, 24, 31, 0.16);
   --user-bubble-glow: rgba(22, 24, 31, 0.08);
@@ -310,9 +310,12 @@ body {
 /* Top-edge fade for the (bottom-anchored, column-reverse) message
    list — older messages dissolve as they scroll up toward the top of
    the viewport instead of just getting clipped at the edge. */
+/* Top-edge fade for the (bottom-anchored, column-reverse) message
+   list — older messages dissolve gradually as they scroll up, with a
+   mid-stop so the fade eases out instead of cutting hard at 40px. */
 .message-fade-top {
-  mask-image: linear-gradient(to bottom, transparent, black 40px);
-  -webkit-mask-image: linear-gradient(to bottom, transparent, black 40px);
+  mask-image: linear-gradient(to bottom, transparent 0, rgba(0, 0, 0, 0.5) 60px, black 140px);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, rgba(0, 0, 0, 0.5) 60px, black 140px);
 }
 
 /* Toolbar row scroll-snap: dragging/flicking settles on a fully-visible

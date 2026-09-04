@@ -324,8 +324,17 @@ function StreamingMessageText({ text, animate }: { text: string; animate: boolea
   return <>{renderMessageBody(text.slice(0, revealed))}</>;
 }
 
+// The animated Chat canvas needs the theme's surface color as its clear
+// fill, but canvas fillStyle can't read a CSS variable — resolve it once
+// and refresh on theme change (see canvasBaseRef in App).
+function resolveCanvasBase(): string {
+  if (typeof document === "undefined") return "#0e1119";
+  return getComputedStyle(document.documentElement).getPropertyValue("--surface-canvas").trim() || "#0e1119";
+}
+
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasBaseRef = useRef(resolveCanvasBase());
   const modeRef = useRef<Mode>("ambient");
   // Separate from modeRef ("ambient"/"vortex", which Normal and Research
   // both share) — fairies are a Research-only layer on top of the shared
@@ -339,6 +348,7 @@ export default function App() {
   const [colorTheme, setColorTheme] = useState<"night" | "light">(() =>
     document.documentElement.getAttribute("data-theme") === "light" ? "light" : "night"
   );
+  useEffect(() => { canvasBaseRef.current = resolveCanvasBase(); }, [colorTheme]);
   const themeRef = useRef(MODE_THEME.normal);
   const particlesRef = useRef<Particle[]>([]);
   const orbsRef = useRef<Orb[]>([]);
@@ -482,7 +492,7 @@ export default function App() {
       const ft = fairyTickRef.current;
 
       // Fully opaque clear — no trailing/ghosting from previous frames.
-      ctx.fillStyle = "#080808";
+      ctx.fillStyle = canvasBaseRef.current;
       ctx.fillRect(0, 0, w, h);
 
       /* Light effects (orbs, swirl, drifting particles, Research-mode
@@ -1951,7 +1961,7 @@ export default function App() {
     <div style={{ height: "100%", display: "flex", flexDirection: "column", minHeight: 0 }}>
       <div style={{
         display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.xs,
-        padding: `${spacing.xs}px ${spacing.lg}px`, borderTop: "1px solid rgba(255,255,255,0.08)",
+        padding: `${spacing.xs}px ${spacing.lg}px`, borderTop: "1px solid var(--border-subtle)",
         flexShrink: 0,
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, minWidth: 0 }}>
@@ -2031,7 +2041,7 @@ export default function App() {
           // is declared in the component body; safe either way since
           // it's a fixed value, but kept explicit for clarity).
           background: "var(--surface-root)",
-          borderRight: "1px solid rgba(255,255,255,0.08)",
+          borderRight: "1px solid var(--border-subtle)",
           width: outerRailWidth,
         }}>
           <div
@@ -2122,7 +2132,7 @@ export default function App() {
             })}
           </div>
 
-          <div style={{ height: 1, background: "rgba(255,255,255,0.08)", margin: `${spacing.sm}px ${spacing.sm}px ${spacing.md}px` }} />
+          <div style={{ height: 1, background: "var(--border-subtle)", margin: `${spacing.sm}px ${spacing.sm}px ${spacing.md}px` }} />
 
           {/* middle zone — canvas-dependent contextual actions. Only
               Chat's are real for now: Root Chat (jump to the project's
@@ -2403,9 +2413,9 @@ export default function App() {
               they were, unchanged — only Settings moved. */}
           <div style={{
             display: "flex", flexDirection: "column", gap: spacing.xxs, padding: spacing.sm,
-            borderTop: "1px solid rgba(255,255,255,0.08)", flexShrink: 0,
+            borderTop: "1px solid var(--border-subtle)", flexShrink: 0,
           }}>
-            <div style={{ fontSize: fontSize.xxs, letterSpacing: "0.1em", textTransform: "uppercase", color: neutral.textInactive, fontWeight: fontWeight.medium, padding: `${spacing.xs}px ${spacing.sm}px ${spacing.xxs}px`, fontFamily }}>System</div>
+            <div className="sidebar-menu-btn-label" style={{ fontSize: fontSize.xxs, letterSpacing: "0.1em", textTransform: "uppercase", color: neutral.textInactive, fontWeight: fontWeight.medium, padding: `${spacing.xs}px ${spacing.sm}px ${spacing.xxs}px`, fontFamily }}>System</div>
             {([
               { key: "usage", icon: <GraphIcon size={iconSize.sm} />, label: "Usage counters" },
               { key: "routing", icon: <GitBranchIcon size={iconSize.sm} />, label: "Routing & fallbacks" },
@@ -2477,7 +2487,7 @@ export default function App() {
                 always exactly one click away regardless of that state,
                 same tier as Profile). Opens the sidebar if it's closed;
                 if it's already open, just switches tab. */}
-            <div style={{ fontSize: fontSize.xxs, letterSpacing: "0.1em", textTransform: "uppercase", color: neutral.textInactive, fontWeight: fontWeight.medium, padding: `${spacing.xs}px ${spacing.sm}px ${spacing.xxs}px`, fontFamily }}>Account</div>
+            <div className="sidebar-menu-btn-label" style={{ fontSize: fontSize.xxs, letterSpacing: "0.1em", textTransform: "uppercase", color: neutral.textInactive, fontWeight: fontWeight.medium, padding: `${spacing.xs}px ${spacing.sm}px ${spacing.xxs}px`, fontFamily }}>Account</div>
             <button
               className="sidebar-menu-btn"
               title="Agents"
@@ -2626,7 +2636,7 @@ export default function App() {
           // tried 32px, bumped to 48px live to compare). Tighter
           // horizontal padding too, not just vertical.
           height: 48, boxSizing: "border-box", padding: `0 ${spacing.sm}px 0 ${spacing.md}px`,
-          borderBottom: "1px solid rgba(255,255,255,0.08)",
+          borderBottom: "1px solid var(--border-subtle)",
         }}>
           {/* minWidth:0 lets this row actually shrink below its content
               size instead of pushing the close button off-screen when
@@ -2820,7 +2830,7 @@ export default function App() {
                 value={fileSearchQuery}
                 onChange={e => setFileSearchQuery(e.target.value)}
                 style={{
-                  width: "100%", background: neutral.surface, border: "1px solid rgba(255,255,255,0.12)",
+                  width: "100%", background: neutral.surface, border: "1px solid var(--border-default)",
                   borderRadius: radius.xs + 2, outline: "none", color: neutral.textPrimary,
                   fontSize: 12.5, padding: "5px 8px 5px 26px", fontFamily,
                 }}
@@ -2865,7 +2875,7 @@ export default function App() {
                   if (e.key === "Escape") setAddingDirectory(false);
                 }}
                 style={{
-                  flex: 1, background: neutral.surface, border: "1px solid rgba(255,255,255,0.12)",
+                  flex: 1, background: neutral.surface, border: "1px solid var(--border-default)",
                   borderRadius: radius.xs + 2, outline: "none", color: neutral.textPrimary,
                   fontSize: 12.5, padding: "5px 8px", fontFamily,
                 }}
@@ -2938,7 +2948,7 @@ export default function App() {
           </div>
         </div>
         </div>
-        <div style={{ height: 1, background: "rgba(255,255,255,0.08)", flexShrink: 0 }} />
+        <div style={{ height: 1, background: "var(--border-subtle)", flexShrink: 0 }} />
         <div style={{
           padding: `0 ${spacing.lg}px ${spacing.lg}px`,
           flex: 3, minHeight: 0, overflowY: "auto",
@@ -2997,7 +3007,7 @@ export default function App() {
                             display: "flex", alignItems: "center", gap: spacing.xs,
                             padding: `${spacing.xs}px ${spacing.sm}px`, borderRadius: radius.sm,
                             background: "rgba(255,255,255,0.06)",
-                            border: "1px solid rgba(255,255,255,0.12)",
+                            border: "1px solid var(--border-default)",
                             fontSize: fontSize.xs,
                           }}
                         >
@@ -3060,7 +3070,7 @@ export default function App() {
           alignItems: "center", justifyContent: "center",
           width: controlSize.md, height: controlSize.md,
           borderRadius: radius.sm,
-          border: "1px solid rgba(255,255,255,0.12)",
+          border: "1px solid var(--border-default)",
           background: "rgba(255,255,255,0.06)",
           color: neutral.textPrimary,
           cursor: "pointer",
@@ -3094,7 +3104,7 @@ export default function App() {
             display: "flex", alignItems: "center", justifyContent: "center",
             width: controlSize.md, height: controlSize.md,
             borderRadius: radius.sm,
-            border: "1px solid rgba(255,255,255,0.12)",
+            border: "1px solid var(--border-default)",
             background: "rgba(255,255,255,0.06)",
             color: neutral.textPrimary,
             cursor: "pointer",
@@ -3160,7 +3170,7 @@ export default function App() {
             // Same fixed-height treatment as the left sidebar's tab
             // row — JuanJo, 2026-09-01.
             height: 48, boxSizing: "border-box", padding: `0 ${spacing.md}px`,
-            borderBottom: "1px solid rgba(255,255,255,0.08)", flexShrink: 0,
+            borderBottom: "1px solid var(--border-subtle)", flexShrink: 0,
           }}>
             {activeCanvas === "agentWork" ? (
               /* Agent Work's right panel isn't tabbed like Chat's —
@@ -3178,7 +3188,7 @@ export default function App() {
                   style={{
                     display: "flex", alignItems: "center", gap: 4,
                     padding: `4px ${spacing.xs}px`, borderRadius: radius.xs,
-                    border: "1px solid rgba(255,255,255,0.12)",
+                    border: "1px solid var(--border-default)",
                     background: openPanel === "connections" ? "rgba(255,255,255,0.06)" : "transparent",
                     color: neutral.textMuted, cursor: "pointer", fontSize: fontSize.xxs, fontFamily,
                   }}
@@ -3237,7 +3247,7 @@ export default function App() {
               <div style={{ flex: 7, minHeight: 0 }}>
                 <AgentWorkWorkflows onNewWorkflow={e => togglePanel("newWorkflow", e.currentTarget)} onViewInCanvas={setChatCreatedWorkflowId} />
               </div>
-              <div style={{ height: 1, background: "rgba(255,255,255,0.08)", flexShrink: 0 }} />
+              <div style={{ height: 1, background: "var(--border-subtle)", flexShrink: 0 }} />
               <div style={{ flex: 3, minHeight: 0 }}>
                 <AgentWorkRunHistory />
               </div>
@@ -3292,7 +3302,7 @@ export default function App() {
                   </div>
                 )}
               </div>
-              <div style={{ height: 1, background: "rgba(255,255,255,0.08)", flexShrink: 0 }} />
+              <div style={{ height: 1, background: "var(--border-subtle)", flexShrink: 0 }} />
               <div style={{ flex: 3, minHeight: 0, padding: spacing.lg, overflowY: "auto" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, marginBottom: spacing.sm }}>
                   <HistoryIcon size={16} fill={CANVAS_ACCENT.devSlate.color} />
@@ -3327,13 +3337,13 @@ export default function App() {
                 <div style={{
                   display: "flex", flexWrap: "wrap", gap: 5, alignItems: "center",
                   padding: 6, borderRadius: radius.lg + 2,
-                  background: neutral.surface, border: "1px solid rgba(255,255,255,0.12)",
+                  background: neutral.surface, border: "1px solid var(--border-default)",
                 }}>
                   {sourceChips.map((chip, i) => (
                     <div key={chip} style={{
                       display: "flex", alignItems: "center", gap: 4,
                       padding: "3px 5px 3px 8px", borderRadius: radius.xs + 3,
-                      background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)",
+                      background: "rgba(255,255,255,0.06)", border: "1px solid var(--border-default)",
                       color: neutral.textPrimary, fontSize: 12,
                     }}>
                       {chip}
@@ -3473,7 +3483,7 @@ export default function App() {
               Agent Work's panel doesn't render Sources at all. */}
           {activeCanvas === "chat" && !viewerExpanded && (
             <div style={{
-              padding: `${spacing.sm + 2}px ${spacing.lg}px`, borderTop: "1px solid rgba(255,255,255,0.08)",
+              padding: `${spacing.sm + 2}px ${spacing.lg}px`, borderTop: "1px solid var(--border-subtle)",
               display: "flex", gap: 7, alignItems: "flex-start", flexShrink: 0,
             }}>
               <AlertIcon size={13} fill="rgba(230,180,80,0.9)" />
@@ -3740,7 +3750,7 @@ export default function App() {
             style={{
               display: "flex", alignItems: "center", gap: spacing.xs,
               padding: `${spacing.xs}px ${spacing.md}px`, marginLeft: spacing.xs,
-              borderRadius: radius.sm, border: "1px solid rgba(255,255,255,0.12)",
+              borderRadius: radius.sm, border: "1px solid var(--border-default)",
               background: "transparent", color: neutral.textMuted, cursor: "pointer",
               fontSize: fontSize.xxs, fontFamily, whiteSpace: "nowrap",
               maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis",
@@ -3780,15 +3790,10 @@ export default function App() {
               exactly where the real reply will land once it arrives. */}
           {pendingStep && (
             <div className="step-pulse" style={{
-              alignSelf: "flex-start", maxWidth: "78%",
-              padding: `${spacing.md - 1}px ${spacing.lg}px`,
-              borderRadius: radius.lg,
-              fontSize: fontSize.sm,
-              color: neutral.textMuted,
-              background: theme.bubbleBg,
-              border: `1px solid ${theme.bubbleBorder}`,
-              boxShadow: `0 4px 18px rgba(0,0,0,0.35), 0 0 20px ${theme.glow}`,
+              alignSelf: "flex-start", display: "flex", alignItems: "center", gap: spacing.xs,
+              fontSize: fontSize.xxs, color: neutral.textMuted, fontFamily,
             }}>
+              <span style={{ width: 6, height: 6, borderRadius: 9999, background: neutral.textMuted }} />
               {pendingStep}
             </div>
           )}
@@ -3806,96 +3811,24 @@ export default function App() {
             }
             const m = item.message;
             const { body, attachments } = splitMessageAttachments(m.text);
+            const isNavi = m.role === "navi";
             return (
               <div key={item.key} style={{
-                alignSelf: m.role === "navi" ? "flex-start" : "flex-end",
-                maxWidth: "78%",
-                padding: `${spacing.md - 1}px ${spacing.lg}px`,
-                borderRadius: radius.lg,
-                fontSize: fontSize.sm,
-                lineHeight: lineHeight.base,
-                color: neutral.textPrimary,
-                // Heavier blur does the legibility work here instead of a
-                // solid fill, so the color underneath can go darker/more
-                // transparent without the text losing contrast.
-                // NAVI's bubble fully carries the active mode's tint — that's
-                // the "content" layer, meant to feel immersive. Your own
-                // messages stay neutral on purpose (see the button-color
-                // discussion: chrome stays stable, content shifts).
-                background: m.role === "navi" ? theme.bubbleBg : neutral.userBubbleBg,
-                border: m.role === "navi"
-                  ? `1px solid ${theme.bubbleBorder}`
-                  : `1px solid ${neutral.userBubbleBorder}`,
-                boxShadow: m.role === "navi"
-                  ? `0 4px 18px rgba(0,0,0,0.35), 0 0 20px ${theme.glow}`
-                  : `0 4px 18px rgba(0,0,0,0.35), 0 0 14px ${neutral.userBubbleGlow}`,
+                display: "flex", flexDirection: "column", gap: spacing.xs, minWidth: 0,
+                alignSelf: isNavi ? "stretch" : "flex-end",
+                maxWidth: isNavi ? "100%" : "82%",
               }}>
-                <StreamingMessageText
-                  text={body}
-                  animate={m.role === "navi" && item.index >= hydratedCountRef.current}
-                />
-                {attachments.length > 0 && (
-                  <div style={{ display: "flex", flexDirection: "column", gap: spacing.xs, marginTop: spacing.sm }}>
-                    {attachments.map(a => (
-                      <div
-                        key={a.filename}
-                        style={{
-                          display: "flex", alignItems: "center", gap: spacing.xs,
-                          padding: `${spacing.xs}px ${spacing.sm}px`, borderRadius: radius.sm,
-                          background: "rgba(255,255,255,0.06)",
-                          border: "1px solid rgba(255,255,255,0.12)",
-                          fontSize: fontSize.xs,
-                        }}
-                      >
-                        <FileIcon size={iconSize.sm} />
-                        <span style={{
-                          flex: 1, overflow: "hidden", textOverflow: "ellipsis",
-                          whiteSpace: "nowrap", color: neutral.textPrimary,
-                        }}>
-                          {a.filename}
-                        </span>
-                        {/* View only shows up for /code's bundled-HTML
-                            output (viewUrl set) — every other saved file
-                            only ever gets a download action. */}
-                        {a.viewUrl && (
-                          <a
-                            href={a.viewUrl} target="_blank" rel="noopener noreferrer"
-                            title="View" aria-label="View in browser"
-                            style={{ display: "flex", flexShrink: 0, color: neutral.textMuted }}
-                          >
-                            <GlobeIcon size={iconSize.sm} />
-                          </a>
-                        )}
-                        <a
-                          href={a.downloadUrl} target="_blank" rel="noopener noreferrer"
-                          title="Download" aria-label="Download"
-                          style={{ display: "flex", flexShrink: 0, color: neutral.textMuted }}
-                        >
-                          <DownloadIcon size={iconSize.sm} />
-                        </a>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {/* Only the most recent message's choices are actionable
-                    — a stale option from an earlier turn wouldn't make
-                    sense once the conversation's moved on. */}
-                {m.choices && m.choices.length > 0 && item.index === messages.length - 1 && (
-                  <ChoiceButtons
-                    options={m.choices} hue={OKLCH_HUE[chatMode]}
-                    disabled={!!pendingStep}
-                    onPick={(text) => sendMessage(text)}
-                  />
-                )}
+                {/* Author / metadata line. NAVI replies are content-first,
+                    edge-to-edge rows — no bubble container. */}
                 <div style={{
-                  display: "flex",
-                  justifyContent: m.role === "navi" ? "space-between" : "flex-end",
-                  alignItems: "center", marginTop: spacing.xs, gap: spacing.xs,
+                  display: "flex", alignItems: "center", gap: spacing.xs,
+                  justifyContent: isNavi ? "space-between" : "flex-end",
+                  fontSize: fontSize.xxs, color: neutral.textMuted, fontFamily,
                 }}>
-                  <span style={{ fontSize: fontSize.xxs, color: neutral.textMuted }}>
-                    {formatTime(m.timestamp)}
+                  <span style={{ fontWeight: fontWeight.medium }}>
+                    {isNavi ? "NAVI" : "You"} · {formatTime(m.timestamp)}
                   </span>
-                  {m.role === "navi" && (
+                  {isNavi && (
                     <button
                       aria-label="Pin this response"
                       title="Pin this response"
@@ -3908,6 +3841,68 @@ export default function App() {
                     >
                       <PinIcon size={iconSize.sm} />
                     </button>
+                  )}
+                </div>
+                <div style={isNavi ? {
+                  fontSize: fontSize.sm, lineHeight: lineHeight.base,
+                  color: neutral.textPrimary, minWidth: 0, paddingRight: spacing.xxs,
+                } : {
+                  alignSelf: "flex-end", maxWidth: "100%", minWidth: 0,
+                  padding: `${spacing.md - 1}px ${spacing.lg}px`,
+                  borderRadius: radius.lg, fontSize: fontSize.sm, lineHeight: lineHeight.base,
+                  color: neutral.textPrimary, background: neutral.userBubbleBg,
+                  border: `1px solid ${neutral.userBubbleBorder}`,
+                }}>
+                  <StreamingMessageText
+                    text={body}
+                    animate={isNavi && item.index >= hydratedCountRef.current}
+                  />
+                  {attachments.length > 0 && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: spacing.xs, marginTop: spacing.sm }}>
+                      {attachments.map(a => (
+                        <div
+                          key={a.filename}
+                          style={{
+                            display: "flex", alignItems: "center", gap: spacing.xs,
+                            padding: `${spacing.xs}px ${spacing.sm}px`, borderRadius: radius.sm,
+                            background: "var(--surface-panel)",
+                            border: "1px solid var(--border-default)",
+                            fontSize: fontSize.xs,
+                          }}
+                        >
+                          <FileIcon size={iconSize.sm} />
+                          <span style={{
+                            flex: 1, overflow: "hidden", textOverflow: "ellipsis",
+                            whiteSpace: "nowrap", color: neutral.textPrimary,
+                          }}>
+                            {a.filename}
+                          </span>
+                          {a.viewUrl && (
+                            <a
+                              href={a.viewUrl} target="_blank" rel="noopener noreferrer"
+                              title="View" aria-label="View in browser"
+                              style={{ display: "flex", flexShrink: 0, color: neutral.textMuted }}
+                            >
+                              <GlobeIcon size={iconSize.sm} />
+                            </a>
+                          )}
+                          <a
+                            href={a.downloadUrl} target="_blank" rel="noopener noreferrer"
+                            title="Download" aria-label="Download"
+                            style={{ display: "flex", flexShrink: 0, color: neutral.textMuted }}
+                          >
+                            <DownloadIcon size={iconSize.sm} />
+                          </a>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {m.choices && m.choices.length > 0 && item.index === messages.length - 1 && (
+                    <ChoiceButtons
+                      options={m.choices} hue={OKLCH_HUE[chatMode]}
+                      disabled={!!pendingStep}
+                      onPick={(text) => sendMessage(text)}
+                    />
                   )}
                 </div>
               </div>
@@ -3963,7 +3958,7 @@ export default function App() {
                   display: "flex", alignItems: "center", gap: 4, flexShrink: 0,
                   padding: "6px 9px",
                   borderRadius: radius.sm, // squared-with-rounded-corners, matches bubbles/input
-                  border: "1px solid rgba(255,255,255,0.12)",
+                  border: "1px solid var(--border-default)",
                   background: panelActive ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.06)",
                   color: neutral.textPrimary,
                   cursor: "pointer",
@@ -4019,7 +4014,7 @@ export default function App() {
               // first measurement lands.
               height: menuSectionHeight ?? 280,
               background: neutral.surface,
-              borderLeft: "1px solid rgba(255,255,255,0.08)",
+              borderLeft: "1px solid var(--border-subtle)",
               // No glow here — that's the right call for a floating
               // popover drawing attention to itself, but this is
               // structural sidebar furniture now, not a transient
@@ -4036,7 +4031,7 @@ export default function App() {
               maxHeight: "70vh", overflowY: "auto",
               zIndex: 36, // above the sidebar (30) and its own overlay (35) above
               background: neutral.surfaceSolid,
-              border: "1px solid rgba(255,255,255,0.12)",
+              border: "1px solid var(--border-default)",
               borderRadius: radius.lg,
               boxShadow: "0 8px 30px rgba(0,0,0,0.5)",
               padding: spacing.md,
@@ -4407,7 +4402,7 @@ export default function App() {
           display: "flex", alignItems: "flex-end", gap: spacing.sm, marginTop: spacing.lg,
           padding: spacing.sm, borderRadius: radius.xl,
           background: neutral.surface,
-          border: "1px solid rgba(255,255,255,0.12)",
+          border: "1px solid var(--border-default)",
         }}>
           <textarea
             ref={textareaRef}
@@ -4506,7 +4501,7 @@ export default function App() {
           {mobileCanvasMenuOpen && (activeCanvas === "chat" || activeCanvas === "devSlate" || activeCanvas === "agentWork") && (
             <div style={{
               position: "fixed", left: spacing.md, right: spacing.md, bottom: MOBILE_BAR_HEIGHT + spacing.sm,
-              zIndex: 41, background: neutral.surfaceSolid, border: "1px solid rgba(255,255,255,0.12)",
+              zIndex: 41, background: neutral.surfaceSolid, border: "1px solid var(--border-default)",
               borderRadius: radius.lg, boxShadow: "0 8px 30px rgba(0,0,0,0.5)",
               display: "flex", flexDirection: "column", gap: spacing.xxs,
             }}>
@@ -4578,7 +4573,7 @@ export default function App() {
           {mobileAccountMenuOpen && (
             <div style={{
               position: "fixed", left: spacing.md, right: spacing.md, bottom: MOBILE_BAR_HEIGHT + spacing.sm,
-              zIndex: 41, background: neutral.surfaceSolid, border: "1px solid rgba(255,255,255,0.12)",
+              zIndex: 41, background: neutral.surfaceSolid, border: "1px solid var(--border-default)",
               borderRadius: radius.lg, boxShadow: "0 8px 30px rgba(0,0,0,0.5)",
               display: "flex", flexDirection: "column", gap: spacing.xxs,
             }}>
@@ -4620,7 +4615,7 @@ export default function App() {
           <div style={{
             flexShrink: 0, height: MOBILE_BAR_HEIGHT, position: "relative",
             zIndex: 40, display: "flex", alignItems: "center", justifyContent: "space-around",
-            background: sidebarBg, borderTop: "1px solid rgba(255,255,255,0.08)",
+            background: sidebarBg, borderTop: "1px solid var(--border-subtle)",
           }}>
             <button
               title="Project"

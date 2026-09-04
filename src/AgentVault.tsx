@@ -19,8 +19,8 @@ const CODE_REVIEW_PRESET: { name: string; instructions: string; tools: string[];
 };
 
 const accent = CANVAS_ACCENT.agentWork.color;
-const CARD_BG = "rgba(255,255,255,0.05)";
-const CARD_BORDER = "1px solid rgba(255,255,255,0.08)";
+const CARD_BG = "var(--surface-panel)";
+const CARD_BORDER = "1px solid var(--border-default)";
 
 // Fixed internal tools every agent can pick from regardless of MCP
 // connections — mirrors tools/registry.py's TOOL_SCHEMAS names exactly,

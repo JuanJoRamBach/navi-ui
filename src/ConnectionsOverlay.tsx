@@ -67,8 +67,8 @@ const CORE_SERVICES: { id: string; label: string; icon: typeof MarkGithubIcon; c
   },
 ];
 
-const CARD_BG = "rgba(255,255,255,0.05)";
-const CARD_BORDER = "1px solid rgba(255,255,255,0.08)";
+const CARD_BG = "var(--surface-panel)";
+const CARD_BORDER = "1px solid var(--border-default)";
 
 function monogram(title: string): string {
   return (title.trim()[0] || "?").toUpperCase();
@@ -94,7 +94,7 @@ function ConnectForm({ serviceLabel, credentialsUrl, credentialsLabel = "reposit
   const [authHeader, setAuthHeader] = useState("");
 
   const fieldStyle: React.CSSProperties = {
-    width: "100%", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.12)",
+    width: "100%", background: "rgba(255,255,255,0.04)", border: "1px solid var(--border-default)",
     borderRadius: radius.xs, color: neutral.textPrimary, fontSize: fontSize.xs, fontFamily,
     padding: `${spacing.xxs}px ${spacing.xs}px`, boxSizing: "border-box",
   };
@@ -131,7 +131,7 @@ function ConnectForm({ serviceLabel, credentialsUrl, credentialsLabel = "reposit
         <button
           onClick={onCancel} disabled={submitting}
           style={{
-            padding: `${spacing.xxs}px ${spacing.sm}px`, borderRadius: radius.xs, border: "1px solid rgba(255,255,255,0.15)",
+            padding: `${spacing.xxs}px ${spacing.sm}px`, borderRadius: radius.xs, border: "1px solid var(--border-default)",
             background: "transparent", color: neutral.textMuted, cursor: "pointer", fontSize: fontSize.xs, fontFamily,
           }}
         >
@@ -206,13 +206,13 @@ function RegistryCard({ icon, title, description, hostedLabel, requiresAuth, con
             {requiresAuth && !connected && <span style={{ color: accent }}>· needs a token</span>}
           </div>
           {connected ? (
-            <button onClick={onDisconnect} style={{ ...smallButtonStyle, border: "1px solid rgba(255,255,255,0.12)", background: "transparent", color: neutral.textFaint }}>
+            <button onClick={onDisconnect} style={{ ...smallButtonStyle, border: "1px solid var(--border-default)", background: "transparent", color: neutral.textFaint }}>
               Disconnect
             </button>
           ) : (
             <button
               onClick={onOpenForm} disabled={busy}
-              style={{ ...smallButtonStyle, border: "1px solid rgba(255,255,255,0.15)", background: "transparent", color: neutral.textPrimary, fontWeight: fontWeight.medium, opacity: busy ? 0.6 : 1, cursor: busy ? "default" : "pointer" }}
+              style={{ ...smallButtonStyle, border: "1px solid var(--border-default)", background: "transparent", color: neutral.textPrimary, fontWeight: fontWeight.medium, opacity: busy ? 0.6 : 1, cursor: busy ? "default" : "pointer" }}
             >
               <PlusIcon size={10} /> {busy ? "Connecting…" : "Connect"}
             </button>
@@ -387,7 +387,7 @@ export function ConnectionsOverlay({ onClose, oauthResult, onDismissOauthResult 
               <span style={{ fontSize: fontSize.xxs, color: status.danger.color }}>{formError}</span>
               <button
                 onClick={() => setOpenFormFor(null)}
-                style={{ padding: `2px ${spacing.xs}px`, borderRadius: radius.xs, border: "1px solid rgba(255,255,255,0.15)", background: "transparent", color: neutral.textMuted, cursor: "pointer", fontSize: fontSize.xxs, fontFamily }}
+                style={{ padding: `2px ${spacing.xs}px`, borderRadius: radius.xs, border: "1px solid var(--border-default)", background: "transparent", color: neutral.textMuted, cursor: "pointer", fontSize: fontSize.xxs, fontFamily }}
               >
                 Dismiss
               </button>
@@ -471,7 +471,7 @@ export function ConnectionsOverlay({ onClose, oauthResult, onDismissOauthResult 
       >
         <div style={{
           display: "flex", alignItems: "center", justifyContent: "space-between",
-          padding: spacing.md, borderBottom: "1px solid rgba(255,255,255,0.08)", flexShrink: 0,
+          padding: spacing.md, borderBottom: "1px solid var(--border-subtle)", flexShrink: 0,
         }}>
           <span style={{ fontSize: fontSize.sm, fontWeight: fontWeight.medium, color: neutral.textPrimary }}>Connections</span>
           <button
@@ -487,7 +487,7 @@ export function ConnectionsOverlay({ onClose, oauthResult, onDismissOauthResult 
             display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.sm,
             padding: `${spacing.xs}px ${spacing.md}px`, flexShrink: 0,
             background: effectiveOauthResult.status === "success" ? status.success.bg : effectiveOauthResult.status === "partial" ? status.warning.bg : status.danger.bg,
-            borderBottom: "1px solid rgba(255,255,255,0.08)",
+            borderBottom: "1px solid var(--border-subtle)",
           }}>
             <div style={{
               display: "flex", alignItems: "center", gap: 6, fontSize: fontSize.xxs,
@@ -534,7 +534,7 @@ export function ConnectionsOverlay({ onClose, oauthResult, onDismissOauthResult 
                     onChange={e => setMarketplaceQuery(e.target.value)}
                     placeholder="Search — e.g. jira, asana, linear… (updates as you type)"
                     style={{
-                      width: "100%", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.12)",
+                      width: "100%", background: "rgba(255,255,255,0.04)", border: "1px solid var(--border-default)",
                       borderRadius: radius.xs, color: neutral.textPrimary, fontSize: fontSize.xs, fontFamily,
                       padding: `${spacing.xxs}px ${spacing.xs}px ${spacing.xxs}px 26px`, boxSizing: "border-box",
                     }}
@@ -562,7 +562,7 @@ export function ConnectionsOverlay({ onClose, oauthResult, onDismissOauthResult 
                         disabled={marketplaceLoadingMore}
                         style={{
                           marginTop: spacing.xs, width: "100%", padding: `${spacing.xs}px`, borderRadius: radius.xs,
-                          border: "1px solid rgba(255,255,255,0.12)", background: "transparent", color: neutral.textMuted,
+                          border: "1px solid var(--border-default)", background: "transparent", color: neutral.textMuted,
                           cursor: marketplaceLoadingMore ? "default" : "pointer", fontSize: fontSize.xxs, fontFamily,
                           opacity: marketplaceLoadingMore ? 0.6 : 1,
                         }}

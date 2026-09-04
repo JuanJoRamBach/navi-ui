@@ -977,7 +977,7 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
           <div style={{
             display: "flex", flexDirection: "column", gap: 2, padding: `${spacing.xs}px ${spacing.sm}px`,
             borderRadius: radius.xs, border: `1px solid ${status.danger.border}`, background: status.danger.bg,
-            fontSize: fontSize.xxs, color: "#e08a7a",
+            fontSize: fontSize.xxs, color: status.danger.color,
           }}>
             {saveErrors.map((err, i) => <div key={i}>{err}</div>)}
           </div>
@@ -1096,7 +1096,7 @@ export function AgentWorkGraphEditor({ rightSidebarOpen = false, seed, onSeedCon
   loadWorkflowId?: string | null; onWorkflowLoaded?: () => void;
 }) {
   return (
-    <div style={{ height: "100%", background: "rgba(6,7,10,0.97)", display: "flex", flexDirection: "column" }}>
+    <div style={{ height: "100%", background: "var(--surface-canvas)", display: "flex", flexDirection: "column" }}>
       <ReactFlowProvider>
         <GraphCanvas
           rightSidebarOpen={rightSidebarOpen} seed={seed} onSeedConsumed={onSeedConsumed}

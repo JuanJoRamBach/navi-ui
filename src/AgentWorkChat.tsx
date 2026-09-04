@@ -442,12 +442,8 @@ export function AgentWorkChat({ onClose, onWorkflowCreated }: { onClose: () => v
           )}
           {streamingText !== null && (
             <div style={{
-              alignSelf: "flex-start", maxWidth: "90%", minWidth: 0,
-              background: tintedSurface(CANVAS_ACCENT.agentWork.hue, 21, 0.045),
-              border: `1px solid oklch(65% 0.12 ${CANVAS_ACCENT.agentWork.hue} / 0.3)`,
-              boxShadow: `0 4px 18px rgba(0,0,0,0.35), 0 0 14px ${CANVAS_ACCENT.agentWork.glow}`,
-              borderRadius: radius.lg, padding: `${spacing.sm}px ${spacing.md}px`,
-              fontSize: fontSize.sm, color: "rgba(246, 246, 246, 0.85)", whiteSpace: "pre-wrap", overflowWrap: "anywhere",
+              alignSelf: "flex-start", minWidth: 0, display: "flex", gap: spacing.xs,
+              fontSize: fontSize.sm, color: neutral.textPrimary, whiteSpace: "pre-wrap", overflowWrap: "anywhere",
             }}>
               {streamingText}
               <span className="step-pulse" style={{ opacity: 0.7 }}>▍</span>
@@ -456,35 +452,32 @@ export function AgentWorkChat({ onClose, onWorkflowCreated }: { onClose: () => v
           {reversedMessages.map((m, i) => (
             <div key={reversedMessages.length - i} style={{
               display: "flex", flexDirection: "column", gap: 3, minWidth: 0,
-              alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "90%",
+              alignSelf: m.role === "user" ? "flex-end" : "stretch",
+              maxWidth: m.role === "user" ? "90%" : "100%",
             }}>
+              {/* Author line — NAVI replies are content-first, no bubble. */}
               <div style={{
-                background: m.role === "user" ? neutral.userBubbleBg : tintedSurface(CANVAS_ACCENT.agentWork.hue, 21, 0.045),
-                border: m.role === "user"
-                  ? `1px solid ${neutral.userBubbleBorder}`
-                  : `1px solid oklch(65% 0.12 ${CANVAS_ACCENT.agentWork.hue} / 0.3)`,
-                boxShadow: m.role === "user"
-                  ? `0 4px 18px rgba(0,0,0,0.35), 0 0 14px ${neutral.userBubbleGlow}`
-                  : `0 4px 18px rgba(0,0,0,0.35), 0 0 14px ${CANVAS_ACCENT.agentWork.glow}`,
+                fontSize: fontSize.xxs, color: neutral.textFaint, fontFamily,
+                alignSelf: m.role === "user" ? "flex-end" : "flex-start",
+              }}>
+                <span style={{ fontWeight: fontWeight.medium, color: neutral.textMuted }}>
+                  {m.role === "user" ? "You" : "NAVI"}
+                </span>
+                {" · "}{formatMessageTime(m.at)}{m.usageNote ? ` · ${m.usageNote}` : ""}
+              </div>
+              <div style={m.role === "user" ? {
+                alignSelf: "flex-end", maxWidth: "100%",
+                background: neutral.userBubbleBg,
+                border: `1px solid ${neutral.userBubbleBorder}`,
                 borderRadius: radius.lg, padding: `${spacing.sm}px ${spacing.md}px`,
-                fontSize: fontSize.sm,
-                color: m.role === "user" ? neutral.textPrimary : "rgba(246, 246, 246, 0.85)",
+                fontSize: fontSize.sm, color: neutral.textPrimary,
                 whiteSpace: "pre-wrap", overflowWrap: "anywhere",
+              } : {
+                fontSize: fontSize.sm, color: neutral.textPrimary,
+                whiteSpace: "pre-wrap", overflowWrap: "anywhere", minWidth: 0,
               }}>
                 {m.text}
               </div>
-              {/* Metadata line — outside the bubble, not part of the
-                  reply's own text (2026-09-02, JuanJo: "not inside the
-                  bubble, just below it... 'date · X tokens were used'"). */}
-              <div style={{
-                fontSize: fontSize.xxs, color: neutral.textFaint, padding: `0 ${spacing.xxs}px`,
-                alignSelf: m.role === "user" ? "flex-end" : "flex-start",
-              }}>
-                {formatMessageTime(m.at)}{m.usageNote ? ` · ${m.usageNote}` : ""}
-              </div>
-              {/* Only the most recent message's choices are actionable —
-                  clicking a stale option from an earlier turn wouldn't
-                  make sense once the conversation's moved on. */}
               {i === 0 && m.choices && m.choices.length > 0 && (
                 <ChoiceButtons
                   options={m.choices} hue={CANVAS_ACCENT.agentWork.hue}
@@ -503,8 +496,7 @@ export function AgentWorkChat({ onClose, onWorkflowCreated }: { onClose: () => v
           <div style={{
             display: "flex", alignItems: "flex-end", gap: spacing.xs,
             padding: spacing.xs, borderRadius: radius.xl,
-            background: neutral.surface, border: "1px solid rgba(255,255,255,0.12)",
-            boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+            background: neutral.surface, border: "1px solid var(--border-default)",
           }}>
             <input
               value={input}
