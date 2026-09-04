@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { PlusIcon, XIcon } from "@primer/octicons-react";
-import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT } from "./tokens";
+import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, status, actionInk } from "./tokens";
 import { createWorkflow, WORKFLOW_CREATED_EVENT, type WorkflowGraph, type WorkflowTrigger } from "./agentWork";
 
 const accent = CANVAS_ACCENT.agentWork.color;
@@ -159,14 +159,14 @@ export function AgentWorkNewWorkflowForm({ onDone }: { onDone: () => void }) {
         )}
       </div>
 
-      {error && <div style={{ fontSize: fontSize.xxs, color: "#e05a4a" }}>{error}</div>}
+      {error && <div style={{ fontSize: fontSize.xxs, color: status.danger.color }}>{error}</div>}
 
       <button
         onClick={save}
         disabled={saving}
         style={{
           alignSelf: "flex-start", padding: `${spacing.xs}px ${spacing.md}px`, borderRadius: radius.sm,
-          border: "none", background: accent, color: "#08110d", cursor: saving ? "default" : "pointer",
+          border: "none", background: accent, color: actionInk, cursor: saving ? "default" : "pointer",
           fontSize: fontSize.xs, fontWeight: fontWeight.medium, fontFamily, opacity: saving ? 0.6 : 1,
         }}
       >

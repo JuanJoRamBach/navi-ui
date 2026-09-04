@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { ChevronDownIcon, ChevronRightIcon, HistoryIcon, TrashIcon, AlertIcon } from "@primer/octicons-react";
-import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT } from "./tokens";
+import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, status, surface } from "./tokens";
 import { deleteAllRuns, deleteRun, getRunSteps, listRuns, WORKFLOW_CREATED_EVENT, type AgentRun, type AgentRunStep } from "./agentWork";
 
 const accent = CANVAS_ACCENT.agentWork.color;
 
 const STATUS_COLOR: Record<string, string> = {
-  completed: "#3ecf8e", running: "#e0b94a", queued: "#e0b94a", failed: "#e05a4a",
+  completed: status.success.color, running: status.warning.color, queued: status.warning.color, failed: status.danger.color,
 };
 
 function formatWhen(epochSeconds: number): string {
@@ -26,7 +26,7 @@ function StepRow({ step }: { step: AgentRunStep }) {
         </div>
       )}
       {step.error && (
-        <div style={{ fontSize: fontSize.xxs, color: "#e05a4a", marginTop: 2 }}>{step.error}</div>
+        <div style={{ fontSize: fontSize.xxs, color: status.danger.color, marginTop: 2 }}>{step.error}</div>
       )}
     </div>
   );
@@ -79,7 +79,7 @@ function RunRow({ run, deleting, onDelete }: { run: AgentRun; deleting: boolean;
           {steps?.length === 0 && <div style={{ padding: `${spacing.xxs}px ${spacing.xl}px`, fontSize: fontSize.xxs, color: neutral.textFaint }}>No steps yet.</div>}
           {steps?.map(s => <StepRow key={s.id} step={s} />)}
           {run.error && (
-            <div style={{ padding: `${spacing.xxs}px ${spacing.sm}px ${spacing.xxs}px ${spacing.xl}px`, fontSize: fontSize.xxs, color: "#e05a4a" }}>
+            <div style={{ padding: `${spacing.xxs}px ${spacing.sm}px ${spacing.xxs}px ${spacing.xl}px`, fontSize: fontSize.xxs, color: status.danger.color }}>
               {run.error}
             </div>
           )}
@@ -111,12 +111,12 @@ function ClearAllConfirmDialog({ count, clearing, error, onCancel, onConfirm }: 
       <div
         onClick={e => e.stopPropagation()}
         style={{
-          width: 300, background: "#161616", border: "1px solid rgba(255,255,255,0.1)",
+          width: 300, background: surface.raised, border: "1px solid rgba(255,255,255,0.1)",
           borderRadius: radius.sm, padding: spacing.md, display: "flex", flexDirection: "column", gap: spacing.sm,
           boxShadow: "0 12px 40px rgba(0,0,0,0.5)",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, color: "#e05a4a" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, color: status.danger.color }}>
           <AlertIcon size={16} />
           <span style={{ fontSize: fontSize.sm, fontWeight: fontWeight.medium }}>Clear all run history?</span>
         </div>
@@ -124,7 +124,7 @@ function ClearAllConfirmDialog({ count, clearing, error, onCancel, onConfirm }: 
           <strong style={{ color: neutral.textPrimary }}>{count}</strong> run{count === 1 ? "" : "s"} and their step logs will be
           permanently deleted. Workflow definitions themselves aren't touched — this can't be undone.
         </div>
-        {error && <div style={{ fontSize: fontSize.xxs, color: "#e05a4a" }}>{error}</div>}
+        {error && <div style={{ fontSize: fontSize.xxs, color: status.danger.color }}>{error}</div>}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: spacing.xs, marginTop: spacing.xxs }}>
           <button
             onClick={onCancel}
@@ -140,8 +140,8 @@ function ClearAllConfirmDialog({ count, clearing, error, onCancel, onConfirm }: 
             onClick={onConfirm}
             disabled={clearing}
             style={{
-              padding: `${spacing.xxs}px ${spacing.sm}px`, borderRadius: radius.xs, border: "1px solid #e05a4a55",
-              background: "#e05a4a22", color: "#e05a4a", cursor: clearing ? "default" : "pointer",
+              padding: `${spacing.xxs}px ${spacing.sm}px`, borderRadius: radius.xs, border: `1px solid ${status.danger.border}`,
+              background: status.danger.bg, color: status.danger.color, cursor: clearing ? "default" : "pointer",
               fontSize: fontSize.xs, fontWeight: fontWeight.medium, fontFamily, opacity: clearing ? 0.6 : 1,
             }}
           >

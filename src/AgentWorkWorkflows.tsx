@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { PlayIcon, PlusIcon, CalendarIcon, CommentDiscussionIcon, TrashIcon, AlertIcon, ChevronDownIcon, ChevronRightIcon, StarIcon, StarFillIcon, EyeIcon } from "@primer/octicons-react";
-import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, tintedGlow } from "./tokens";
+import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, tintedGlow, status, surface } from "./tokens";
 import { WORKFLOW_CREATED_EVENT, deleteWorkflow, listRuns, listWorkflows, runWorkflowNow, starWorkflow, unstarWorkflow, type AgentRun, type WorkflowDefinition } from "./agentWork";
 import { AGENT_VAULT_CHANGED_EVENT, listAgents } from "./agents";
 
@@ -17,7 +17,7 @@ const CARD_BG = "rgba(255,255,255,0.05)";
 const CARD_BORDER = "1px solid rgba(255,255,255,0.08)";
 
 const STATUS_COLOR: Record<string, string> = {
-  completed: "#3ecf8e", running: "#e0b94a", queued: "#e0b94a", failed: "#e05a4a",
+  completed: status.success.color, running: status.warning.color, queued: status.warning.color, failed: status.danger.color,
 };
 
 function formatWhen(epochSeconds: number): string {
@@ -52,12 +52,12 @@ function DeleteConfirmDialog({ name, scheduled, deleting, error, onCancel, onCon
       <div
         onClick={e => e.stopPropagation()}
         style={{
-          width: 300, background: "#161616", border: "1px solid rgba(255,255,255,0.1)",
+          width: 300, background: surface.raised, border: "1px solid rgba(255,255,255,0.1)",
           borderRadius: radius.sm, padding: spacing.md, display: "flex", flexDirection: "column", gap: spacing.sm,
           boxShadow: "0 12px 40px rgba(0,0,0,0.5)",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, color: "#e05a4a" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, color: status.danger.color }}>
           <AlertIcon size={16} />
           <span style={{ fontSize: fontSize.sm, fontWeight: fontWeight.medium }}>Delete this workflow?</span>
         </div>
@@ -66,7 +66,7 @@ function DeleteConfirmDialog({ name, scheduled, deleting, error, onCancel, onCon
           {scheduled && " Its schedule is cancelled immediately — it will not fire again."}
           {" "}Past runs stay in Run History; this can't be undone.
         </div>
-        {error && <div style={{ fontSize: fontSize.xxs, color: "#e05a4a" }}>{error}</div>}
+        {error && <div style={{ fontSize: fontSize.xxs, color: status.danger.color }}>{error}</div>}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: spacing.xs, marginTop: spacing.xxs }}>
           <button
             onClick={onCancel}
@@ -82,8 +82,8 @@ function DeleteConfirmDialog({ name, scheduled, deleting, error, onCancel, onCon
             onClick={onConfirm}
             disabled={deleting}
             style={{
-              padding: `${spacing.xxs}px ${spacing.sm}px`, borderRadius: radius.xs, border: "1px solid #e05a4a55",
-              background: "#e05a4a22", color: "#e05a4a", cursor: deleting ? "default" : "pointer",
+              padding: `${spacing.xxs}px ${spacing.sm}px`, borderRadius: radius.xs, border: `1px solid ${status.danger.border}`,
+              background: status.danger.bg, color: status.danger.color, cursor: deleting ? "default" : "pointer",
               fontSize: fontSize.xs, fontWeight: fontWeight.medium, fontFamily, opacity: deleting ? 0.6 : 1,
             }}
           >
@@ -149,7 +149,7 @@ function WorkflowCard({ wf, lastRun, running, starred, starring, onRun, onDelete
               style={{
                 display: "flex", alignItems: "center", padding: `2px ${spacing.xxs}px`, borderRadius: radius.xs,
                 border: "1px solid rgba(255,255,255,0.1)", background: "transparent",
-                color: starred ? "#e0b94a" : neutral.textFaint, cursor: starring ? "default" : "pointer", opacity: starring ? 0.5 : 1,
+                color: starred ? status.warning.color : neutral.textFaint, cursor: starring ? "default" : "pointer", opacity: starring ? 0.5 : 1,
               }}
             >
               {starred ? <StarFillIcon size={10} /> : <StarIcon size={10} />}
@@ -271,7 +271,7 @@ function CompactWorkflowRow({ wf, starred, starring, active, onToggleStar, onVie
         style={{
           display: "flex", alignItems: "center", padding: 3, borderRadius: radius.xs,
           border: "none", background: "transparent",
-          color: starred ? "#e0b94a" : neutral.textFaint, cursor: starring ? "default" : "pointer",
+          color: starred ? status.warning.color : neutral.textFaint, cursor: starring ? "default" : "pointer",
           opacity: starring ? 0.5 : 1, flexShrink: 0,
         }}
       >
