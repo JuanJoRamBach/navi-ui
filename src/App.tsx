@@ -1997,7 +1997,7 @@ export default function App() {
   );
 
   return (
-    <div style={{ width: "100vw", height: "100vh", display: "flex", flexDirection: "column", background: "#080808" }}>
+    <div style={{ width: "100vw", height: "100vh", display: "flex", flexDirection: "column", background: "var(--surface-canvas)" }}>
       {/* Wraps everything the app already had — the mobile bottom bar
           below is a normal flex sibling to this, not a fixed overlay,
           so flexbox reserves its height automatically (this wrapper
@@ -2022,7 +2022,7 @@ export default function App() {
           // written literally here (this div renders before that const
           // is declared in the component body; safe either way since
           // it's a fixed value, but kept explicit for clarity).
-          background: "#020202",
+          background: "var(--surface-root)",
           borderRight: "1px solid rgba(255,255,255,0.08)",
           width: outerRailWidth,
         }}>
@@ -3531,7 +3531,7 @@ export default function App() {
       {activeCanvas === "agentWork" && (
         <div style={{
           position: "absolute", inset: 0, left: "var(--outer-rail-width, 0px)",
-          zIndex: 20, background: "#080808",
+          zIndex: 20, background: "var(--surface-canvas)",
         }}>
           {/* The graph editor IS Agent Work's canvas now, not a landing
               screen with buttons leading to it (2026-09-02, JuanJo:
@@ -3636,7 +3636,7 @@ export default function App() {
       {activeCanvas === "devSlate" && (
         <div style={{
           position: "absolute", inset: 0, left: "var(--outer-rail-width, 0px)",
-          zIndex: 20, background: "#080808",
+          zIndex: 20, background: "var(--surface-canvas)",
         }}>
           <DevSlateDockview />
         </div>
