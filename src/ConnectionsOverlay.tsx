@@ -9,36 +9,62 @@ import {
   type MCPConnection, type MCPMarketplaceResult,
 } from "./mcpConnections";
 
-// A connect target — always a live MCP Registry result now (2026-09-04:
-// the old hand-maintained SERVICE_CATALOG is gone, "Core" below is just
-// a curated set of registry searches). credentialsUrl, when present, is
-// the result's own repository link — there's no per-service "get a
-// token from X's settings page" link anymore since nothing here is
-// hand-verified against a real first-party server; the user reviews the
-// result the same way for Core as for a general Browse search.
+// A connect target — either one of the hand-verified CORE_SERVICES below,
+// or a live MCP Registry search result. credentialsUrl, when present, is
+// where to get a token from — the service's own settings page for a Core
+// entry, the result's repository link for a Browse result.
 interface ConnectTarget { id: string; label: string; credentialsUrl?: string }
 
 // The full-screen "over all the UI" overlay JuanJo asked for — Profile
 // button's Connections option, not another corner popover (2026-09-03).
 //
-// Core (2026-09-04 redesign): these five terms are searched against the
-// live MCP Registry the same way a manual Browse search is — NOT a
-// hand-verified list of official server URLs the way the old
-// SERVICE_CATALOG was. That's a real, deliberate trade: convenience
-// (these five show up pre-searched instead of the user typing them)
-// over certainty (there's no guarantee the top hit for "slack" is
-// Slack's own official server rather than a third-party community one —
-// same trust level as any other registry result, just curated by
-// keyword). The user still reviews title/description/repo link in
-// ConnectForm before connecting, same step as any Browse result.
-const CORE_ICON: Record<string, typeof MarkGithubIcon> = {
-  github: MarkGithubIcon,
-  "google workspace": MailIcon,
-  jira: ChecklistIcon,
-  slack: CommentDiscussionIcon,
-  notion: NoteIcon,
-};
-const CORE_TERMS = Object.keys(CORE_ICON);
+// Core is deliberately back to a small hand-verified list (2026-09-04,
+// reverted same day after trying registry-search-based Core and testing
+// it live): a real query against the MCP Registry for "github" surfaced
+// a third-party Smithery-hosted wrapper as the top hit, not GitHub's own
+// server — confirmed by hand, not guessed. Keyword search is fine for
+// open-ended Browse below, where the user is explicitly told to review
+// before connecting, but it's the wrong mechanism for a "quick, trusted
+// connect" section. Only GitHub has a real, documented, first-party
+// hosted MCP endpoint NAVI can pre-fill with confidence
+// (api.githubcopilot.com); the other four have no single verified
+// official server, so they show with no pre-filled URL — the user pastes
+// their own once they've found the real one, same honest gap the
+// original SERVICE_CATALOG design already had.
+//
+// Also real: the MCP Registry's own schema has no icon/logo field at all
+// (checked against a live response) — a Browse result can only ever get
+// a generic monogram, never a real brand icon. Core's icons are real
+// because these five are hardcoded, not because the registry provided
+// them.
+const CORE_SERVICES: { id: string; label: string; icon: typeof MarkGithubIcon; credentialsUrl: string; defaultUrl?: string; description: string }[] = [
+  {
+    id: "github", label: "GitHub", icon: MarkGithubIcon,
+    credentialsUrl: "https://github.com/settings/tokens",
+    defaultUrl: "https://api.githubcopilot.com/mcp/",
+    description: "GitHub's own official hosted MCP server — URL pre-filled, just add a token.",
+  },
+  {
+    id: "google-workspace", label: "Google Workspace", icon: MailIcon,
+    credentialsUrl: "https://myaccount.google.com/permissions",
+    description: "No single official MCP server yet — paste your own once you have one.",
+  },
+  {
+    id: "jira", label: "Jira", icon: ChecklistIcon,
+    credentialsUrl: "https://id.atlassian.com/manage-profile/security/api-tokens",
+    description: "No single official MCP server yet — paste your own once you have one.",
+  },
+  {
+    id: "slack", label: "Slack", icon: CommentDiscussionIcon,
+    credentialsUrl: "https://api.slack.com/apps",
+    description: "No single official MCP server yet — paste your own once you have one.",
+  },
+  {
+    id: "notion", label: "Notion", icon: NoteIcon,
+    credentialsUrl: "https://www.notion.so/my-integrations",
+    description: "No single official MCP server yet — paste your own once you have one.",
+  },
+];
 
 const CARD_BG = "rgba(255,255,255,0.05)";
 const CARD_BORDER = "1px solid rgba(255,255,255,0.08)";
@@ -47,12 +73,18 @@ function monogram(title: string): string {
   return (title.trim()[0] || "?").toUpperCase();
 }
 
-function ConnectForm({ serviceLabel, credentialsUrl, initial, onCancel, onSubmit, submitting, error }: {
-  serviceLabel: string; credentialsUrl?: string; submitting: boolean; error: string | null;
-  // Pre-fills the form from a marketplace result's real transport info —
-  // the user still reviews/edits before submitting, never a silent
-  // one-click connect. Marketplace results are already filtered to
-  // http-only server-side, so `initial` never carries stdio.
+function ConnectForm({ serviceLabel, credentialsUrl, credentialsLabel = "repository", initial, onCancel, onSubmit, submitting, error }: {
+  serviceLabel: string; credentialsUrl?: string;
+  // "repository" for a Browse/marketplace result's repo link, "credentials
+  // page" for a Core service's real settings-page link — those are two
+  // different kinds of URL and the copy below needs to say which one.
+  credentialsLabel?: string;
+  submitting: boolean; error: string | null;
+  // Pre-fills the form from a marketplace result's real transport info, or
+  // a Core service's known-good URL (GitHub only) — the user still
+  // reviews/edits before submitting, never a silent one-click connect.
+  // Marketplace results are already filtered to http-only server-side, so
+  // `initial` never carries stdio.
   initial?: { url?: string };
   onCancel: () => void;
   onSubmit: (config: { url: string; authHeader: string }) => void;
@@ -70,14 +102,16 @@ function ConnectForm({ serviceLabel, credentialsUrl, initial, onCancel, onSubmit
   return (
     <div style={{ gridColumn: "1 / -1", padding: spacing.md, display: "flex", flexDirection: "column", gap: spacing.sm }}>
       <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted, lineHeight: 1.5 }}>
-        Pulled from the MCP Registry — review before connecting{credentialsUrl ? (
+        {initial?.url
+          ? "Real, pre-filled server URL — review before connecting."
+          : `Point NAVI at ${serviceLabel}'s hosted MCP server URL.`}{credentialsUrl ? (
           <>
-            , or check {serviceLabel}'s repository first:{" "}
+            {" "}Get a token from{" "}
             <a href={credentialsUrl} target="_blank" rel="noreferrer" style={{ color: neutral.textPrimary }}>
-              Open repository <LinkIcon size={10} />
-            </a>
+              {serviceLabel}'s {credentialsLabel} <LinkIcon size={10} />
+            </a>.
           </>
-        ) : "."}{" "}Add an access token below if the server needs one.
+        ) : null}
       </div>
 
       <div>
@@ -118,10 +152,11 @@ function ConnectForm({ serviceLabel, credentialsUrl, initial, onCancel, onSubmit
   );
 }
 
-// One registry result, either from a Core curated search or a general
-// Browse search — same card either way (2026-09-04 redesign): icon left,
-// title + Connect/Disconnect on one line to its right, description
-// below, then a Hosted/requirements line. Two per row via the grid
+// One connection card, Core or Browse alike — icon left; title, then
+// description, then a bottom row with Hosted/requirements on the left
+// and the Connect/Disconnect button on the right (2026-09-04: moved down
+// here from beside the title per live feedback — "the connection should
+// be at the bottom right, not top right"). Two per row via the grid
 // container in ConnectionsOverlay below; spanFull lets an open
 // ConnectForm take the full width instead of being squeezed into one
 // half-width column.
@@ -156,8 +191,14 @@ function RegistryCard({ icon, title, description, hostedLabel, requiresAuth, con
         {icon}
       </div>
       <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 3 }}>
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: spacing.xs }}>
-          <div style={{ fontSize: fontSize.xs, fontWeight: fontWeight.medium, color: neutral.textPrimary, minWidth: 0 }}>{title}</div>
+        <div style={{ fontSize: fontSize.xs, fontWeight: fontWeight.medium, color: neutral.textPrimary, minWidth: 0 }}>{title}</div>
+        {description && <div style={{ fontSize: fontSize.xxs, color: neutral.textFaint, lineHeight: 1.4 }}>{description}</div>}
+        <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: spacing.xs, marginTop: 2 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: fontSize.xxs, color: connected ? "#3ecf8e" : neutral.textFaint, minWidth: 0 }}>
+            {connected && <CheckCircleFillIcon size={10} />}
+            <span>{connected ? `Connected · ${connection?.tools.length ?? 0} tool${connection?.tools.length === 1 ? "" : "s"}` : hostedLabel}</span>
+            {requiresAuth && !connected && <span style={{ color: accent }}>· needs a token</span>}
+          </div>
           {connected ? (
             <button onClick={onDisconnect} style={{ ...smallButtonStyle, border: "1px solid rgba(255,255,255,0.12)", background: "transparent", color: neutral.textFaint }}>
               Disconnect
@@ -167,12 +208,6 @@ function RegistryCard({ icon, title, description, hostedLabel, requiresAuth, con
               <PlusIcon size={10} /> Connect
             </button>
           )}
-        </div>
-        {description && <div style={{ fontSize: fontSize.xxs, color: neutral.textFaint, lineHeight: 1.4 }}>{description}</div>}
-        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: fontSize.xxs, color: connected ? "#3ecf8e" : neutral.textFaint }}>
-          {connected && <CheckCircleFillIcon size={10} />}
-          <span>{connected ? `Connected · ${connection?.tools.length ?? 0} tool${connection?.tools.length === 1 ? "" : "s"}` : hostedLabel}</span>
-          {requiresAuth && !connected && <span style={{ color: accent }}>· needs a token</span>}
         </div>
       </div>
     </div>
@@ -191,21 +226,8 @@ export function ConnectionsOverlay({ onClose }: { onClose: () => void }) {
   const [marketplaceResults, setMarketplaceResults] = useState<MCPMarketplaceResult[] | null>(null);
   const [marketplaceSearching, setMarketplaceSearching] = useState(false);
 
-  // Core (2026-09-04) — five fixed registry searches run once on open,
-  // independent of the Browse box above. See CORE_ICON's own comment for
-  // why this is "curated search," not a verified-official list.
-  const [coreResults, setCoreResults] = useState<Record<string, MCPMarketplaceResult | null>>({});
-
   const refresh = () => { listMCPConnections().then(setConnections).catch(() => setConnections([])); };
   useEffect(refresh, []);
-
-  useEffect(() => {
-    CORE_TERMS.forEach(term => {
-      searchMCPMarketplace(term)
-        .then(results => setCoreResults(prev => ({ ...prev, [term]: results[0] ?? null })))
-        .catch(() => setCoreResults(prev => ({ ...prev, [term]: null })));
-    });
-  }, []);
 
   const runMarketplaceSearch = async (query: string) => {
     setMarketplaceSearching(true);
@@ -263,6 +285,32 @@ export function ConnectionsOverlay({ onClose }: { onClose: () => void }) {
   const handleDisconnect = async (id: string) => {
     await deleteMCPConnection(id);
     refresh();
+  };
+
+  const renderCoreService = (service: typeof CORE_SERVICES[number]) => {
+    const target: ConnectTarget = { id: service.id, label: service.label, credentialsUrl: service.credentialsUrl };
+    const isOpen = openFormFor === service.id;
+    const Icon = service.icon;
+    return (
+      <Fragment key={service.id}>
+        <RegistryCard
+          icon={<Icon size={16} />} title={service.label} description={service.description}
+          hostedLabel={service.defaultUrl ? "Hosted" : "No URL yet"} requiresAuth
+          connection={byName.get(service.id)} spanFull={isOpen}
+          onOpenForm={() => { setOpenFormFor(service.id); setFormError(null); }}
+          onDisconnect={() => handleDisconnect(service.id)}
+        />
+        {isOpen && (
+          <ConnectForm
+            serviceLabel={service.label} credentialsUrl={service.credentialsUrl} credentialsLabel="credentials page"
+            initial={service.defaultUrl ? { url: service.defaultUrl } : undefined}
+            submitting={submitting} error={formError}
+            onCancel={() => setOpenFormFor(null)}
+            onSubmit={form => handleConnect(target, form)}
+          />
+        )}
+      </Fragment>
+    );
   };
 
   const renderResult = (result: MCPMarketplaceResult, icon: React.ReactNode) => {
@@ -337,19 +385,7 @@ export function ConnectionsOverlay({ onClose }: { onClose: () => void }) {
                   CORE
                 </div>
                 <div style={gridStyle}>
-                  {CORE_TERMS.map(term => {
-                    const result = coreResults[term];
-                    if (result === undefined) {
-                      return (
-                        <div key={term} style={{ background: CARD_BG, border: CARD_BORDER, borderRadius: radius.sm, padding: spacing.sm, fontSize: fontSize.xxs, color: neutral.textFaint }}>
-                          Looking for {term}…
-                        </div>
-                      );
-                    }
-                    if (result === null) return null; // no registry match for this term — just omitted, not an error
-                    const Icon = CORE_ICON[term];
-                    return renderResult(result, <Icon size={16} />);
-                  })}
+                  {CORE_SERVICES.map(renderCoreService)}
                 </div>
               </div>
 
