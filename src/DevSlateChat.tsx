@@ -499,8 +499,7 @@ export function DevSlateChat() {
           <div style={{
             display: "flex", alignItems: "flex-end", gap: spacing.xs,
             padding: spacing.xs, borderRadius: radius.xl,
-            background: neutral.surface, border: "1px solid rgba(255,255,255,0.12)",
-            boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+            background: neutral.surface, border: "1px solid var(--border-default)",
           }}>
             {folderName && (
               <AttachFilePicker

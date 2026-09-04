@@ -324,8 +324,17 @@ function StreamingMessageText({ text, animate }: { text: string; animate: boolea
   return <>{renderMessageBody(text.slice(0, revealed))}</>;
 }
 
+// The animated Chat canvas needs the theme's surface color as its clear
+// fill, but canvas fillStyle can't read a CSS variable — resolve it once
+// and refresh on theme change (see canvasBaseRef in App).
+function resolveCanvasBase(): string {
+  if (typeof document === "undefined") return "#0e1119";
+  return getComputedStyle(document.documentElement).getPropertyValue("--surface-canvas").trim() || "#0e1119";
+}
+
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasBaseRef = useRef(resolveCanvasBase());
   const modeRef = useRef<Mode>("ambient");
   // Separate from modeRef ("ambient"/"vortex", which Normal and Research
   // both share) — fairies are a Research-only layer on top of the shared
@@ -339,6 +348,7 @@ export default function App() {
   const [colorTheme, setColorTheme] = useState<"night" | "light">(() =>
     document.documentElement.getAttribute("data-theme") === "light" ? "light" : "night"
   );
+  useEffect(() => { canvasBaseRef.current = resolveCanvasBase(); }, [colorTheme]);
   const themeRef = useRef(MODE_THEME.normal);
   const particlesRef = useRef<Particle[]>([]);
   const orbsRef = useRef<Orb[]>([]);
@@ -482,7 +492,7 @@ export default function App() {
       const ft = fairyTickRef.current;
 
       // Fully opaque clear — no trailing/ghosting from previous frames.
-      ctx.fillStyle = "#080808";
+      ctx.fillStyle = canvasBaseRef.current;
       ctx.fillRect(0, 0, w, h);
 
       /* Light effects (orbs, swirl, drifting particles, Research-mode

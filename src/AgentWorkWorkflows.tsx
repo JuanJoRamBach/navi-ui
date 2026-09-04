@@ -13,8 +13,8 @@ const accent = CANVAS_ACCENT.agentWork.color;
 // and source rows already use). Workflow cards previously had no
 // background at all, reading as placeholder rows rather than real,
 // separated features (2026-09-02, JuanJo).
-const CARD_BG = "rgba(255,255,255,0.05)";
-const CARD_BORDER = "1px solid rgba(255,255,255,0.08)";
+const CARD_BG = "var(--surface-panel)";
+const CARD_BORDER = "1px solid var(--border-default)";
 
 const STATUS_COLOR: Record<string, string> = {
   completed: status.success.color, running: status.warning.color, queued: status.warning.color, failed: status.danger.color,

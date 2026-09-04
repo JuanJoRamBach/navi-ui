@@ -67,8 +67,8 @@ const CORE_SERVICES: { id: string; label: string; icon: typeof MarkGithubIcon; c
   },
 ];
 
-const CARD_BG = "rgba(255,255,255,0.05)";
-const CARD_BORDER = "1px solid rgba(255,255,255,0.08)";
+const CARD_BG = "var(--surface-panel)";
+const CARD_BORDER = "1px solid var(--border-default)";
 
 function monogram(title: string): string {
   return (title.trim()[0] || "?").toUpperCase();
