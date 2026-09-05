@@ -36,4 +36,20 @@
   --dv-color-abyss-accent: var(--accent-devslate);
   --dv-color-abyss-primary-text: #16181f;
   --dv-color-abyss-secondary-text: #454a58;
+  /* The abyss theme's actual tab TEXT color (as opposed to tab
+     background) comes from these 4 variables, not from
+     --dv-color-abyss-primary/secondary-text above — dockview's own
+     dockview.css hardcodes them straight to white/white-at-alpha
+     (see node_modules/dockview/dist/styles/dockview.css's
+     .dockview-theme-abyss block), completely independent of every
+     other abyss-color variable. Missing this is exactly why tab
+     titles/topbar text stayed near-invisible (white-on-near-white) in
+     light theme (2026-09-05) even though every other abyss-color
+     token was already correctly overridden. Same relative-opacity
+     ramp dockview's own dark theme uses (1 / .5 / .5 / .25), just
+     built on the light theme's ink color instead of white. */
+  --dv-activegroup-visiblepanel-tab-color: #16181f;
+  --dv-activegroup-hiddenpanel-tab-color: rgba(22, 24, 31, 0.6);
+  --dv-inactivegroup-visiblepanel-tab-color: rgba(22, 24, 31, 0.6);
+  --dv-inactivegroup-hiddenpanel-tab-color: rgba(22, 24, 31, 0.35);
 }

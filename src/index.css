@@ -12,6 +12,17 @@
   --accent: #5d8bff;
   --surface-root: #0a0c14;
   --surface-canvas: #0e1119;
+  /* Same color as surface-canvas, mostly opaque — .chat-column's own
+     background (2026-09-05), so the ambient fairies underneath read as
+     muted while passing "under" the chat rather than fully hidden or
+     fully bright. Simpler than computing a per-pixel mute factor in the
+     canvas draw loop (tried first, worked, but this gets the same
+     visual result for free via plain CSS compositing). Bumped from an
+     initial 0.8 to 0.92 (JuanJo, same day: "make the chatbox background
+     less see through") — fairies now wander under the chat with normal
+     movement too, not just a forced straight line through, so this
+     needed to hide them more convincingly at rest, not just in transit. */
+  --surface-canvas-muted: rgba(14, 17, 25, 0.92);
   --surface-panel: #151a26;
   --surface-raised: #1c2231;
   --surface-field: #10141f;
@@ -46,6 +57,7 @@
   --accent: #3356c8;
   --surface-root: #e9ecf3;
   --surface-canvas: #f7f8fb;
+  --surface-canvas-muted: rgba(247, 248, 251, 0.92);
   --surface-panel: #f0f2f8;
   --surface-raised: #ffffff;
   --surface-field: #e8ebf2;
@@ -162,6 +174,24 @@ body {
   display: flex;
   flex-direction: column;
   padding: 100px 20px 16px; /* 20/16 mirror tokens.spacing.xl/lg; 100 is a derived clearance value, not a scale step */
+  /* Mostly-opaque, same color as the canvas underneath — mutes the
+     ambient fairies as they pass "under" the chat without a per-pixel JS
+     mute calculation (2026-09-05). Flat fill, not a gradient — a
+     background-image gradient is clipped to the element's OWN box, so
+     fading it "out" there fades the chat's OWN inner edge (real bug,
+     caught live same day: "the blur starts inside the chat, not
+     outside" — the fade was eating into the chat's own content width
+     instead of bleeding into the canvas around it). box-shadow is the
+     right tool for a soft edge that extends PAST an element's box
+     rather than clipped inside it — blur+spread here bleeds the same
+     muted color outward into the surrounding canvas, fading via the
+     shadow's own blur rather than `filter: blur` (which would blur the
+     chat's own text/bubbles too). Vertical bleed is harmless: the
+     column sits flush against the real viewport top/bottom (`inset: 0`
+     above), so there's no visible space above/below for it to spill
+     into anyway. */
+  background: var(--surface-canvas-muted);
+  box-shadow: 0 0 56px 24px var(--surface-canvas-muted);
 }
 
 /* 1024px (not the old 860px) is where the column stops stretching
@@ -278,8 +308,21 @@ body {
        knowns, three unknowns (right, margin-left, margin-right) with no
        possible contradiction between them is the actually well-defined
        case, not something any two engines could legitimately disagree
-       on. */
-    left: max(calc((100% - 1000px) / 2), calc(var(--outer-rail-width) + var(--left-panel-width) + 24px));
+       on.
+
+       Real bug #2, found live (2026-09-05): `left`'s natural-centering
+       term used (100% - 1000px)/2 — centering math for a 1000px-wide
+       box — while `width` right below caps the box at 850px. Those two
+       numbers used to match (this rule's own history: 850px "now lives
+       as part of the width formula below instead" of a 1000px value
+       shared with .centered-col), but only the width side got updated
+       when the cap changed to 850, not the left side's centering term.
+       Result: at natural-centering viewports the box rendered with a
+       220px left margin against a 370px right margin (1440px viewport)
+       — visibly left-of-center, not the ~150px discrepancy a rounding
+       error would produce. `left`'s centering term must center for the
+       SAME width the box actually renders at. */
+    left: max(calc((100% - 850px) / 2), calc(var(--outer-rail-width) + var(--left-panel-width) + 24px));
     width: min(850px, calc(100% - var(--outer-rail-width) - var(--left-panel-width) - 48px));
     right: auto;
     margin: 0;

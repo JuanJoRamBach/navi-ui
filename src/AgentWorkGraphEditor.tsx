@@ -49,6 +49,33 @@ let groupCounter = 0;
 // see IDEAS.md.
 type AgentWorkAnyNode = Node<AgentWorkNodeData> | Node<AgentWorkGroupData>;
 
+// React Flow's own `colorMode` prop toggles a real `.dark` class that
+// hardcodes an opaque background (#141414 — see @xyflow/react/dist/
+// style.css's `.react-flow.dark` block), completely overriding the
+// library's own default transparent pane background regardless of
+// NAVI's theme. Was previously hardcoded to "dark" literally, which is
+// exactly why the canvas stayed black in light theme (2026-09-05) even
+// though the wrapping div around it was already correctly tokenized
+// (`var(--surface-canvas)`) — the pane's own opaque background just
+// sat on top of that div, blocking it entirely. No theme prop is
+// threaded down from App.tsx for this canvas, so this watches the same
+// `data-theme` attribute the rest of the app's CSS reacts to directly,
+// rather than adding a new prop-drilled dependency for one component.
+function useColorMode(): "light" | "dark" {
+  const [mode, setMode] = useState<"light" | "dark">(
+    () => (document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark"),
+  );
+  useEffect(() => {
+    const target = document.documentElement;
+    const observer = new MutationObserver(() => {
+      setMode(target.getAttribute("data-theme") === "light" ? "light" : "dark");
+    });
+    observer.observe(target, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => observer.disconnect();
+  }, []);
+  return mode;
+}
+
 function isExecNode(n: AgentWorkAnyNode): n is Node<AgentWorkNodeData> {
   return n.type !== "group";
 }
@@ -553,6 +580,7 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
   } | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition, getIntersectingNodes } = useReactFlow();
+  const colorMode = useColorMode();
 
   // Consumes an Agent Vault seed exactly once, only into a genuinely
   // empty canvas — never overwrites a graph already being built. The
@@ -1023,7 +1051,7 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
             snapToGrid snapGrid={[GRID_SIZE, GRID_SIZE]}
             defaultEdgeOptions={{ style: { stroke: EDGE_COLOR, strokeWidth: EDGE_WIDTH } }}
             fitView
-            colorMode="dark"
+            colorMode={colorMode}
             // zoom=1 is the standard 100%/actual-size convention (same
             // as a plain CSS transform: scale(1)) — every zoomable
             // canvas tool uses this. minZoom caps how far out the

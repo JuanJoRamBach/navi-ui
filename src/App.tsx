@@ -42,9 +42,9 @@ import {
   // SearchIcon, SyncIcon
 } from "@primer/octicons-react";
 import {
-  type Mode, type ChatMode, MODE_THEME, CANVAS_ACCENT, OKLCH_HUE,
+  type ChatMode, MODE_THEME, CANVAS_ACCENT, OKLCH_HUE,
   spacing, radius, fontSize, fontWeight, lineHeight, iconSize, controlSize,
-  fontFamily, neutral, layout, tintedGlow,
+  fontFamily, neutral, layout, tintedGlow, isDayTheme,
   status, surface, border, actionInk,
 } from "./tokens";
 import {
@@ -177,54 +177,179 @@ const COMMANDS: { name: string; description: string; available: boolean }[] = [
   { name: "/note", description: "Lightly captures a passing thought or tangent — no structure forced.", available: true },
 ];
 
-interface Particle {
-  x: number; y: number;
-  vx: number; vy: number;
-  radius: number;
-  alpha: number;
-  hue: number;
-  life: number;
-  maxLife: number;
-}
-
-interface Orb {
-  x: number; y: number;
-  radius: number;
-  alpha: number;
-  hue: number;
-  dx: number; dy: number;
-}
-
-// Edge swirl node — a point that travels along the screen perimeter
-interface SwirlNode {
-  t: number;       // 0–1 normalized perimeter position
-  speed: number;
-  hue: number;
-  alpha: number;
-  size: number;
-}
-
-// Research-mode fairy — idle/breathing only. Lives entirely in
-// normalized 0–1 coordinates (band position + vertical fraction) rather
-// than absolute pixels, same fix as the orb-teleport-on-resize bug:
-// position is recomputed from current w/h every frame, so resizing
-// never snaps them anywhere. Confined to a left/right margin band —
-// they don't roam the center over the chat, unlike the ambient
-// orbs/dust. An "investigate on send/reply" mechanic (converge on the
-// message, float, drift to a new spot) was tried across several
-// iterations and dropped — too fast, and inherently distracting from
-// the chat itself.
+// Chat Canvas's ambient fairy — a single head position plus a short
+// trail of recent positions (for the tapering body), moving in real
+// pixel coordinates but snapped to a fixed grid on every step. Same
+// grid-walking shape as a classic Snake game: it only ever turns at a
+// grid line, never drifts off-axis.
 interface Fairy {
-  side: "left" | "right";
-  bandT: number;   // 0–1 across the margin band's width
-  bandDx: number;  // signed drift speed, reverses at the band edges
-  yT: number;      // 0–1 down the screen height
-  yDx: number;
-  radius: number;
-  alphaBase: number;
-  hueJitter: number;
-  bobPhase: number;
-  flickerSeed: number;
+  x: number; y: number;
+  dir: 0 | 1 | 2 | 3; // 0=right, 1=down, 2=left, 3=up
+  path: { x: number; y: number }[];
+}
+
+const FAIRY_GRID = 24; // matches Agent Work/Dev Slate's own node-canvas grid cell size
+const FAIRY_HEAD_SIZE = 16;
+const FAIRY_TRAIL_COUNT = 3;
+const FAIRY_SPEED = FAIRY_GRID * 3; // logical px/sec
+const FAIRY_MARGIN = FAIRY_GRID * 2; // keep-off distance from the screen edge
+// Favors continuing straight over turning at every junction — reads as
+// purposeful wandering rather than a twitchy random walk (same instinct
+// DeepSeek's own prototype used, matched here rather than reinvented).
+const FAIRY_STRAIGHT_BIAS = 0.65;
+const FAIRY_DIRS: [number, number][] = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+
+// Whether a fairy could occupy (x, y) — just the canvas margin now.
+// Physical collision against the chat box/sidebar was dropped 2026-09-05
+// (JuanJo, after watching it live: "fixing that seems rather hard, so we
+// change the rules... IF it's under the zone of the chat, we mute it")
+// — two real bugs (freezing when spawned inside the box, sailing off
+// past the top of the screen when the sidebar closed mid-step) both came
+// from forcing the fairy to steer around a box that can move under it
+// between frames. Muting opacity when overlapping (see fairyMuteAlpha
+// below) gets the same "stays out of the way of the actual content"
+// result without any of that fragility — the fairy always has a full,
+// simple, unconditional path, and never has to react to a moving wall.
+function fairyCellOk(x: number, y: number, w: number, h: number): boolean {
+  return x > FAIRY_MARGIN && x < w - FAIRY_MARGIN && y > FAIRY_MARGIN && y < h - FAIRY_MARGIN;
+}
+
+function advanceFairy(f: Fairy, dtSec: number, w: number, h: number): void {
+  // Direction is decided AT MOST once per call, outside the movement
+  // loop below — real bug, found live 2026-09-05: deciding it inside the
+  // while-loop, re-evaluated on every sub-pixel step, meant a fairy
+  // boxed in on all open directions would flip direction every single
+  // micro-step and net displacement stayed ~0 forever (looked frozen).
+  //
+  // No special-casing for "under the chat" anymore (2026-09-05) — that
+  // used to force a straight line through (plus a forced turn-to-
+  // horizontal fix once a real vertical-loop bug showed up), but muting
+  // is now handled entirely by .chat-column's own CSS background
+  // (--surface-canvas-muted). Since a fairy passing under the chat
+  // already just reads as faded rather than needing to avoid it, there's
+  // no reason left to treat that area any differently from anywhere
+  // else on the canvas — normal wandering, unconditionally.
+  const nearGridX = Math.abs(f.x - Math.round(f.x / FAIRY_GRID) * FAIRY_GRID) < 0.6;
+  const nearGridY = Math.abs(f.y - Math.round(f.y / FAIRY_GRID) * FAIRY_GRID) < 0.6;
+  if (nearGridX && nearGridY) {
+    const [dx, dy] = FAIRY_DIRS[f.dir];
+    const straightOk = fairyCellOk(f.x + dx * FAIRY_GRID, f.y + dy * FAIRY_GRID, w, h);
+    const left = (((f.dir - 1) % 4) + 4) % 4;
+    const right = (f.dir + 1) % 4;
+    const leftOk = fairyCellOk(f.x + FAIRY_DIRS[left][0] * FAIRY_GRID, f.y + FAIRY_DIRS[left][1] * FAIRY_GRID, w, h);
+    const rightOk = fairyCellOk(f.x + FAIRY_DIRS[right][0] * FAIRY_GRID, f.y + FAIRY_DIRS[right][1] * FAIRY_GRID, w, h);
+    if (!(straightOk && Math.random() < FAIRY_STRAIGHT_BIAS)) {
+      const picks: number[] = [];
+      if (straightOk) picks.push(f.dir);
+      if (leftOk) picks.push(left);
+      if (rightOk) picks.push(right);
+      // Boxed in on all three (only possible right at a screen corner) —
+      // reverse rather than getting stuck.
+      f.dir = (picks.length ? picks[(Math.random() * picks.length) | 0] : (f.dir + 2) % 4) as 0 | 1 | 2 | 3;
+    }
+  }
+
+  let remaining = dtSec * FAIRY_SPEED;
+  const [vx, vy] = FAIRY_DIRS[f.dir];
+  let guard = 0;
+  while (remaining > 0.001 && guard++ < 200) {
+    // The target grid line is always the NEXT one strictly ahead in the
+    // direction of travel — never "whichever multiple of FAIRY_GRID is
+    // closest," which is what an epsilon-nudged ceil/floor degenerates
+    // to when the fairy is already exactly grid-aligned (real bug, found
+    // live 2026-09-05 twice over: first as direction oscillating with
+    // zero net movement, then — after fixing that — as this exact
+    // formula handing back the fairy's OWN current position as its "next
+    // grid line," so the snap-to-line branch below kept reassigning
+    // f.x = f.x forever and never consumed the frame's movement budget
+    // at all). Floor+1 / ceil-1 always lands one full cell ahead,
+    // whether or not the start point happens to already be on a line.
+    const gx = vx === 0 ? f.x : (vx > 0 ? (Math.floor(f.x / FAIRY_GRID) + 1) * FAIRY_GRID : (Math.ceil(f.x / FAIRY_GRID) - 1) * FAIRY_GRID);
+    const gy = vy === 0 ? f.y : (vy > 0 ? (Math.floor(f.y / FAIRY_GRID) + 1) * FAIRY_GRID : (Math.ceil(f.y / FAIRY_GRID) - 1) * FAIRY_GRID);
+    const dToGrid = Math.hypot(gx - f.x, gy - f.y);
+    const step = Math.min(remaining, dToGrid);
+    f.x += vx * step; f.y += vy * step;
+    f.path.push({ x: f.x, y: f.y });
+    remaining -= step;
+  }
+
+  // Diagonal-mirror wrap at the true screen edge (JuanJo, 2026-09-05):
+  // going off one edge reappears on the OPPOSITE side, mirrored through
+  // the center — off the top lands at the bottom on the opposite
+  // horizontal side too, not directly below. A point reflection through
+  // (w/2, h/2), not a plain edge-to-edge torus wrap. The path resets on
+  // teleport — carrying the old trail across the jump would draw one
+  // long streak clear across the canvas.
+  if (f.x < 0 || f.x > w || f.y < 0 || f.y > h) {
+    f.x = w - f.x;
+    f.y = h - f.y;
+    f.path = [{ x: f.x, y: f.y }];
+  }
+  const maxPathLen = FAIRY_GRID * 40;
+  if (f.path.length > maxPathLen) f.path.splice(0, f.path.length - maxPathLen);
+}
+
+function fairyPointBehind(path: { x: number; y: number }[], dist: number): { x: number; y: number } {
+  let acc = 0;
+  for (let i = path.length - 1; i > 0; i--) {
+    const dx = path[i].x - path[i - 1].x;
+    const dy = path[i].y - path[i - 1].y;
+    const d = Math.hypot(dx, dy) || 0.001;
+    if (acc + d >= dist) {
+      const t = (dist - acc) / d;
+      return { x: path[i].x - dx * t, y: path[i].y - dy * t };
+    }
+    acc += d;
+  }
+  return path[0];
+}
+
+// A real rounded-square "pixel," not a circle — same shape DeepSeek's own
+// prototype used (roundedSquare in snake-fairy.html), matched here since
+// JuanJo's spec was explicitly "a 16x16 square with pointed rounds,"
+// not a dot.
+function roundedSquarePath(ctx: CanvasRenderingContext2D, x: number, y: number, size: number): void {
+  const r = size * 0.34;
+  const half = size / 2;
+  ctx.beginPath();
+  ctx.moveTo(x - half + r, y - half);
+  ctx.lineTo(x + half - r, y - half);
+  ctx.arcTo(x + half, y - half, x + half, y + half, r);
+  ctx.arcTo(x + half, y + half, x - half, y + half, r);
+  ctx.arcTo(x - half, y + half, x - half, y - half, r);
+  ctx.arcTo(x - half, y - half, x + half, y - half, r);
+  ctx.closePath();
+}
+
+// Muting a fairy under the chat is handled purely by .chat-column's own
+// 80%-opaque background (index.css's --surface-canvas-muted, 2026-09-05)
+// sitting on top of this canvas — no per-pixel JS mute math needed here
+// at all; simpler, and gets the same visual result for free via plain
+// CSS compositing.
+function drawFairy(ctx: CanvasRenderingContext2D, f: Fairy, hue: number, isDay: boolean): void {
+  const lit = isDay ? 42 : 78;
+  for (let i = FAIRY_TRAIL_COUNT; i >= 1; i--) {
+    const p = fairyPointBehind(f.path, i * FAIRY_GRID * 0.6);
+    const size = FAIRY_HEAD_SIZE * Math.pow(0.78, i);
+    const alpha = Math.pow(0.52, i);
+    roundedSquarePath(ctx, p.x, p.y, size);
+    ctx.fillStyle = `oklch(${lit}% 0.14 ${hue} / ${alpha})`;
+    ctx.fill();
+  }
+  // Head: a real 16x16 rounded-square pixel, with a soft glow behind it
+  // (drawn separately, as a circle — the glow can stay round even though
+  // the pixel itself shouldn't) at the same mode-matched hue as the trail.
+  const g = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, FAIRY_HEAD_SIZE * 1.4);
+  g.addColorStop(0, `oklch(${isDay ? 55 : 66}% 0.16 ${hue} / 0.55)`);
+  g.addColorStop(1, `oklch(${isDay ? 45 : 50}% 0.16 ${hue} / 0)`);
+  ctx.beginPath();
+  ctx.arc(f.x, f.y, FAIRY_HEAD_SIZE * 1.4, 0, Math.PI * 2);
+  ctx.fillStyle = g;
+  ctx.fill();
+
+  roundedSquarePath(ctx, f.x, f.y, FAIRY_HEAD_SIZE);
+  ctx.fillStyle = `oklch(${isDay ? 55 : 88}% 0.16 ${hue} / 0.95)`;
+  ctx.fill();
 }
 
 // Typewriter-reveal for a message that just arrived live (a real send,
@@ -335,7 +460,6 @@ function resolveCanvasBase(): string {
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const canvasBaseRef = useRef(resolveCanvasBase());
-  const modeRef = useRef<Mode>("ambient");
   // Separate from modeRef ("ambient"/"vortex", which Normal and Research
   // both share) — fairies are a Research-only layer on top of the shared
   // ambient orbs/dust, so the draw loop needs the actual chat mode, not
@@ -349,107 +473,44 @@ export default function App() {
     document.documentElement.getAttribute("data-theme") === "light" ? "light" : "night"
   );
   useEffect(() => { canvasBaseRef.current = resolveCanvasBase(); }, [colorTheme]);
-  const themeRef = useRef(MODE_THEME.normal);
-  const particlesRef = useRef<Particle[]>([]);
-  const orbsRef = useRef<Orb[]>([]);
-  const swirlRef = useRef<SwirlNode[]>([]);
-  const fairiesRef = useRef<Fairy[]>([]);
   const rafRef = useRef(0);
-  const tickRef = useRef(0);
-  // Free-running, never reset by selectChatMode (unlike tickRef, which
-  // resets to 0 on every mode switch for the orbs/vortex timing) — the
-  // fairies' bob/breathe/flicker sines use this instead, so switching
-  // modes and back doesn't jump their phase mid-cycle.
-  const fairyTickRef = useRef(0);
-  // "Celebrate" window on NAVI's reply landing — simpler than a full
-  // dance/choreography stage: fairies just drift slower and breathe
-  // more deeply for 10s. Timestamped against fairyTickRef since that's
-  // never reset by mode switches.
-  const celebrateUntilRef = useRef(0);
   // Logical (CSS) pixel size — shared between the draw loop and selectChatMode(),
   // since canvas.width/height are now physical DPR-scaled dimensions.
   const logicalSizeRef = useRef({ w: 0, h: 0 });
+  // Mirrors `activeCanvas` for the draw loop's closure, same reason
+  // chatModeRef mirrors chatMode elsewhere in this file — the RAF loop
+  // is set up once on mount and never torn down on a canvas switch, so
+  // it needs a ref to read the CURRENT canvas, not the one captured
+  // when the effect first ran.
+  const activeCanvasRef = useRef<CanvasKey>("chat");
 
-  const initOrbs = useCallback((w: number, h: number) => {
-    const theme = themeRef.current;
-    orbsRef.current = Array.from({ length: 7 }, () => ({
-      x: Math.random() * w,
-      y: Math.random() * h,
-      radius: 70 + Math.random() * 130,
-      alpha: 0.18 + Math.random() * 0.16, // much brighter — should read as the dominant background glow now
-      hue: theme.hueBase + Math.random() * theme.hueRange,
-      dx: (Math.random() - 0.5) * 0.3,
-      dy: (Math.random() - 0.5) * 0.3,
-    }));
-  }, []);
+  // Chat Canvas ambient fairies (2026-09-05) — DeepSeek's grid-walking
+  // pixel-snake concept, replacing the retired dead-fairy system (see
+  // forgotten-animations/deadFairies.ts). Single fixed hue per fairy
+  // (not hue-shifting), and the hue itself now follows the active chat
+  // mode (OKLCH_HUE — blue/green/purple for Normal/Research/Brainstorm)
+  // rather than being pinned to Chat Canvas's own accent, so the color
+  // actually means something at a glance. Two fairies, one per side —
+  // JuanJo's own ceiling call was 2 max before ambient motion starts
+  // reading as a screensaver, so this is the ceiling, not a floor to
+  // grow from.
+  const fairiesRef = useRef<Fairy[]>([]);
 
-  // 10 fairies, split evenly left/right. Positions are stored as 0–1
-  // fractions (band position + vertical), not absolute pixels, so they
-  // never need re-seeding on resize (same fix as the orb-teleport bug).
-  // bandDx/yDx are the drift speed — 4x the original read as too fast;
-  // settled at ~1.8x, between imperceptible and rushed.
-  const initFairies = useCallback(() => {
-    fairiesRef.current = Array.from({ length: 10 }, (_, i) => ({
-      side: i % 2 === 0 ? "left" : "right",
-      bandT: Math.random(),
-      bandDx: (Math.random() - 0.5) * 0.0045,
-      yT: Math.random(),
-      yDx: (Math.random() - 0.5) * 0.0027,
-      radius: 8 + Math.random() * 12, // grown a bit; the white core stays the same absolute size, the color fade around it gets the extra room
-      alphaBase: 0.6 + Math.random() * 0.3,
-      hueJitter: (Math.random() - 0.5) * 16,
-      bobPhase: Math.random() * Math.PI * 2,
-      flickerSeed: Math.random() * Math.PI * 2,
-    }));
-  }, []);
-
-  const initSwirl = useCallback(() => {
-    swirlRef.current = Array.from({ length: 18 }, (_, i) => ({
-      t: i / 18,
-      speed: 0.0006 + Math.random() * 0.0008,
-      hue: 240 + Math.random() * 60, // blue → purple
-      alpha: 0.18 + Math.random() * 0.28,
-      size: 8 + Math.random() * 14,
-    }));
-  }, []);
-
-  const spawnVortexRing = useCallback((cx: number, cy: number, w: number, h: number) => {
-    const count = 18 + Math.floor(Math.random() * 12);
-    const spawnR = Math.max(w, h) * (0.42 + Math.random() * 0.38);
-    const hueBase = 220 + Math.random() * 60; // blue(220) → purple(280)
-    for (let i = 0; i < count; i++) {
-      const angle = (i / count) * Math.PI * 2 + Math.random() * 0.35;
-      const ox = (Math.random() - 0.5) * 50;
-      const oy = (Math.random() - 0.5) * 50;
-      const sx = cx + Math.cos(angle) * spawnR + ox;
-      const sy = cy + Math.sin(angle) * spawnR + oy;
-      const dist = Math.hypot(cx - sx, cy - sy) || 1;
-      const speed = 0.6 + Math.random() * 1.2; // slow
-      const maxLife = 130 + Math.floor(Math.random() * 90); // longer life = slower feel
-      particlesRef.current.push({
-        x: sx, y: sy,
-        vx: ((cx - sx) / dist) * speed,
-        vy: ((cy - sy) / dist) * speed,
-        radius: 3 + Math.random() * 10,
-        alpha: 0.14 + Math.random() * 0.18, // halfway between original (0.18-0.40) and first pass (0.10-0.24)
-        hue: hueBase + Math.random() * 55,
-        life: maxLife, maxLife,
-      });
-    }
-  }, []);
-
-  // Convert perimeter t (0–1) to {x, y} — travels clockwise.
-  // useCallback with no deps keeps this reference stable across renders —
-  // without it, every render (e.g. every keystroke in the chat input)
-  // handed the animation effect a "new" function, which tore down and
-  // restarted the whole draw loop, re-randomizing every position.
-  const perimeterPoint = useCallback((t: number, w: number, h: number) => {
-    const perim = 2 * (w + h);
-    const d = t * perim;
-    if (d < w) return { x: d, y: 0 };
-    if (d < w + h) return { x: w, y: d - w };
-    if (d < 2 * w + h) return { x: w - (d - w - h), y: h };
-    return { x: 0, y: h - (d - 2 * w - h) };
+  const initFairies = useCallback((w: number, h: number) => {
+    // Spawn in the left/right margins, well clear of the centered chat
+    // box, not dead-center — real bug, found live (2026-09-05): a
+    // dead-center spawn landed *inside* the chat box (which spans nearly
+    // the full viewport height), boxing the fairy in on all sides from
+    // frame one. Starting direction is "down"/"up" (parallel to the
+    // box's edge), not "toward it".
+    const gxLeft = Math.round(w * 0.1 / FAIRY_GRID) * FAIRY_GRID;
+    const gxRight = Math.round(w * 0.9 / FAIRY_GRID) * FAIRY_GRID;
+    const gy1 = Math.round(h * 0.3 / FAIRY_GRID) * FAIRY_GRID;
+    const gy2 = Math.round(h * 0.65 / FAIRY_GRID) * FAIRY_GRID;
+    fairiesRef.current = [
+      { x: gxLeft, y: gy1, dir: 1, path: [{ x: gxLeft, y: gy1 }] },
+      { x: gxRight, y: gy2, dir: 3, path: [{ x: gxRight, y: gy2 }] },
+    ];
   }, []);
 
   useEffect(() => {
@@ -472,219 +533,34 @@ export default function App() {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     };
     resize();
-    // Orbs/swirl only need to be seeded once — they already wrap using
-    // the current logical w/h every frame in the draw loop below, so
-    // re-seeding them on every resize just teleported everything to new
-    // random spots each time the window changed size.
-    initOrbs(logicalSizeRef.current.w, logicalSizeRef.current.h);
-    initSwirl();
-    initFairies();
+    initFairies(logicalSizeRef.current.w, logicalSizeRef.current.h);
     window.addEventListener("resize", resize);
 
-    const draw = () => {
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    let lastT = performance.now();
+
+    const draw = (now: number) => {
       const { w, h } = logicalSizeRef.current;
-      const cx = w / 2;
-      const cy = h / 2;
-      const cur = modeRef.current;
-      tickRef.current += 1;
-      const t = tickRef.current;
-      fairyTickRef.current += 1;
-      const ft = fairyTickRef.current;
+      const dtSec = Math.min((now - lastT) / 1000, 0.05);
+      lastT = now;
 
       // Fully opaque clear — no trailing/ghosting from previous frames.
       ctx.fillStyle = canvasBaseRef.current;
       ctx.fillRect(0, 0, w, h);
 
-      /* Light effects (orbs, swirl, drifting particles, Research-mode
-         fairies) — disabled 2026-08-31, JuanJo's call moving toward a
-         soberer visual direction. Commented out, not deleted: the
-         canvas still clears to a flat background color every frame
-         (see fillRect above) so layout is unaffected, this block is
-         just never reached. Re-enable by removing this comment wrap. */
-      /*
-      // ── Edge swirl — vortex mode only, paused (not rendered) in ambient ──────
-      if (cur === "vortex") {
-        for (const node of swirlRef.current) {
-          node.t = (node.t + node.speed) % 1;
-          const pt = perimeterPoint(node.t, w, h);
+      // The old ambient system (orbs/swirl/dust/Research-mode dead-fairy)
+      // that used to run here was moved to forgotten-animations/
+      // deadFairies.ts (2026-09-05, real working code there, not a
+      // comment) — see that file if it's ever worth reviving.
 
-          // Clamp render within 20px of edge
-          const ex = Math.max(0, Math.min(w, pt.x));
-          const ey = Math.max(0, Math.min(h, pt.y));
-
-          // Pulse alpha
-          const pulseMod = 0.6 + 0.4 * Math.sin(t * 0.04 + node.t * Math.PI * 6);
-          const a = node.alpha * pulseMod;
-
-          const g = ctx.createRadialGradient(ex, ey, 0, ex, ey, node.size);
-          g.addColorStop(0, `hsla(${node.hue}, 80%, 65%, ${a})`);
-          g.addColorStop(0.5, `hsla(${node.hue + 18}, 75%, 45%, ${a * 0.45})`);
-          g.addColorStop(1, `hsla(${node.hue + 36}, 70%, 35%, 0)`);
-          ctx.beginPath();
-          ctx.arc(ex, ey, node.size, 0, Math.PI * 2);
-          ctx.fillStyle = g;
-          ctx.fill();
+      if (activeCanvasRef.current === "chat" && fairiesRef.current.length) {
+        const hue = OKLCH_HUE[chatModeRef.current];
+        const isDay = isDayTheme();
+        for (const fairy of fairiesRef.current) {
+          if (!reducedMotion) advanceFairy(fairy, dtSec, w, h);
+          drawFairy(ctx, fairy, hue, isDay);
         }
       }
-
-      // ── Ambient mode ────────────────────────────────────────────────────────
-      if (cur === "ambient") {
-        for (const orb of orbsRef.current) {
-          orb.x += orb.dx; orb.y += orb.dy;
-          if (orb.x < -orb.radius) orb.x = w + orb.radius;
-          if (orb.x > w + orb.radius) orb.x = -orb.radius;
-          if (orb.y < -orb.radius) orb.y = h + orb.radius;
-          if (orb.y > h + orb.radius) orb.y = -orb.radius;
-
-          const pulse = 0.5 + 0.5 * Math.sin(t * 0.007 + orb.hue);
-          const g = ctx.createRadialGradient(orb.x, orb.y, 0, orb.x, orb.y, orb.radius);
-          g.addColorStop(0, `hsla(${orb.hue}, 50%, 55%, ${orb.alpha * (0.8 + 0.4 * pulse)})`);
-          g.addColorStop(0.5, `hsla(${orb.hue + 20}, 44%, 40%, ${orb.alpha * 0.38})`);
-          g.addColorStop(1, `hsla(${orb.hue + 40}, 36%, 25%, 0)`);
-          ctx.beginPath();
-          ctx.arc(orb.x, orb.y, orb.radius, 0, Math.PI * 2);
-          ctx.fillStyle = g;
-          ctx.fill();
-        }
-
-        // Drifting micro-dust — spawns anywhere on the perimeter, aimed
-        // toward center (was bottom-only, straight up). Was every 7
-        // frames, now every 3 for a noticeably denser stream.
-        if (t % 3 === 0) {
-          const spawnPt = perimeterPoint(Math.random(), w, h);
-          const ddx = cx - spawnPt.x;
-          const ddy = cy - spawnPt.y;
-          const ddist = Math.hypot(ddx, ddy) || 1;
-          const speed = 0.2 + Math.random() * 0.5; // same magnitude as the old straight-up drift
-          const theme = themeRef.current;
-          const maxLife = theme.particleLifeBase + theme.particleLifeRange;
-          particlesRef.current.push({
-            x: spawnPt.x, y: spawnPt.y,
-            vx: (ddx / ddist) * speed,
-            vy: (ddy / ddist) * speed,
-            radius: 1 + Math.random() * 2,
-            alpha: theme.particleAlphaBase + Math.random() * theme.particleAlphaRange,
-            hue: theme.hueBase + Math.random() * theme.hueRange,
-            life: theme.particleLifeBase + Math.floor(Math.random() * theme.particleLifeRange),
-            maxLife,
-          });
-        }
-
-        particlesRef.current = particlesRef.current.filter(p => p.life > 0);
-        for (const p of particlesRef.current) {
-          p.x += p.vx; p.y += p.vy;
-          const a = p.alpha * (p.life / p.maxLife);
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
-          ctx.fillStyle = `hsla(${p.hue}, 65%, 72%, ${a})`;
-          ctx.fill();
-          p.life -= 1;
-        }
-
-        // ── Fairies — Research mode only, idle/breathing ─────────────────────
-        // Layered on top of the shared orbs/dust above, not a replacement.
-        // Confined to a left/right margin band (18% of width each side);
-        // position is derived from bandT/yT fractions every frame, so
-        // resizing the window never snaps them anywhere.
-        if (chatModeRef.current === "research") {
-          const marginW = w * 0.18;
-          // "Celebrate" window on NAVI's reply landing (no dance
-          // choreography — just slower drift and a deeper breathing
-          // pulse for 10s) — see celebrateUntilRef.
-          const celebrating = ft < celebrateUntilRef.current;
-          const speedMul = celebrating ? 0.4 : 1;
-          for (const f of fairiesRef.current) {
-            f.bandT += f.bandDx * speedMul;
-            if (f.bandT < 0 || f.bandT > 1) { f.bandDx *= -1; f.bandT = Math.max(0, Math.min(1, f.bandT)); }
-            f.yT += f.yDx * speedMul;
-            if (f.yT < 0 || f.yT > 1) { f.yDx *= -1; f.yT = Math.max(0, Math.min(1, f.yT)); }
-
-            const fx = f.side === "left" ? f.bandT * marginW : w - marginW + f.bandT * marginW;
-            const fy = f.yT * h + Math.sin(ft * 0.02 + f.bobPhase) * 6;
-
-            // Slow, smooth breathing pulse (was too fast/blinky at 0.15
-            // rad/frame with a heavy 0.3 weight — that read as a blink
-            // rather than a breath). Flicker is now a subtle shimmer on
-            // top, not the dominant motion. Deeper swing (both alpha and
-            // radius) while celebrating.
-            const breathe = 0.5 + 0.5 * Math.sin(ft * 0.006 + f.bobPhase);
-            const flicker = 0.88 + 0.12 * Math.sin(ft * 0.03 + f.flickerSeed);
-            const breatheWeight = celebrating ? 0.6 : 0.35;
-            const a = f.alphaBase * ((1 - breatheWeight) + breatheWeight * breathe) * flicker;
-            const radius = celebrating ? f.radius * (1 + 0.3 * breathe) : f.radius;
-            // Own hue base rather than the shared rTheme.hueBase (130,
-            // pure green) — a bluer green, between green(120) and
-            // cyan(180) on the wheel, so fairies read as a distinct hue
-            // from the orbs/bubbles instead of the exact same green.
-            const hue = 165 + f.hueJitter;
-
-            const g = ctx.createRadialGradient(fx, fy, 0, fx, fy, radius);
-            // Core alpha ignores the breathing/flicker modulation — always
-            // near-opaque, so the white center reads as solid regardless
-            // of where the pulse cycle is. Only the outer color fade
-            // breathes.
-            g.addColorStop(0, `hsla(${hue}, 10%, 99%, 0.95)`);
-            g.addColorStop(0.13, `hsla(${hue}, 15%, 97%, 0.95)`);
-            g.addColorStop(0.55, `hsla(${hue}, 85%, 65%, ${a * 0.85})`);
-            g.addColorStop(1, `hsla(${hue}, 80%, 45%, 0)`);
-            ctx.beginPath();
-            ctx.arc(fx, fy, radius, 0, Math.PI * 2);
-            ctx.fillStyle = g;
-            ctx.fill();
-          }
-        }
-
-      // ── Vortex mode ─────────────────────────────────────────────────────────
-      } else {
-        if (t % 22 === 0) spawnVortexRing(cx, cy, w, h);
-
-        particlesRef.current = particlesRef.current.filter(p => p.life > 0);
-
-        for (const p of particlesRef.current) {
-          const dist = Math.hypot(cx - p.x, cy - p.y);
-          if (dist > 5) {
-            // Gentle, smooth acceleration — slowed further, still ramps
-            // in but never feels like it's snapping toward center.
-            const progress = 1 - p.life / p.maxLife;
-            const accel = 1 + progress * 1.0;
-            p.vx *= Math.min(accel, 1.018);
-            p.vy *= Math.min(accel, 1.018);
-            p.x += p.vx;
-            p.y += p.vy;
-          }
-          // Fade out well before reaching center — was dist/60 (particles
-          // visibly converged on the core before vanishing), now dist/130
-          // so they disappear on the way in, never arriving.
-          const fadeProx = Math.min(1, dist / 130);
-          const fadeLife = p.life / p.maxLife < 0.14 ? (p.life / p.maxLife) / 0.14 : 1;
-          const a = p.alpha * fadeProx * fadeLife;
-
-          const hue = 220 + (p.hue - 220); // keep in blue-purple range
-          const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.radius);
-          g.addColorStop(0, `hsla(${hue}, 85%, 70%, ${a})`);
-          g.addColorStop(0.5, `hsla(${hue + 22}, 80%, 50%, ${a * 0.5})`);
-          g.addColorStop(1, `hsla(${hue + 44}, 75%, 32%, 0)`);
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
-          ctx.fillStyle = g;
-          ctx.fill();
-          p.life -= 1;
-        }
-
-        // Soft core glow — shrunk and much more transparent than before
-        // rather than removed outright, so it's easy to turn back up.
-        const pulse = 0.5 + 0.5 * Math.sin(t * 0.06);
-        const coreRadius = 10 + pulse * 6;
-        const cg = ctx.createRadialGradient(cx, cy, 0, cx, cy, coreRadius);
-        cg.addColorStop(0, `rgba(140, 80, 255, ${0.12 + pulse * 0.08})`);
-        cg.addColorStop(0.45, `rgba(90, 40, 200, ${0.05 * (0.5 + pulse * 0.5)})`);
-        cg.addColorStop(1, "rgba(50, 10, 140, 0)");
-        ctx.beginPath();
-        ctx.arc(cx, cy, coreRadius, 0, Math.PI * 2);
-        ctx.fillStyle = cg;
-        ctx.fill();
-      }
-      */
 
       rafRef.current = requestAnimationFrame(draw);
     };
@@ -694,23 +570,12 @@ export default function App() {
       cancelAnimationFrame(rafRef.current);
       window.removeEventListener("resize", resize);
     };
-  }, [initOrbs, initSwirl, initFairies, spawnVortexRing, perimeterPoint]);
+  }, [initFairies]);
 
   const selectChatMode = useCallback((next: ChatMode) => {
-    const theme = MODE_THEME[next];
-    themeRef.current = theme;
-    modeRef.current = theme.canvasMode;
     chatModeRef.current = next;
     setChatModeState(next);
-    particlesRef.current = [];
-    tickRef.current = 0;
-    const { w, h } = logicalSizeRef.current;
-    if (theme.canvasMode === "vortex") {
-      for (let i = 0; i < 4; i++) spawnVortexRing(w / 2, h / 2, w, h);
-    } else {
-      initOrbs(w, h);
-    }
-  }, [initOrbs, spawnVortexRing]);
+  }, []);
 
   const theme = MODE_THEME[chatMode];
 
@@ -996,6 +861,7 @@ export default function App() {
   // now — the other three canvases don't exist yet, shown disabled.
   type CanvasKey = "chat" | "agentWork" | "devSlate" | "dashboard";
   const [activeCanvas, setActiveCanvas] = useState<CanvasKey>("chat");
+  useEffect(() => { activeCanvasRef.current = activeCanvas; }, [activeCanvas]);
   // Agent Vault's "Open in canvas" fork (2026-09-03) — set right before
   // switching to Agent Work, consumed once by AgentWorkGraphEditor's own
   // seeding effect, then cleared here so it never re-seeds a graph the
@@ -1897,9 +1763,10 @@ export default function App() {
       }
 
       if (!asyncJobActive()) setPendingStep(null);
-      if (chatModeRef.current === "research") {
-        celebrateUntilRef.current = fairyTickRef.current + 600; // 10s at 60fps
-      }
+      // A "celebrate on reply" trigger lived here for the old dead-fairy
+      // system (see forgotten-animations/deadFairies.ts) — dropped along
+      // with it. Worth re-adding once the new snake-fairies have their
+      // own equivalent state to celebrate against.
     };
 
     const send = () => fetch(`${NAVI_BACKEND_URL}/chat/send`, {

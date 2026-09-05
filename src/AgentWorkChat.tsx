@@ -400,7 +400,15 @@ export function AgentWorkChat({ onClose, onWorkflowCreated }: { onClose: () => v
       <div style={{
         display: "flex", alignItems: "center", justifyContent: "space-between",
         padding: `${spacing.sm}px ${spacing.md}px`, borderBottom: "1px solid rgba(255,255,255,0.08)",
-        position: "relative", zIndex: 2, background: "rgba(10,12,18,0.6)",
+        position: "relative", zIndex: 2,
+        // Was a flat hardcoded dark rgba — stayed opaque-black regardless
+        // of theme, so in light theme the (correctly theme-aware) title
+        // text sat dark-on-dark and read as invisible (2026-09-05, real
+        // bug report: "the title of the Chat is in black somehow").
+        // tintedSurface hue-follows Agent Work's own amber accent and
+        // mirrors lightness for day/night automatically, same pattern
+        // already used for this popup's other amber-tinted surfaces.
+        background: tintedSurface(CANVAS_ACCENT.agentWork.hue, 14, 0.03),
       }}>
         <span style={{ fontSize: fontSize.xs, fontWeight: fontWeight.medium, color: neutral.textPrimary }}>
           Agent Work chat
