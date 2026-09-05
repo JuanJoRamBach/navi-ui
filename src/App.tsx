@@ -161,7 +161,13 @@ const COMMAND_ROUTING_LABEL: Record<string, { label: string; dotColor?: string }
 interface UsageCounters {
   groq: { models: { model: string; used: number | null; limit: number | null; reset_seconds: number | null }[] };
   cloudflare: { neurons_used: number; neurons_cap: number };
-  openrouter: Record<string, unknown> | null;
+  // requests_used is NAVI's own local count against a confirmed-by-JuanJo
+  // 50/day cap — OpenRouter's API doesn't expose the real per-key daily
+  // free-model count anywhere (confirmed 2026-09-05: no rate-limit
+  // headers on success, and /api/v1/key's limit fields are an unrelated
+  // optional spend cap). `spend` is real, live data OpenRouter DOES
+  // report accurately, shown as context alongside the estimate.
+  openrouter: { requests_used: number; requests_cap: number; spend: Record<string, unknown> | null };
   llm7: { tokens_used: number; keyed_cap: number; anonymous_cap: number };
   gmi: { requests_today: number; status: string };
   ollama_cloud: { requests_today: number; tokens_today: number; cap: null };
@@ -4311,13 +4317,14 @@ export default function App() {
                                   </div>
                                 )}
                                 {key === "openrouter" && (
-                                  usageCounters.openrouter ? (
-                                    <pre style={{ margin: 0, whiteSpace: "pre-wrap", fontFamily: "inherit" }}>
-                                      {JSON.stringify(usageCounters.openrouter, null, 2)}
-                                    </pre>
-                                  ) : (
-                                    <div>No OpenRouter key configured, or the live key-info fetch failed.</div>
-                                  )
+                                  <div>
+                                    {usageCounters.openrouter.requests_used.toLocaleString()} / {usageCounters.openrouter.requests_cap.toLocaleString()} free-model requests today (NAVI's own count — OpenRouter's API doesn't report this number directly)
+                                    {usageCounters.openrouter.spend && (
+                                      <div style={{ marginTop: spacing.xs }}>
+                                        ${String(usageCounters.openrouter.spend.usage_daily ?? "?")} spent today · ${String(usageCounters.openrouter.spend.usage_monthly ?? "?")} this month (real, from OpenRouter)
+                                      </div>
+                                    )}
+                                  </div>
                                 )}
                                 {key === "llm7" && (
                                   <div>
