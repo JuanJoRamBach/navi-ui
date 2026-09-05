@@ -152,16 +152,28 @@ const COMMAND_ROUTING_LABEL: Record<string, { label: string; dotColor?: string }
   "graph-data": { label: "Graphs" },
 };
 
-// USAGE_COUNTERS stays a mock on purpose — NAVI doesn't track real usage
-// anywhere yet (no persisted counters), so wiring this panel to real data
-// means building actual instrumentation, not just reading existing state.
-// Deliberately left as-is rather than silently pretending it's live.
-const USAGE_COUNTERS: { provider: string; used: number; quota: number; unit: string; period: string }[] = [
-  { provider: "Groq", used: 640, quota: 1000, unit: "requests", period: "today" },
-  { provider: "Cloudflare", used: 3200, quota: 10000, unit: "Neurons", period: "this week" },
-  { provider: "OpenRouter", used: 12, quota: 50, unit: "requests", period: "today" },
-  { provider: "OVHcloud", used: 4, quota: 0, unit: "requests", period: "today" }, // 0 quota = untracked anonymous tier
-];
+// Real, server-side usage data — GET /usage/counters (server.py), backed
+// by storage/usage.py. Each provider's shape genuinely differs (Groq is
+// per-model, Cloudflare is one Neuron pool, OpenRouter is a live fetch
+// against the key itself, LLM7 is two token pools, GMI/Ollama Cloud have
+// no real cap to bar against) — this mirrors that instead of forcing one
+// generic {used, quota} shape the old mock used.
+interface UsageCounters {
+  groq: { models: { model: string; used: number | null; limit: number | null; reset_seconds: number | null }[] };
+  cloudflare: { neurons_used: number; neurons_cap: number };
+  openrouter: Record<string, unknown> | null;
+  llm7: { tokens_used: number; keyed_cap: number; anonymous_cap: number };
+  gmi: { requests_today: number; status: string };
+  ollama_cloud: { requests_today: number; tokens_today: number; cap: null };
+}
+// Mistral is fetched separately, lazily, only once its row is clicked open
+// — GET /usage/mistral is a monthly billing figure (Mistral's own real
+// admin endpoint), not a per-request counter, so there's no reason to
+// fetch it on every panel open the way the other six providers are.
+interface MistralUsage {
+  usage: Record<string, unknown> | null;
+  credit_usd: number;
+}
 
 // The command list shown in the toolbar's "Commands" panel. `available`
 // tracks what NAVI's parser actually recognizes today (see COMMANDS in
@@ -765,6 +777,32 @@ export default function App() {
       .then(setRoutingConfig)
       .catch(() => {}); // panels just show their loading/empty state
   }, []);
+
+  // Six of the seven providers' real usage is cheap to fetch (server-side
+  // request/token/Neuron counts, no external call on NAVI's side) so this
+  // prefetches on mount same as routingConfig above. Mistral is the
+  // exception — see expandedUsageProvider/mistralUsage below.
+  const [usageCounters, setUsageCounters] = useState<UsageCounters | null>(null);
+  useEffect(() => {
+    fetch(`${NAVI_BACKEND_URL}/usage/counters`)
+      .then(res => res.json())
+      .then(setUsageCounters)
+      .catch(() => {});
+  }, []);
+  const [expandedUsageProvider, setExpandedUsageProvider] = useState<string | null>(null);
+  const [mistralUsage, setMistralUsage] = useState<MistralUsage | null>(null);
+  const [mistralUsageLoading, setMistralUsageLoading] = useState(false);
+  const toggleUsageProvider = (key: string) => {
+    setExpandedUsageProvider(prev => (prev === key ? null : key));
+    if (key === "mistral" && mistralUsage === null && !mistralUsageLoading) {
+      setMistralUsageLoading(true);
+      fetch(`${NAVI_BACKEND_URL}/usage/mistral`)
+        .then(res => res.json())
+        .then(setMistralUsage)
+        .catch(() => {})
+        .finally(() => setMistralUsageLoading(false));
+    }
+  };
 
   // "Today's models" picker itself now reads the real ranked-candidate
   // catalog (chatModelCatalog, see below) instead of this — kept this
@@ -4217,33 +4255,107 @@ export default function App() {
               {openPanel === "usage" && (
                 <div>
                   <div style={{ fontSize: fontSize.xs, color: neutral.textMuted, marginBottom: spacing.md }}>
-                    Usage counters
+                    Usage counters — click a provider for its real numbers
                   </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: spacing.lg }}>
-                    {USAGE_COUNTERS.map(u => {
-                      const pct = u.quota > 0 ? Math.min(100, (u.used / u.quota) * 100) : 0;
-                      const barColor = pct > 90 ? "rgba(230,90,90,0.85)" : pct > 70 ? "rgba(230,180,80,0.85)" : "rgba(120,200,150,0.85)";
-                      return (
-                        <div key={u.provider}>
-                          {/* Stacked (provider / stats / bar), not side-by-side
-                              — the docked desktop panel is narrow enough that
-                              "Provider" and its stats line were wrapping and
-                              crowding each other. Stats line stays fontSize.xxs
-                              (smaller is fine here, JuanJo's call) even though
-                              it's no longer competing for horizontal space. */}
-                          <div style={{ fontSize: fontSize.sm, marginBottom: 2 }}>{u.provider}</div>
-                          <div style={{ color: neutral.textMuted, fontSize: fontSize.xxs, marginBottom: spacing.xs }}>
-                            {u.quota > 0 ? `${u.used.toLocaleString()} / ${u.quota.toLocaleString()} ${u.unit} · ${u.period}` : "no quota tracked"}
+                  {!usageCounters ? (
+                    <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted }}>Loading…</div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: spacing.xs }}>
+                      {([
+                        { key: "groq", label: "Groq" },
+                        { key: "cloudflare", label: "Cloudflare" },
+                        { key: "openrouter", label: "OpenRouter" },
+                        { key: "llm7", label: "LLM7" },
+                        { key: "gmi", label: "GMI" },
+                        { key: "ollama_cloud", label: "Ollama Cloud" },
+                        { key: "mistral", label: "Mistral" },
+                      ] as const).map(({ key, label }) => {
+                        const isOpen = expandedUsageProvider === key;
+                        return (
+                          <div key={key} style={{ borderBottom: "1px solid var(--border-subtle)", paddingBottom: spacing.xs }}>
+                            <button
+                              onClick={() => toggleUsageProvider(key)}
+                              style={{
+                                width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center",
+                                background: "transparent", border: "none", color: "inherit", cursor: "pointer",
+                                padding: `${spacing.xs}px 0`, fontSize: fontSize.sm, fontFamily,
+                              }}
+                            >
+                              <span>{label}</span>
+                              <span style={{ color: neutral.textMuted, fontSize: fontSize.xxs }}>{isOpen ? "▲" : "▼"}</span>
+                            </button>
+                            {isOpen && (
+                              <div style={{ padding: `0 0 ${spacing.xs}px`, fontSize: fontSize.xxs, color: neutral.textMuted }}>
+                                {key === "groq" && (
+                                  usageCounters.groq.models.length === 0 ? (
+                                    <div>No Groq calls observed yet this run — quota is per-model, shown once a model's been used.</div>
+                                  ) : (
+                                    <div style={{ display: "flex", flexDirection: "column", gap: spacing.sm }}>
+                                      {usageCounters.groq.models.map(m => (
+                                        <div key={m.model}>
+                                          <div style={{ color: neutral.textPrimary }}>{m.model}</div>
+                                          <div>
+                                            {m.used !== null && m.limit !== null
+                                              ? `${m.used.toLocaleString()} / ${m.limit.toLocaleString()} requests today`
+                                              : "used/limit unknown"}
+                                            {m.reset_seconds !== null && ` · resets in ${Math.round(m.reset_seconds)}s`}
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )
+                                )}
+                                {key === "cloudflare" && (
+                                  <div>
+                                    {usageCounters.cloudflare.neurons_used.toFixed(2)} / {usageCounters.cloudflare.neurons_cap.toLocaleString()} Neurons today (resets 00:00 UTC)
+                                  </div>
+                                )}
+                                {key === "openrouter" && (
+                                  usageCounters.openrouter ? (
+                                    <pre style={{ margin: 0, whiteSpace: "pre-wrap", fontFamily: "inherit" }}>
+                                      {JSON.stringify(usageCounters.openrouter, null, 2)}
+                                    </pre>
+                                  ) : (
+                                    <div>No OpenRouter key configured, or the live key-info fetch failed.</div>
+                                  )
+                                )}
+                                {key === "llm7" && (
+                                  <div>
+                                    {usageCounters.llm7.tokens_used.toLocaleString()} / {usageCounters.llm7.keyed_cap.toLocaleString()} tokens today (keyed pool)
+                                    <br />
+                                    A separate {usageCounters.llm7.anonymous_cap.toLocaleString()}-token/24h anonymous pool exists but isn't used by NAVI yet.
+                                  </div>
+                                )}
+                                {key === "gmi" && (
+                                  <div>
+                                    {usageCounters.gmi.requests_today.toLocaleString()} requests today
+                                    <br />
+                                    {usageCounters.gmi.status}
+                                  </div>
+                                )}
+                                {key === "ollama_cloud" && (
+                                  <div>
+                                    {usageCounters.ollama_cloud.requests_today.toLocaleString()} requests / {usageCounters.ollama_cloud.tokens_today.toLocaleString()} tokens today — not calculable against a real cap (GPU-time metered, no published number)
+                                  </div>
+                                )}
+                                {key === "mistral" && (
+                                  mistralUsageLoading ? (
+                                    <div>Loading…</div>
+                                  ) : mistralUsage?.usage ? (
+                                    <pre style={{ margin: 0, whiteSpace: "pre-wrap", fontFamily: "inherit" }}>
+                                      {JSON.stringify(mistralUsage.usage, null, 2)}
+                                    </pre>
+                                  ) : (
+                                    <div>No Mistral key configured, or the admin usage fetch failed. Free credit: ${mistralUsage?.credit_usd ?? 10}/month.</div>
+                                  )
+                                )}
+                              </div>
+                            )}
                           </div>
-                          {u.quota > 0 && (
-                            <div style={{ height: 4, borderRadius: 9999, background: "rgba(255,255,255,0.1)", overflow: "hidden" }}>
-                              <div style={{ height: "100%", width: `${pct}%`, borderRadius: 9999, background: barColor }} />
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
 
