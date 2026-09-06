@@ -158,7 +158,16 @@ export function BrowserPane({ storageKey, accentColor }: { storageKey: string; a
   const canGoForward = index < history.length - 1;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+    // flex:1 + minHeight:0, not height:"100%" — matches the exact sizing
+    // convention every sibling block in this same flex-column parent
+    // already uses (App.tsx's Sources/Commands tab content). Mixing
+    // height:100% into a flex-column of otherwise flex:1 items was the
+    // real bug behind "the embedded page took over beyond its box,
+    // covering the tab strip, sidebar, everything" (2026-09-06) —
+    // height:100% needs the parent to have a definite height to resolve
+    // against, which isn't guaranteed the same way inside an overflow:
+    // auto flex container as flex:1/minHeight:0 is.
+    <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
       <div style={{
         display: "flex", alignItems: "center", gap: 4,
         padding: `${spacing.xs}px ${spacing.sm}px`, borderBottom: "1px solid var(--border-subtle)", flexShrink: 0,
