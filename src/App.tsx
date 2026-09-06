@@ -2025,7 +2025,12 @@ export default function App() {
               // this masthead lines up with them (JuanJo, 2026-09-01).
               height: 48, boxSizing: "border-box",
               padding: `0 ${spacing.md}px`, flexShrink: 0,
-              border: "none", borderBottom: "1px solid rgba(255,255,255,0.14)",
+              // Was a hardcoded white-alpha value — invisible in light
+              // theme; this is the masthead the other canvas-facing
+              // borders' own comments reference as their color source
+              // (2026-09-01), so it gets fixed to the same real token
+              // for consistency (2026-09-06).
+              border: "none", borderBottom: "1px solid var(--border-default)",
               background: openPanel === "projects" ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.055)",
               color: neutral.textPrimary, cursor: "pointer", textAlign: "left",
               fontFamily,
@@ -2544,11 +2549,12 @@ export default function App() {
       <div ref={sidebarRef} className={`sidebar${sidebarOpen ? " open" : ""}`} style={{
         display: "flex", flexDirection: "column",
         background: sidebarBg,
-        // Same color as the project masthead's own bottom border in the
-        // outer rail (JuanJo, 2026-09-01) — this is the edge that faces
-        // the canvas, so it gets the rail's separator color, not the
-        // dimmer default border.
-        borderRight: "1px solid rgba(255,255,255,0.14)",
+        // Was a hardcoded white-alpha value — invisible in light theme,
+        // same bug fixed on the right panel's matching border
+        // (2026-09-06). This is the edge that faces the canvas, so it
+        // gets --border-default (the rail's separator weight), not the
+        // dimmer --border-subtle.
+        borderRight: "1px solid var(--border-default)",
         fontFamily,
       }}>
         {/* Horizontal resize handle — desktop only (see .sidebar-toggle-
@@ -3093,10 +3099,14 @@ export default function App() {
           // 2026-08-31, matching what every source reviewed tonight
           // agreed on: right sidebar is canvas-local, not a separate zone).
           background: canvasBg,
-          // Same color as the project masthead's own bottom border in
-          // the outer rail (JuanJo, 2026-09-01) — matches the Left
-          // Sidebar's own canvas-facing edge above.
-          borderLeft: "1px solid rgba(255,255,255,0.14)",
+          // Was a hardcoded white-alpha value — invisible in light
+          // theme, same bug class already fixed elsewhere in the app
+          // ("white-alpha chrome borders -> theme border vars, day
+          // readability"). This one border definition is shared by
+          // every canvas's right panel (Chat/Agent Work/Dev Slate all
+          // render inside this same wrapper), so fixing it here applies
+          // everywhere at once (2026-09-06, JuanJo).
+          borderLeft: "1px solid var(--border-default)",
           fontFamily,
         }}>
           {/* Horizontal resize — same mechanics as the left sidebar's

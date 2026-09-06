@@ -860,7 +860,7 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <div style={{
         display: "flex", flexDirection: "column", gap: spacing.xs,
-        padding: `${spacing.sm}px ${spacing.md}px`, borderBottom: "1px solid rgba(255,255,255,0.08)", flexShrink: 0,
+        padding: `${spacing.sm}px ${spacing.md}px`, borderBottom: "1px solid var(--border-subtle)", flexShrink: 0,
       }}>
         <div style={{
           // Real grid tracks, not an absolutely-positioned overlay
@@ -1052,6 +1052,15 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
             defaultEdgeOptions={{ style: { stroke: EDGE_COLOR, strokeWidth: EDGE_WIDTH } }}
             fitView
             colorMode={colorMode}
+            // React Flow's own colorMode="dark" hardcodes an opaque
+            // #141414 background on its pane (@xyflow/react/dist/
+            // style.css's .react-flow.dark rule) — a different color
+            // than NAVI's own dark surface-canvas token (#0e1119), so
+            // the graph visibly didn't match the rest of the app's dark
+            // theme (2026-09-06, JuanJo). An inline style here overrides
+            // that class regardless of CSS specificity, same fix
+            // approach already used for the wrapping div a few lines up.
+            style={{ backgroundColor: "var(--surface-canvas)" }}
             // zoom=1 is the standard 100%/actual-size convention (same
             // as a plain CSS transform: scale(1)) — every zoomable
             // canvas tool uses this. minZoom caps how far out the
