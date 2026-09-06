@@ -75,7 +75,7 @@ import { ConnectionsOverlay } from "./ConnectionsOverlay";
 import { AgentVault } from "./AgentVault";
 import { PromptVault } from "./PromptVault";
 import { TRUSTED_SOURCES_CHANGED_EVENT, addTrustedSite, listTrustedSites, removeTrustedSite } from "./trustedSources";
-import { getBatchStatus, listSourceDocuments, reviewSourceDocument, startBatchDispatch, type SourceDocument } from "./sources";
+import { getBatchStatus, getSourceDocument, listSourceDocuments, reviewSourceDocument, startBatchDispatch, type SourceDocument } from "./sources";
 import { AgentChat, type PendingAgentInput } from "./AgentChat";
 import { AgentWorkRunHistory } from "./AgentWorkRunHistory";
 import { fetchModelCatalog, setPinnedModel, type ModelCatalog, type ModelCandidate } from "./devslate";
@@ -1292,6 +1292,12 @@ export default function App() {
   // (server.py has no push/websocket for this yet, same reasoning
   // /research's own status poll uses), stops itself once done/errored.
   const [sourceDocuments, setSourceDocuments] = useState<SourceDocument[]>([]);
+  // Distinct terms actually present in sourceDocuments, most-recent-first
+  // (sourceDocuments itself is already newest-first from the backend) —
+  // the document LIST's own grouping, independent of sourceChips (the
+  // next-dispatch input, meant to be cleared freely without affecting
+  // what's already been found).
+  const documentTerms = useMemo(() => Array.from(new Set(sourceDocuments.map(d => d.term))), [sourceDocuments]);
   const [dispatchRunning, setDispatchRunning] = useState(false);
   const [dispatchError, setDispatchError] = useState<string | null>(null);
   const refreshSourceDocuments = useCallback(() => {
@@ -1330,6 +1336,31 @@ export default function App() {
   };
   const handleReviewSource = (id: string, status: "accepted" | "rejected") => {
     reviewSourceDocument(id, status).then(() => refreshSourceDocuments());
+  };
+  const [openingSourceDocId, setOpeningSourceDocId] = useState<string | null>(null);
+  // Opens a source document's real saved content in the existing
+  // right-panel viewer (openDocument/viewerPane, same mechanism every
+  // other document type in this app already uses) — 2026-09-06, JuanJo:
+  // "I can't see the documents it created, so I can't review them." A
+  // synthetic File wraps the fetched markdown text so DocumentViewer's
+  // existing MarkdownView (marked + DOMPurify) renders it as real HTML
+  // instead of showing raw **/[[ markdown syntax.
+  const handleOpenSourceDocument = (doc: SourceDocument) => {
+    setOpeningSourceDocId(doc.id);
+    const filename = `${doc.title || "source"}.md`;
+    getSourceDocument(doc.id)
+      .then(full => {
+        const text = full.content ?? `*Content unavailable for this document — it was never saved to storage.*\n\nSource: ${doc.url}`;
+        setOpenDocument({ name: filename, file: new File([text], filename, { type: "text/markdown" }), content: "" });
+      })
+      .catch(() => {
+        setOpenDocument({
+          name: filename,
+          file: new File(["*Couldn't load this document — NAVI may be unreachable.*"], filename, { type: "text/markdown" }),
+          content: "",
+        });
+      })
+      .finally(() => setOpeningSourceDocId(null));
   };
   // Knowledge lives alongside Activity in the left sidebar (moved out
   // of the right Sources panel, JuanJo 2026-08-29) — both are records
@@ -3373,12 +3404,24 @@ export default function App() {
                 flex: 2, minHeight: 0, overflowY: "auto", padding: `0 ${spacing.lg}px ${spacing.sm}px`,
                 display: "flex", flexDirection: "column", gap: spacing.sm,
               }}>
-                {sourceChips.length === 0 ? (
+                {/* Grouped by what's actually been SAVED (sourceDocuments),
+                    not by the current sourceChips input — those are just
+                    the terms queued for the NEXT dispatch and are meant
+                    to be cleared freely. Grouping by chips instead was a
+                    real bug (2026-09-06, JuanJo: "if i erase the terms in
+                    the dispatch part, it stops showing me what it has
+                    found") — clearing the input made the whole list
+                    disappear even though sourceDocuments itself was still
+                    fully loaded; nothing was actually lost, it just had
+                    nothing left to iterate over. sourceDocuments already
+                    comes back newest-first from the backend, so this
+                    naturally orders by most-recently-active term first. */}
+                {documentTerms.length === 0 ? (
                   <div style={{ fontSize: fontSize.xs, color: neutral.textFaint, padding: `${spacing.md}px 0` }}>
                     Add a search term above, then Batch Dispatch. Nothing's been searched yet this session.
                   </div>
                 ) : (
-                  sourceChips.map(term => {
+                  documentTerms.map(term => {
                     const docs = sourceDocuments.filter(d => d.term === term);
                     return (
                       <div key={term}>
@@ -3386,17 +3429,23 @@ export default function App() {
                           <ChevronRightIcon size={12} />
                           <span style={{ flex: 1, fontSize: 13, color: neutral.textPrimary }}>{term}</span>
                           <span style={{ fontSize: 11, color: neutral.textFaint }}>
-                            {docs.length === 0 ? "not dispatched yet" : `${docs.length} document${docs.length === 1 ? "" : "s"}`}
+                            {docs.length} document{docs.length === 1 ? "" : "s"}
                           </span>
                         </div>
-                        {docs.length > 0 && (
-                          <div style={{ display: "flex", flexDirection: "column", gap: 5, marginTop: 4 }}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 5, marginTop: 4 }}>
                             {docs.map(doc => (
                               <div key={doc.id} style={{
                                 display: "flex", alignItems: "center", gap: spacing.sm,
                                 padding: "7px 8px", borderRadius: radius.xs + 1, background: "rgba(255,255,255,0.06)",
                               }}>
-                                <div style={{ flex: 1, minWidth: 0 }}>
+                                <div
+                                  onClick={() => handleOpenSourceDocument(doc)}
+                                  title="Open and read this document"
+                                  style={{
+                                    flex: 1, minWidth: 0, cursor: "pointer",
+                                    opacity: openingSourceDocId === doc.id ? 0.5 : 1,
+                                  }}
+                                >
                                   <div style={{ fontSize: fontSize.xs, color: neutral.textPrimary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{doc.title}</div>
                                   <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 1 }}>
                                     <span style={{ fontSize: fontSize.xxs, color: neutral.textFaint }}>{doc.domain}</span>
@@ -3412,14 +3461,14 @@ export default function App() {
                                 {doc.status === "pending_review" && (
                                   <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
                                     <button
-                                      onClick={() => handleReviewSource(doc.id, "accepted")}
+                                      onClick={e => { e.stopPropagation(); handleReviewSource(doc.id, "accepted"); }}
                                       title="Accept"
                                       style={{ width: 22, height: 22, borderRadius: radius.xs, border: "none", background: "transparent", cursor: "pointer", color: status.success.color, display: "flex", alignItems: "center", justifyContent: "center" }}
                                     >
                                       <CheckIcon size={13} />
                                     </button>
                                     <button
-                                      onClick={() => handleReviewSource(doc.id, "rejected")}
+                                      onClick={e => { e.stopPropagation(); handleReviewSource(doc.id, "rejected"); }}
                                       title="Reject"
                                       style={{ width: 22, height: 22, borderRadius: radius.xs, border: "none", background: "transparent", cursor: "pointer", color: status.danger.color, display: "flex", alignItems: "center", justifyContent: "center" }}
                                     >
@@ -3429,8 +3478,7 @@ export default function App() {
                                 )}
                               </div>
                             ))}
-                          </div>
-                        )}
+                        </div>
                       </div>
                     );
                   })

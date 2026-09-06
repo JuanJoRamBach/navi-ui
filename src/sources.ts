@@ -44,6 +44,15 @@ export async function listSourceDocuments(): Promise<SourceDocument[]> {
   return res.json();
 }
 
+// `content` is null (not thrown as an error) when the document's own
+// filen_path was never set or the Filen read-back failed — the caller
+// should render that as "content unavailable," not a fetch failure; the
+// metadata fields are still real either way.
+export async function getSourceDocument(id: string): Promise<SourceDocument & { content: string | null }> {
+  const res = await fetch(`${NAVI_BACKEND_URL}/sources/${encodeURIComponent(id)}`);
+  return res.json();
+}
+
 export async function reviewSourceDocument(id: string, status: "accepted" | "rejected"): Promise<{ ok?: boolean; error?: string }> {
   const res = await fetch(`${NAVI_BACKEND_URL}/sources/${encodeURIComponent(id)}/review`, {
     method: "POST",
