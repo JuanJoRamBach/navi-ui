@@ -12,6 +12,15 @@
   --accent: #5d8bff;
   --surface-root: #0a0c14;
   --surface-canvas: #0e1119;
+  /* Deliberately NOT surface-canvas — a real, separate token for the
+     Agent Work graph's actual working surface (2026-09-06). Real
+     precedent checked before picking this: VS Code's editor.background
+     and Figma's own canvas both default to #1e1e1e — neutral, zero hue
+     — while each app reserves its own tinted color for the chrome
+     AROUND that surface (sidebars, panels, toolbars), not the content
+     area itself. Same lightness as surface-canvas, but genuinely
+     neutral (no blue/indigo hue) rather than reusing NAVI's own tint. */
+  --canvas-graph-bg: #18191c;
   /* Same color as surface-canvas, mostly opaque — .chat-column's own
      background (2026-09-05), so the ambient fairies underneath read as
      muted while passing "under" the chat rather than fully hidden or
@@ -57,6 +66,10 @@
   --accent: #3356c8;
   --surface-root: #e9ecf3;
   --surface-canvas: #f7f8fb;
+  /* Same reasoning as the dark value's comment — a genuinely neutral
+     light gray (VS Code/Figma's own light-canvas convention), not
+     NAVI's own blue-tinted surface-canvas. */
+  --canvas-graph-bg: #f0f0f2;
   --surface-canvas-muted: rgba(247, 248, 251, 0.92);
   --surface-panel: #f0f2f8;
   --surface-raised: #ffffff;

@@ -1053,14 +1053,20 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
             fitView
             colorMode={colorMode}
             // React Flow's own colorMode="dark" hardcodes an opaque
-            // #141414 background on its pane (@xyflow/react/dist/
-            // style.css's .react-flow.dark rule) — a different color
-            // than NAVI's own dark surface-canvas token (#0e1119), so
-            // the graph visibly didn't match the rest of the app's dark
-            // theme (2026-09-06, JuanJo). An inline style here overrides
-            // that class regardless of CSS specificity, same fix
-            // approach already used for the wrapping div a few lines up.
-            style={{ backgroundColor: "var(--surface-canvas)" }}
+            // #141414 background — different from NAVI's own tinted
+            // dark surface-canvas token (#0e1119), so the graph visibly
+            // didn't match the rest of the app (2026-09-06, JuanJo).
+            // First fix tried matching --surface-canvas exactly; real
+            // research afterward (VS Code's editor.background and
+            // Figma's canvas both #1e1e1e — neutral, untinted — while
+            // each app's own chrome carries the tint) converged on the
+            // opposite convention: keep the WORKING canvas neutral, and
+            // reserve NAVI's indigo-leaning tint for the chrome around
+            // it (sidebars, panels, top bar), which already uses
+            // --surface-canvas correctly. --canvas-graph-bg is a new,
+            // separate token for exactly this — not reusing
+            // surface-canvas, which stays for chrome.
+            style={{ backgroundColor: "var(--canvas-graph-bg)" }}
             // zoom=1 is the standard 100%/actual-size convention (same
             // as a plain CSS transform: scale(1)) — every zoomable
             // canvas tool uses this. minZoom caps how far out the
