@@ -1990,7 +1990,7 @@ export default function App() {
     const controller = new AbortController();
     chatAbortControllerRef.current = controller;
 
-    const handleResponse = (data: { reply?: string; error?: string; async?: boolean; conversation_id?: string; choices?: string[] }) => {
+    const handleResponse = (data: { reply?: string; error?: string; async?: boolean; conversation_id?: string; choices?: string[]; provider?: string; model?: string; usage_note?: string }) => {
       // Server issues the conversation id on a plain-chat turn (real
       // multi-turn memory, 2026-09-01 — see how_to_handle_context.md);
       // typed /commands and the async /research ack never send one, so
@@ -2005,6 +2005,9 @@ export default function App() {
         timestamp: Date.now(),
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(data.choices && data.choices.length > 0 ? { choices: data.choices } : {}),
+        ...(data.provider ? { provider: data.provider } : {}),
+        ...(data.model ? { model: data.model } : {}),
+        ...(data.usage_note ? { usageNote: data.usage_note } : {}),
       }]);
 
       if (data.async) {
@@ -4107,6 +4110,18 @@ export default function App() {
                 }}>
                   <span style={{ fontWeight: fontWeight.medium }}>
                     {isNavi ? "NAVI" : "You"} · {formatTime(m.timestamp)}
+                    {/* Which attempt in normal_chat's fallback chain
+                        actually answered, plus real token usage when the
+                        provider reports it (2026-09-06, JuanJo: "I don't
+                        see which model was used... can't see how many
+                        tokens"). Allowed to wrap rather than ellipsis-
+                        truncated — a long token-count string hiding
+                        itself would defeat the entire point. */}
+                    {isNavi && m.model && (
+                      <span style={{ color: neutral.textFaint }}>
+                        {" · "}{m.provider}/{m.model}{m.usageNote ? ` · ${m.usageNote}` : ""}
+                      </span>
+                    )}
                   </span>
                   {isNavi && (
                     <button

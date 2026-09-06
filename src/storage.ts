@@ -59,6 +59,14 @@ export interface StoredMessage {
   command?: string; // set on the user message that triggered a command
   attachments?: MessageAttachment[]; // set on the navi reply that produced file(s)
   choices?: string[]; // from ask_user_choice — set on the navi message that asked
+  // Which attempt in normal_chat's fallback chain actually answered —
+  // /chat/send never sent these back before (2026-09-06, JuanJo: "I
+  // don't see which model was used... can't see how many tokens").
+  // Set only on a plain-chat navi reply; typed /commands and near-miss
+  // confirmations don't go through run_stored_mode_chat at all.
+  provider?: string;
+  model?: string;
+  usageNote?: string;
 }
 
 export interface Conversation {
