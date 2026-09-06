@@ -84,6 +84,7 @@ import { ChoiceButtons } from "./ChoiceButtons";
 import { AgentWorkGraphEditor, type AgentWorkSeed } from "./AgentWorkGraphEditor";
 import { BrowserPane } from "./BrowserPane";
 import { isTauriRuntime } from "./tauriRuntime";
+import { isImageLike } from "./fileFormats";
 import { checkForUpdate, type UpdateCheckResult } from "./tauriUpdater";
 
 const DOT_SIZE = 8;
@@ -459,6 +460,22 @@ function renderMessageBody(text: string) {
   return nodes;
 }
 
+// /chat/send is a plain REST call, not real token streaming — the full
+// reply already exists in memory the moment this component mounts. This
+// typewriter is purely cosmetic. It used to reveal a flat 2 chars/18ms
+// regardless of length (2026-09-06, JuanJo: "the streaming is TOO damn
+// slow") — for any reply past a couple hundred characters that's several
+// real seconds of pure animation delay on top of an answer that's
+// already fully there, sitting in memory doing nothing. Now targets a
+// roughly fixed total duration (TARGET_MS) by scaling how much text each
+// tick reveals to the message's own length, so a one-line reply and a
+// long one both finish in about the same real time instead of the long
+// one taking proportionally longer for no reason. Clicking the message
+// while it's still revealing jumps straight to the full text — the
+// closest thing to a "stop" this purely-cosmetic delay needs.
+const REVEAL_TICK_MS = 16;
+const REVEAL_TARGET_MS = 700;
+
 function StreamingMessageText({ text, animate }: { text: string; animate: boolean }) {
   const [revealed, setRevealed] = useState(animate ? 0 : text.length);
   // Once fully revealed (or for non-streaming/historical messages),
@@ -466,17 +483,22 @@ function StreamingMessageText({ text, animate }: { text: string; animate: boolea
   // the plain pre-wrap text so a half-closed **bold** / [link](…) never
   // flickers as malformed markup.
   const done = !animate || revealed >= text.length;
+  const charsPerTick = Math.max(3, Math.ceil(text.length / (REVEAL_TARGET_MS / REVEAL_TICK_MS)));
 
   useEffect(() => {
     if (!animate || revealed >= text.length) return;
-    const id = setTimeout(() => setRevealed(r => Math.min(text.length, r + 2)), 18);
+    const id = setTimeout(() => setRevealed(r => Math.min(text.length, r + charsPerTick)), REVEAL_TICK_MS);
     return () => clearTimeout(id);
-  }, [animate, revealed, text.length]);
+  }, [animate, revealed, text.length, charsPerTick]);
 
   if (done) {
     return <div className="md" dangerouslySetInnerHTML={{ __html: markdownHtml(text) }} />;
   }
-  return <>{renderMessageBody(text.slice(0, revealed))}</>;
+  return (
+    <div onClick={() => setRevealed(text.length)} title="Click to show the full reply now" style={{ cursor: "pointer" }}>
+      {renderMessageBody(text.slice(0, revealed))}
+    </div>
+  );
 }
 
 // The animated Chat canvas needs the theme's surface color as its clear
@@ -756,6 +778,18 @@ export default function App() {
       researchPollRef.current = null;
     }
   }, []);
+  // Real cancel for an in-flight /chat/send — there was no way to stop a
+  // slow/unwanted reply before this (2026-09-06, JuanJo: "we need a way
+  // to stop it"). One controller per turn, replaced (not reused) each
+  // send so an old aborted request can never accidentally cancel a
+  // NEWER one that started after it.
+  const chatAbortControllerRef = useRef<AbortController | null>(null);
+  const stopMessage = useCallback(() => {
+    chatAbortControllerRef.current?.abort();
+    chatAbortControllerRef.current = null;
+    stopResearchPoll();
+    setPendingStep(null);
+  }, [stopResearchPoll]);
 
   // The service worker's push handler (src/sw.ts) writes an incoming
   // message straight to IndexedDB so it's there on the next launch —
@@ -1953,6 +1987,9 @@ export default function App() {
       : "Thinking…";
     if (!asyncJobActive()) setPendingStep(firstStep);
 
+    const controller = new AbortController();
+    chatAbortControllerRef.current = controller;
+
     const handleResponse = (data: { reply?: string; error?: string; async?: boolean; conversation_id?: string; choices?: string[] }) => {
       // Server issues the conversation id on a plain-chat turn (real
       // multi-turn memory, 2026-09-01 — see how_to_handle_context.md);
@@ -1996,6 +2033,7 @@ export default function App() {
     const send = () => fetch(`${NAVI_BACKEND_URL}/chat/send`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
       body: JSON.stringify({
         text, mode: chatModeRef.current,
         ...(activeServerConversationIdRef.current ? { conversation_id: activeServerConversationIdRef.current } : {}),
@@ -2004,7 +2042,13 @@ export default function App() {
 
     send()
       .then(handleResponse)
-      .catch(async () => {
+      .catch(async (err) => {
+        // Deliberate stopMessage() — already cleared pendingStep and
+        // torn down the controller itself, nothing more to do. Without
+        // this check, an aborted request fell into the same "server
+        // must be asleep" retry path below and silently resent the
+        // exact message the user just tried to cancel.
+        if (err instanceof DOMException && err.name === "AbortError") return;
         // First attempt failing usually means the server was asleep and
         // the cold-start request just errored out instead of waiting —
         // poll the health check until it answers, then retry the real
@@ -2020,7 +2064,8 @@ export default function App() {
           }]);
           return;
         }
-        send().then(handleResponse).catch(() => {
+        send().then(handleResponse).catch((err2) => {
+          if (err2 instanceof DOMException && err2.name === "AbortError") return;
           if (!asyncJobActive()) setPendingStep(null);
           setMessages(m => [...m, {
             role: "navi",
@@ -4095,40 +4140,54 @@ export default function App() {
                   {attachments.length > 0 && (
                     <div style={{ display: "flex", flexDirection: "column", gap: spacing.xs, marginTop: spacing.sm }}>
                       {attachments.map(a => (
-                        <div
-                          key={a.filename}
-                          style={{
-                            display: "flex", alignItems: "center", gap: spacing.xs,
-                            padding: `${spacing.xs}px ${spacing.sm}px`, borderRadius: radius.sm,
-                            background: "var(--surface-panel)",
-                            border: "1px solid var(--border-default)",
-                            fontSize: fontSize.xs,
-                          }}
-                        >
-                          <FileIcon size={iconSize.sm} />
-                          <span style={{
-                            flex: 1, overflow: "hidden", textOverflow: "ellipsis",
-                            whiteSpace: "nowrap", color: neutral.textPrimary,
-                          }}>
-                            {a.filename}
-                          </span>
-                          {a.viewUrl && (
+                        isImageLike(a.filename) ? (
+                          // A real inline preview, not just a downloadable
+                          // chip (2026-09-06, JuanJo: "/graph-data DOES not
+                          // show the graph on the chat, it only says it was
+                          // created in filen") — a chart's whole point is to
+                          // be looked at, not filed away.
+                          <a key={a.filename} href={a.downloadUrl} target="_blank" rel="noopener noreferrer" title={a.filename}>
+                            <img
+                              src={a.downloadUrl} alt={a.filename}
+                              style={{ maxWidth: "100%", maxHeight: 360, borderRadius: radius.sm, border: "1px solid var(--border-default)", display: "block" }}
+                            />
+                          </a>
+                        ) : (
+                          <div
+                            key={a.filename}
+                            style={{
+                              display: "flex", alignItems: "center", gap: spacing.xs,
+                              padding: `${spacing.xs}px ${spacing.sm}px`, borderRadius: radius.sm,
+                              background: "var(--surface-panel)",
+                              border: "1px solid var(--border-default)",
+                              fontSize: fontSize.xs,
+                            }}
+                          >
+                            <FileIcon size={iconSize.sm} />
+                            <span style={{
+                              flex: 1, overflow: "hidden", textOverflow: "ellipsis",
+                              whiteSpace: "nowrap", color: neutral.textPrimary,
+                            }}>
+                              {a.filename}
+                            </span>
+                            {a.viewUrl && (
+                              <a
+                                href={a.viewUrl} target="_blank" rel="noopener noreferrer"
+                                title="View" aria-label="View in browser"
+                                style={{ display: "flex", flexShrink: 0, color: neutral.textMuted }}
+                              >
+                                <GlobeIcon size={iconSize.sm} />
+                              </a>
+                            )}
                             <a
-                              href={a.viewUrl} target="_blank" rel="noopener noreferrer"
-                              title="View" aria-label="View in browser"
+                              href={a.downloadUrl} target="_blank" rel="noopener noreferrer"
+                              title="Download" aria-label="Download"
                               style={{ display: "flex", flexShrink: 0, color: neutral.textMuted }}
                             >
-                              <GlobeIcon size={iconSize.sm} />
+                              <DownloadIcon size={iconSize.sm} />
                             </a>
-                          )}
-                          <a
-                            href={a.downloadUrl} target="_blank" rel="noopener noreferrer"
-                            title="Download" aria-label="Download"
-                            style={{ display: "flex", flexShrink: 0, color: neutral.textMuted }}
-                          >
-                            <DownloadIcon size={iconSize.sm} />
-                          </a>
-                        </div>
+                          </div>
+                        )
                       ))}
                     </div>
                   )}
@@ -4737,9 +4796,9 @@ export default function App() {
             }}
           />
           <button
-            onClick={() => sendMessage()}
-            aria-label="Send"
-            title="Send"
+            onClick={() => (pendingStep ? stopMessage() : sendMessage())}
+            aria-label={pendingStep ? "Stop" : "Send"}
+            title={pendingStep ? "Stop generating" : "Send"}
             style={{
               width: controlSize.md, height: controlSize.md, flexShrink: 0,
               display: "flex", alignItems: "center", justifyContent: "center",
@@ -4750,7 +4809,11 @@ export default function App() {
               // 2026-09-01: "glow with the same color as the Chat mode
               // in here, but a bit brighter than the selected mode
               // color"). Reverses the 2026-08-31 "neutral, not
-              // mode-colored" call for this specific button.
+              // mode-colored" call for this specific button. Stop
+              // (2026-09-06, JuanJo: "we need a way to stop it") reuses
+              // the exact same button/position rather than a second
+              // control — send and stop are never both meaningful at
+              // once, so there's nothing to gain from two buttons.
               border: `1px solid oklch(75% 0.14 ${OKLCH_HUE[chatMode]} / 0.5)`,
               cursor: "pointer",
               background: `oklch(75% 0.14 ${OKLCH_HUE[chatMode]} / 0.18)`,
@@ -4759,7 +4822,7 @@ export default function App() {
               transition: "all 0.3s cubic-bezier(0.22, 1, 0.36, 1)",
             }}
           >
-            <PaperAirplaneIcon size={iconSize.md} />
+            {pendingStep ? <XIcon size={iconSize.md} /> : <PaperAirplaneIcon size={iconSize.md} />}
           </button>
         </div>
 

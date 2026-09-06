@@ -14,3 +14,8 @@ const TEXT_LIKE_EXTENSIONS = ["txt", "js", "ts", "tsx", "jsx", "py", "css", "htm
 export function isTextLike(name: string): boolean {
   return TEXT_LIKE_EXTENSIONS.includes(extensionOf(name));
 }
+
+const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "svg"];
+export function isImageLike(name: string): boolean {
+  return IMAGE_EXTENSIONS.includes(extensionOf(name));
+}
