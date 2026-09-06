@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState } from "react";
 import {
   XIcon, MarkGithubIcon, MailIcon, ChecklistIcon, CommentDiscussionIcon, NoteIcon,
-  LinkIcon, CheckCircleFillIcon, PlusIcon, SearchIcon,
+  LinkIcon, CheckCircleFillIcon, PlusIcon, SearchIcon, CalendarIcon, FileDirectoryIcon,
 } from "@primer/octicons-react";
 import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, status } from "./tokens";
 import {
@@ -46,9 +46,25 @@ const CORE_SERVICES: { id: string; label: string; icon: typeof MarkGithubIcon; c
     oauth: true,
   },
   {
-    id: "google-workspace", label: "Google Workspace", icon: MailIcon,
-    credentialsUrl: "https://myaccount.google.com/permissions",
-    description: "No single official MCP server yet — paste your own once you have one.",
+    id: "gmail", label: "Gmail", icon: MailIcon,
+    credentialsUrl: "https://console.cloud.google.com/apis/credentials",
+    defaultUrl: "https://gmailmcp.googleapis.com/mcp/v1",
+    description: "Google's own official hosted MCP server — needs a one-time OAuth client set up in Google Cloud Console first (see setup guide).",
+    oauth: true,
+  },
+  {
+    id: "calendar", label: "Google Calendar", icon: CalendarIcon,
+    credentialsUrl: "https://console.cloud.google.com/apis/credentials",
+    defaultUrl: "https://calendarmcp.googleapis.com/mcp/v1",
+    description: "Google's own official hosted MCP server — needs a one-time OAuth client set up in Google Cloud Console first (see setup guide).",
+    oauth: true,
+  },
+  {
+    id: "drive", label: "Google Drive", icon: FileDirectoryIcon,
+    credentialsUrl: "https://console.cloud.google.com/apis/credentials",
+    defaultUrl: "https://drivemcp.googleapis.com/mcp/v1",
+    description: "Google's own official hosted MCP server — needs a one-time OAuth client set up in Google Cloud Console first (see setup guide).",
+    oauth: true,
   },
   {
     id: "jira", label: "Jira", icon: ChecklistIcon,
