@@ -81,6 +81,7 @@ import { fetchModelCatalog, setPinnedModel, type ModelCatalog, type ModelCandida
 import { AgentWorkNewWorkflowForm } from "./AgentWorkNewWorkflowForm";
 import { ChoiceButtons } from "./ChoiceButtons";
 import { AgentWorkGraphEditor, type AgentWorkSeed } from "./AgentWorkGraphEditor";
+import { BrowserPane } from "./BrowserPane";
 
 const DOT_SIZE = 8;
 
@@ -1102,7 +1103,12 @@ export default function App() {
   // Chat canvas's right panel is tabbed (Sources / Commands) — the other
   // canvases (Agent Work, Dev Slate) have their own fixed, non-tabbed
   // right-panel content, so this only matters when activeCanvas==="chat".
-  const [rightPanelTab, setRightPanelTab] = useState<"sources" | "commands">("sources");
+  const [rightPanelTab, setRightPanelTab] = useState<"sources" | "commands" | "browser">("sources");
+  // Dev Slate's right sidebar had no tab strip at all before this
+  // (2026-09-06) — a separate piece of state from rightPanelTab above
+  // since the two canvases' tabs don't share a value set (Sources/
+  // Commands only ever make sense for Chat).
+  const [devSlateRightTab, setDevSlateRightTab] = useState<"slate" | "browser">("slate");
   // Left sidebar's own open/closed state, desktop only — mirrors
   // rightPanelOpen, but defaults to true (the panel starts visible,
   // same as it always was before this existed) rather than false.
@@ -3316,20 +3322,40 @@ export default function App() {
                 </button>
               </div>
             ) : activeCanvas === "devSlate" ? (
-              // Same plain-label shape as Agent Work above — Task
-              // State/Change History are two stacked sections (like
-              // Schedule/Run History), not tabs, so there's nothing to
-              // switch between up here.
-              <span style={{ fontSize: sidebarTab.fontSize, fontWeight: sidebarTab.fontWeight, color: sidebarTab.activeColor, fontFamily }}>
-                Dev Slate
-              </span>
+              // Slate / Browser tab strip (2026-09-06) — Dev Slate's
+              // right sidebar had no tabs at all before this; Task
+              // State/Change History (the "Slate" tab) stay a stacked
+              // pair underneath it, same as before, now just one of two
+              // choices instead of the only content. JuanJo: "wire the
+              // true browser... in dev slate too... its own tab."
+              <div style={{ display: "flex", alignItems: "center", gap: sidebarTab.gap }}>
+                {(["slate", "browser"] as const).map(tab => {
+                  const active = devSlateRightTab === tab;
+                  return (
+                    <button
+                      key={tab}
+                      onClick={() => setDevSlateRightTab(tab)}
+                      style={{
+                        padding: `${sidebarTab.paddingV}px ${sidebarTab.paddingH}px`,
+                        fontSize: sidebarTab.fontSize, fontWeight: sidebarTab.fontWeight, fontFamily,
+                        letterSpacing: "0.04em",
+                        color: active ? sidebarTab.activeColor : sidebarTab.inactiveColor,
+                        background: active ? sidebarTab.activeBg : "transparent",
+                        border: "none", borderRadius: `${sidebarTab.radius}px`, cursor: "pointer",
+                      }}
+                    >
+                      {tab === "slate" ? "SLATE" : "BROWSER"}
+                    </button>
+                  );
+                })}
+              </div>
             ) : (
-            // Sources / Commands tab strip (2026-09-06) — Commands moved
+            // Sources / Commands / Browser tab strip (Commands moved
             // here from the above-input popover since /commands only
             // ever apply to Chat canvas anyway, same reasoning the right
-            // panel itself is Chat-scoped for.
+            // panel itself is Chat-scoped for; Browser added 2026-09-06).
             <div style={{ display: "flex", alignItems: "center", gap: sidebarTab.gap }}>
-              {(["sources", "commands"] as const).map(tab => {
+              {(["sources", "commands", "browser"] as const).map(tab => {
                 const active = rightPanelTab === tab;
                 return (
                   <button
@@ -3344,7 +3370,7 @@ export default function App() {
                       border: "none", borderRadius: `${sidebarTab.radius}px`, cursor: "pointer",
                     }}
                   >
-                    {tab === "sources" ? "SOURCES" : "COMMANDS"}
+                    {tab === "sources" ? "SOURCES" : tab === "commands" ? "COMMANDS" : "BROWSER"}
                   </button>
                 );
               })}
@@ -3379,6 +3405,8 @@ export default function App() {
               top={{ id: "workflows", label: "Workflows", content: <AgentWorkWorkflows onNewWorkflow={e => togglePanel("newWorkflow", e.currentTarget)} onViewInCanvas={setChatCreatedWorkflowId} /> }}
               bottom={{ id: "run-history", label: "Run History", content: <AgentWorkRunHistory /> }}
             />
+          ) : activeCanvas === "devSlate" && devSlateRightTab === "browser" ? (
+            <BrowserPane storageKey="navi_browser_devslate" accentColor={CANVAS_ACCENT.devSlate.color} />
           ) : activeCanvas === "devSlate" ? (
             /* Task State (primary) over Change History (secondary) —
                same resizable+collapsible shape as Agent Work's
@@ -3713,6 +3741,9 @@ export default function App() {
                 <PromptVault onUse={template => setDraft(d => (d ? d + "\n" : "") + template)} />
               </div>
             </div>
+          )}
+          {rightPanelTab === "browser" && (
+            <BrowserPane storageKey="navi_browser_chat" accentColor={CANVAS_ACCENT.chat.color} />
           )}
           </div>
           </Panel>
