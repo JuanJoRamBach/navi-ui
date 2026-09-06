@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "navi-server",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["server.py"],
+      "port": 10000
+    },
+    {
+      "name": "navi-pwa-preview",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 8443
+    }
+  ]
+}
