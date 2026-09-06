@@ -1,18 +1,17 @@
 import { Fragment, useEffect, useState } from "react";
 import {
   XIcon, MarkGithubIcon, MailIcon, ChecklistIcon, CommentDiscussionIcon, NoteIcon,
-  LinkIcon, CheckCircleFillIcon, PlusIcon, SearchIcon, CalendarIcon, FileDirectoryIcon,
+  LinkIcon, CheckCircleFillIcon, PlusIcon, CalendarIcon, FileDirectoryIcon,
 } from "@primer/octicons-react";
 import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, status } from "./tokens";
 import {
-  listMCPConnections, createMCPConnection, connectMCP, deleteMCPConnection, searchMCPMarketplace, startMCPOAuth,
-  type MCPConnection, type MCPMarketplaceResult,
+  listMCPConnections, createMCPConnection, connectMCP, deleteMCPConnection, startMCPOAuth,
+  type MCPConnection,
 } from "./mcpConnections";
 
-// A connect target — either one of the hand-verified CORE_SERVICES below,
-// or a live MCP Registry search result. credentialsUrl, when present, is
-// where to get a token from — the service's own settings page for a Core
-// entry, the result's repository link for a Browse result.
+// A connect target — one of the hand-verified CORE_SERVICES below.
+// credentialsUrl, when present, is where to get a token/set up
+// credentials — the service's own settings/console page.
 interface ConnectTarget { id: string; label: string; credentialsUrl?: string }
 
 // The full-screen "over all the UI" overlay JuanJo asked for — Profile
@@ -27,16 +26,20 @@ interface ConnectTarget { id: string; label: string; credentialsUrl?: string }
 // before connecting, but it's the wrong mechanism for a "quick, trusted
 // connect" section. Only GitHub has a real, documented, first-party
 // hosted MCP endpoint NAVI can pre-fill with confidence
-// (api.githubcopilot.com); the other four have no single verified
-// official server, so they show with no pre-filled URL — the user pastes
-// their own once they've found the real one, same honest gap the
-// original SERVICE_CATALOG design already had.
+// (api.githubcopilot.com), same for Gmail/Calendar/Drive (Google's own
+// hosted MCP servers). Jira/Slack/Notion have no single verified official
+// server, so they show with no pre-filled URL — the user pastes their
+// own once they've found the real one, same honest gap the original
+// SERVICE_CATALOG design already had.
 //
-// Also real: the MCP Registry's own schema has no icon/logo field at all
-// (checked against a live response) — a Browse result can only ever get
-// a generic monogram, never a real brand icon. Core's icons are real
-// because these five are hardcoded, not because the registry provided
-// them.
+// The Browse/marketplace search (general MCP Registry lookup) was
+// removed 2026-09-06 — JuanJo's own call, real usage showed it never
+// surfaced anything actually useful. Core services (real, hardcoded,
+// verified servers) is the only way to connect now; a user who wants
+// something not listed here pastes its URL in via a Core entry's own
+// form once one exists, or this list grows by hand as real official
+// servers get found — same discipline that put Gmail/Calendar/Drive
+// here in the first place.
 const CORE_SERVICES: { id: string; label: string; icon: typeof MarkGithubIcon; credentialsUrl: string; defaultUrl?: string; description: string; oauth?: boolean }[] = [
   {
     id: "github", label: "GitHub", icon: MarkGithubIcon,
@@ -85,10 +88,6 @@ const CORE_SERVICES: { id: string; label: string; icon: typeof MarkGithubIcon; c
 
 const CARD_BG = "var(--surface-panel)";
 const CARD_BORDER = "1px solid var(--border-default)";
-
-function monogram(title: string): string {
-  return (title.trim()[0] || "?").toUpperCase();
-}
 
 function ConnectForm({ serviceLabel, credentialsUrl, credentialsLabel = "repository", initial, onCancel, onSubmit, submitting, error }: {
   serviceLabel: string; credentialsUrl?: string;
@@ -256,45 +255,8 @@ export function ConnectionsOverlay({ onClose, oauthResult, onDismissOauthResult 
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  // General Browse search (2026-09-04) — live, debounced, no button/Enter
-  // required (JuanJo: "it should automatically update as I write").
-  const [marketplaceQuery, setMarketplaceQuery] = useState("");
-  const [marketplaceResults, setMarketplaceResults] = useState<MCPMarketplaceResult[] | null>(null);
-  const [marketplaceSearching, setMarketplaceSearching] = useState(false);
-  // Cursor-based pagination (2026-09-04, live feedback: "the browse has
-  // no sections to filter, shows 11 random MCPs... and doesn't show
-  // more") — an empty query returns the registry's most-recently-
-  // published entries, not a curated or ranked list, so there's no
-  // natural stopping point short of a real "Load more."
-  const [marketplaceNextCursor, setMarketplaceNextCursor] = useState<string | null>(null);
-  const [marketplaceLoadingMore, setMarketplaceLoadingMore] = useState(false);
-
   const refresh = () => { listMCPConnections().then(setConnections).catch(() => setConnections([])); };
   useEffect(refresh, []);
-
-  const runMarketplaceSearch = async (query: string, append = false) => {
-    if (append) setMarketplaceLoadingMore(true); else setMarketplaceSearching(true);
-    try {
-      const { results, next_cursor } = await searchMCPMarketplace(query, append ? marketplaceNextCursor : null);
-      setMarketplaceResults(prev => (append && prev ? [...prev, ...results] : results));
-      setMarketplaceNextCursor(next_cursor);
-    } catch {
-      if (!append) setMarketplaceResults([]);
-    } finally {
-      if (append) setMarketplaceLoadingMore(false); else setMarketplaceSearching(false);
-    }
-  };
-
-  // Debounced live search — fires 400ms after the last keystroke,
-  // including once immediately on mount (empty query), which is what
-  // populates the section with real results before the user types
-  // anything at all. A fresh query always replaces (append=false),
-  // resetting pagination.
-  useEffect(() => {
-    const handle = setTimeout(() => { runMarketplaceSearch(marketplaceQuery.trim()); }, 400);
-    return () => clearTimeout(handle);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [marketplaceQuery]);
 
   const byName = new Map(connections?.map(c => [c.name, c]) ?? []);
 
@@ -436,37 +398,6 @@ export function ConnectionsOverlay({ onClose, oauthResult, onDismissOauthResult 
     );
   };
 
-  const renderResult = (result: MCPMarketplaceResult, icon: React.ReactNode) => {
-    const target: ConnectTarget = { id: result.name, label: result.title, credentialsUrl: result.repository_url ?? undefined };
-    const isOpen = openFormFor === result.name;
-    // A plain wrapping <div> here would make grid-column a no-op — that
-    // CSS property only does anything on a DIRECT child of the grid
-    // container, and a wrapper would put one level between them. Fragment
-    // keeps both RegistryCard and (when open) ConnectForm as real direct
-    // grid children, so ConnectForm's own "span both columns" style
-    // actually takes effect instead of being squeezed into one column.
-    return (
-      <Fragment key={result.name}>
-        <RegistryCard
-          icon={icon} title={result.title} description={result.description}
-          hostedLabel="Hosted" requiresAuth={result.requires_auth}
-          connection={byName.get(result.name)} spanFull={isOpen}
-          onOpenForm={() => { setOpenFormFor(result.name); setFormError(null); }}
-          onDisconnect={() => handleDisconnect(result.name)}
-        />
-        {isOpen && (
-          <ConnectForm
-            serviceLabel={result.title} credentialsUrl={result.repository_url ?? undefined}
-            initial={{ url: result.url }}
-            submitting={submitting} error={formError}
-            onCancel={() => setOpenFormFor(null)}
-            onSubmit={form => handleConnect(target, form)}
-          />
-        )}
-      </Fragment>
-    );
-  };
-
   const gridStyle: React.CSSProperties = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: spacing.xs };
 
   return (
@@ -537,58 +468,6 @@ export function ConnectionsOverlay({ onClose, oauthResult, onDismissOauthResult 
                 </div>
               </div>
 
-              <div>
-                <div style={{ fontSize: fontSize.xxs, fontWeight: fontWeight.medium, color: neutral.textMuted, letterSpacing: "0.04em", marginBottom: spacing.xs }}>
-                  BROWSE — MCP REGISTRY
-                </div>
-                <div style={{ position: "relative", marginBottom: spacing.xs }}>
-                  <span style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", display: "flex" }}>
-                    <SearchIcon size={11} fill={neutral.textFaint} />
-                  </span>
-                  <input
-                    value={marketplaceQuery}
-                    onChange={e => setMarketplaceQuery(e.target.value)}
-                    placeholder="Search — e.g. jira, asana, linear… (updates as you type)"
-                    style={{
-                      width: "100%", background: "rgba(255,255,255,0.04)", border: "1px solid var(--border-default)",
-                      borderRadius: radius.xs, color: neutral.textPrimary, fontSize: fontSize.xs, fontFamily,
-                      padding: `${spacing.xxs}px ${spacing.xs}px ${spacing.xxs}px 26px`, boxSizing: "border-box",
-                    }}
-                  />
-                </div>
-                {marketplaceResults === null ? (
-                  <div style={{ fontSize: fontSize.xxs, color: neutral.textFaint, padding: `${spacing.xs}px 0` }}>
-                    {marketplaceSearching ? "Searching…" : "Loading…"}
-                  </div>
-                ) : marketplaceResults.length === 0 ? (
-                  <div style={{ fontSize: fontSize.xxs, color: neutral.textFaint, padding: `${spacing.xs}px 0` }}>No results.</div>
-                ) : (
-                  <>
-                    {!marketplaceQuery.trim() && (
-                      <div style={{ fontSize: fontSize.xxs, color: neutral.textFaint, marginBottom: spacing.xs }}>
-                        Recently published on the registry — not curated or ranked, search above for something specific.
-                      </div>
-                    )}
-                    <div style={gridStyle}>
-                      {marketplaceResults.map(result => renderResult(result, <span>{monogram(result.title)}</span>))}
-                    </div>
-                    {marketplaceNextCursor && (
-                      <button
-                        onClick={() => runMarketplaceSearch(marketplaceQuery.trim(), true)}
-                        disabled={marketplaceLoadingMore}
-                        style={{
-                          marginTop: spacing.xs, width: "100%", padding: `${spacing.xs}px`, borderRadius: radius.xs,
-                          border: "1px solid var(--border-default)", background: "transparent", color: neutral.textMuted,
-                          cursor: marketplaceLoadingMore ? "default" : "pointer", fontSize: fontSize.xxs, fontFamily,
-                          opacity: marketplaceLoadingMore ? 0.6 : 1,
-                        }}
-                      >
-                        {marketplaceLoadingMore ? "Loading…" : "Load more"}
-                      </button>
-                    )}
-                  </>
-                )}
-              </div>
             </>
           )}
         </div>
