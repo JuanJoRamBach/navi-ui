@@ -10,6 +10,20 @@ export interface WorkflowGraphNode {
   prompt?: string;
   role?: string;
   tools?: string[];
+  // Real discriminator (2026-09-06) — dispatcher/agent_work.py's
+  // _run_node checks this first, falling back to `tools` for a node
+  // saved before this existed. Only "send_email" needs it from the
+  // canvas today; the rest still convert via the legacy `tools` shape.
+  kind?: string;
+  // send_email only: recipient(s) (comma-separated for multiple) and the
+  // real HTML/plain body. Either can be a literal, OR the literal string
+  // "{{state.<node_id>}}" to reuse an earlier node's real output — the
+  // visual editor only ever sets/reads a literal `to`; `body` comes from
+  // an inlined Write Text node or an upstream edge, same convention
+  // NEEDS_INLINE_TEXT kinds (agentWorkGraphConvert.ts) already use.
+  to?: string;
+  body?: string;
+  subject?: string;
   // Only meaningful on an Output node — "pdf" renders its text to a real
   // PDF file (dispatcher/agent_work.py's _run_output_node), which a
   // following send_to_telegram step sends as an attachment.

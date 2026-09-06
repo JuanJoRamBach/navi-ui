@@ -14,13 +14,22 @@ import { neutral } from "./tokens";
 // through.
 const BACKEND_READY: Record<NodeKindId, boolean> = {
   writeText: true, generateAi: true, searchWeb: true, readPage: true,
-  saveFile: true, sendMessage: true, apiCall: false, sendMail: false, choosePath: true,
+  saveFile: true, sendMessage: true, apiCall: false, sendMail: true, choosePath: true,
   input: true, output: true,
 };
 
 const TOOL_FOR_KIND: Partial<Record<NodeKindId, string>> = {
   searchWeb: "web_search", readPage: "fetch_page", saveFile: "save_note", sendMessage: "send_to_telegram",
   input: "input", output: "output", choosePath: "choose_path",
+};
+
+// Kinds that map to the real `kind` discriminator (dispatcher/
+// agent_work.py's _run_node checks this first) plus their own
+// structured fields, rather than the legacy `tools: [name]` shape
+// TOOL_FOR_KIND produces — send_email needs to/body/subject, which a
+// bare tool name has no room for.
+const BACKEND_KIND_FOR_NODE_KIND: Partial<Record<NodeKindId, string>> = {
+  sendMail: "send_email",
 };
 
 export interface GraphConversionResult {
@@ -82,6 +91,22 @@ export function convertGraphToBackend(
     .filter(n => !writeTextIds.has(n.id))
     .map(n => {
       const { kindId, values } = n.data;
+      const backendKind = BACKEND_KIND_FOR_NODE_KIND[kindId];
+      if (backendKind) {
+        // send_email today — real structured fields, not a bare prompt.
+        // `body` comes from an inlined Write Text box or an upstream
+        // edge (same NEEDS_INLINE_TEXT convention sendMessage/saveFile
+        // already use below), never a field on this node itself, so it's
+        // simply omitted when there's no inlined text — the backend's
+        // own `body or prior_context` fallback (dispatcher/agent_work.py)
+        // picks up a real upstream edge's output at run time.
+        const inlined = literalTextByTarget.get(n.id);
+        return {
+          id: n.id, kind: backendKind,
+          to: values.to ?? "", ...(values.subject ? { subject: values.subject } : {}),
+          ...(inlined ? { body: inlined } : {}),
+        };
+      }
       let prompt =
         kindId === "generateAi" ? (values.instructions ?? "") :
         kindId === "searchWeb" ? (values.instructions ?? "") :
@@ -115,9 +140,19 @@ export function convertGraphToBackend(
   // confusing empty send later.
   for (const n of backendNodes) {
     const kindId = nodes.find(x => x.id === n.id)!.data.kindId;
+    if (kindId === "sendMail") {
+      if (!("to" in n && n.to?.trim())) {
+        errors.push(`"Send Mail To" needs a recipient address.`);
+      }
+      const hasIncoming = backendEdges.some(e => e.to === n.id);
+      if (!("body" in n && n.body) && !hasIncoming) {
+        errors.push(`"Send Mail To" has no body — connect a Write Text/Generate with AI node, or type something in it.`);
+      }
+      continue;
+    }
     const isActionKind = kindId === "sendMessage" || kindId === "saveFile" || kindId === "input" || kindId === "output";
     const hasIncoming = backendEdges.some(e => e.to === n.id);
-    if (isActionKind && !n.prompt.trim() && !hasIncoming) {
+    if (isActionKind && !("prompt" in n && n.prompt?.trim()) && !hasIncoming) {
       errors.push(`"${NODE_KINDS[kindId].label}" has no content — connect a Write Text/Generate with AI node, or type something in it.`);
     }
     // A Choose a Path node with no labeled outgoing edge has nothing for
@@ -156,13 +191,20 @@ const KIND_FOR_TOOL: Partial<Record<string, NodeKindId>> = {
   send_to_telegram: "sendMessage", input: "input", output: "output", choose_path: "choosePath",
 };
 
-// sendMessage/saveFile have no text field of their own on the canvas
-// (their real content always arrives via an inlined Write Text node or an
-// upstream step — see convertGraphToBackend's own inlining logic above);
-// a backend node using one of these tools with a real literal prompt
-// needs that same Write Text node synthesized back in, not a value these
-// kinds have nowhere to hold.
-const NEEDS_INLINE_TEXT = new Set<NodeKindId>(["sendMessage", "saveFile"]);
+// Reverse of BACKEND_KIND_FOR_NODE_KIND above — a node using the real
+// `kind` discriminator (not the legacy `tools` list) maps back via its
+// own value, checked separately from KIND_FOR_TOOL.
+const CANVAS_KIND_FOR_BACKEND_KIND: Partial<Record<string, NodeKindId>> = {
+  send_email: "sendMail",
+};
+
+// sendMessage/saveFile/sendMail have no text field of their own on the
+// canvas (their real content always arrives via an inlined Write Text
+// node or an upstream step — see convertGraphToBackend's own inlining
+// logic above); a backend node using one of these with real literal
+// content needs that same Write Text node synthesized back in, not a
+// value these kinds have nowhere to hold.
+const NEEDS_INLINE_TEXT = new Set<NodeKindId>(["sendMessage", "saveFile", "sendMail"]);
 
 const EDGE_STYLE = { stroke: neutral.textPrimary, strokeWidth: 3 };
 
@@ -203,9 +245,16 @@ export function convertBackendToGraph(graph: WorkflowGraph): { nodes: Node<Agent
 
   graph.nodes.forEach((n, i) => {
     const tools = n.tools ?? [];
-    const kindId: NodeKindId = tools.length === 1 && KIND_FOR_TOOL[tools[0]] ? KIND_FOR_TOOL[tools[0]]! : "generateAi";
+    const kindId: NodeKindId =
+      n.kind && CANVAS_KIND_FOR_BACKEND_KIND[n.kind] ? CANVAS_KIND_FOR_BACKEND_KIND[n.kind]! :
+      tools.length === 1 && KIND_FOR_TOOL[tools[0]] ? KIND_FOR_TOOL[tools[0]]! : "generateAi";
     const x = 40 + i * X_STEP;
     const prompt = n.prompt ?? "";
+    // send_email's real content lives in `body`, not `prompt` — this is
+    // the one kind whose "content-equivalent source" (used both as this
+    // node's own values AND as what gets inlined into a synthesized
+    // Write Text box below) isn't the shared `prompt` field.
+    const contentSource = kindId === "sendMail" ? (n.body ?? "") : prompt;
     const values: Record<string, string> =
       kindId === "readPage" ? { url: prompt } :
       kindId === "input" ? { value: prompt } :
@@ -213,13 +262,14 @@ export function convertBackendToGraph(graph: WorkflowGraph): { nodes: Node<Agent
       kindId === "choosePath" ? { condition: prompt } :
       kindId === "sendMessage" ? { channel: "telegram" } :
       kindId === "saveFile" ? {} :
+      kindId === "sendMail" ? { to: n.to ?? "", subject: n.subject ?? "" } :
       { instructions: prompt }; // generateAi, searchWeb
 
     nodes.push({ id: n.id, type: "agentWorkNode", position: { x, y: Y_MAIN }, data: { kindId, values } });
 
-    if (NEEDS_INLINE_TEXT.has(kindId) && prompt && !nodesWithRealPredecessor.has(n.id)) {
+    if (NEEDS_INLINE_TEXT.has(kindId) && contentSource && !nodesWithRealPredecessor.has(n.id)) {
       const textId = `${n.id}-text`;
-      nodes.push({ id: textId, type: "agentWorkNode", position: { x, y: Y_MAIN - 160 }, data: { kindId: "writeText", values: { text: prompt } } });
+      nodes.push({ id: textId, type: "agentWorkNode", position: { x, y: Y_MAIN - 160 }, data: { kindId: "writeText", values: { text: contentSource } } });
       edges.push({ id: `e-${textId}-${n.id}`, source: textId, target: n.id, animated: false, style: EDGE_STYLE });
     }
   });
