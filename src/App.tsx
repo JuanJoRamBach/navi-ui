@@ -37,6 +37,7 @@ import {
   MoonIcon,
   CommentIcon,
   SparkleFillIcon,
+  TrashIcon,
   // Reserved for the future step-log UI (not built yet — no host for
   // these until the fairy-animation research mode exists to pair with):
   // SearchIcon, SyncIcon
@@ -75,7 +76,7 @@ import { ConnectionsOverlay } from "./ConnectionsOverlay";
 import { AgentVault } from "./AgentVault";
 import { PromptVault } from "./PromptVault";
 import { TRUSTED_SOURCES_CHANGED_EVENT, addTrustedSite, listTrustedSites, removeTrustedSite } from "./trustedSources";
-import { getBatchStatus, getSourceDocument, listSourceDocuments, reviewSourceDocument, startBatchDispatch, type SourceDocument } from "./sources";
+import { deleteSourceDocument, getBatchStatus, getSourceDocument, listSourceDocuments, reviewSourceDocument, startBatchDispatch, type SourceDocument } from "./sources";
 import { AgentChat, type PendingAgentInput } from "./AgentChat";
 import { AgentWorkRunHistory } from "./AgentWorkRunHistory";
 import { fetchModelCatalog, setPinnedModel, type ModelCatalog, type ModelCandidate } from "./devslate";
@@ -1148,13 +1149,67 @@ export default function App() {
   // dragged/imported in — that's what lets DocumentViewer render real
   // PDF/DOCX/Markdown instead of a placeholder. Mock entries (the seed
   // list below) simply don't have one.
-  type FileNode = { name: string; type: "file" | "folder"; children?: FileNode[]; file?: File };
+  // sourceDocId marks a node as a real accepted Sources-tab document
+  // rather than a Files-tab entry — the "Sources" root folder's contents
+  // are computed live from sourceDocuments (see acceptedSourceNodes
+  // below), not stored in this tree at all, so accepting/rejecting a
+  // document elsewhere is reflected here without any extra plumbing.
+  // Declared here (earlier than the rest of the Sources tab's own state
+  // further below) because the Library tab's "Sources" folder needs it
+  // for acceptedSourceNodes, computed right below, before currentFolder
+  // is defined — everything else Sources-related (chips, trusted sites,
+  // batch polling, review/delete handlers) stays where it naturally
+  // belongs, near the Sources tab's own render code.
+  const [sourceDocuments, setSourceDocuments] = useState<SourceDocument[]>([]);
+  type FileNode = { name: string; type: "file" | "folder"; children?: FileNode[]; file?: File; sourceDocId?: string };
+  // Real accepted Sources documents, shaped as FileNode leaves — the
+  // Library tab's "Sources" folder shows these instead of any locally-
+  // stored tree data (2026-09-06, JuanJo: "the accepted documents should
+  // be shown on library, under a 'sources' folder"). sourceDocId is what
+  // openFile below checks to route the click to handleOpenSourceDocument
+  // (a real server fetch) instead of the generic local-file-open path.
+  const acceptedSourceNodes = useMemo<FileNode[]>(() => (
+    sourceDocuments
+      .filter(d => d.status === "accepted")
+      .map(d => ({ name: `${d.title}.md`, type: "file" as const, sourceDocId: d.id }))
+  ), [sourceDocuments]);
+  const [openingSourceDocId, setOpeningSourceDocId] = useState<string | null>(null);
+  // Opens a source document's real saved content in the existing
+  // right-panel viewer (openDocument/viewerPane, same mechanism every
+  // other document type in this app already uses) — 2026-09-06, JuanJo:
+  // "I can't see the documents it created, so I can't review them." A
+  // synthetic File wraps the fetched markdown text so DocumentViewer's
+  // existing MarkdownView (marked + DOMPurify) renders it as real HTML
+  // instead of showing raw **/[[ markdown syntax. Declared here (rather
+  // than near the rest of the Sources tab's state) because openFile
+  // below — the Library tab's own click handler — needs to call this
+  // too, for a FileNode with a sourceDocId.
+  const handleOpenSourceDocument = useCallback((doc: SourceDocument) => {
+    setOpeningSourceDocId(doc.id);
+    const filename = `${doc.title || "source"}.md`;
+    getSourceDocument(doc.id)
+      .then(full => {
+        const text = full.content ?? `*Content unavailable for this document — it was never saved to storage.*\n\nSource: ${doc.url}`;
+        setOpenDocument({ name: filename, file: new File([text], filename, { type: "text/markdown" }), content: "" });
+      })
+      .catch(() => {
+        setOpenDocument({
+          name: filename,
+          file: new File(["*Couldn't load this document — NAVI may be unreachable.*"], filename, { type: "text/markdown" }),
+          content: "",
+        });
+      })
+      .finally(() => setOpeningSourceDocId(null));
+  }, []);
   const [fileTree, setFileTree] = useState<FileNode[]>([
-    { name: "Sources", type: "folder", children: [
-      { name: "local-first-sync.pdf", type: "file" },
-      { name: "crdts-hard-parts.mp4", type: "file" },
-      { name: "convergent-replicated.pdf", type: "file" },
-    ] },
+    // Real children now (2026-09-06, JuanJo: "the 'library' tab has
+    // placeholders... the accepted documents should be shown on
+    // library, under a 'sources' folder") — this used to seed 3 fake
+    // mock entries with no real file behind them. Left empty here on
+    // purpose: currentFolder below overrides this folder's contents
+    // with acceptedSourceNodes whenever it's the active path, so
+    // anything seeded here would never actually be seen.
+    { name: "Sources", type: "folder", children: [] },
     { name: "Research", type: "folder", children: [
       { name: "competitor-pricing.xlsx", type: "file" },
       { name: "market-notes.md", type: "file" },
@@ -1166,13 +1221,17 @@ export default function App() {
   ]);
   const [filePath, setFilePath] = useState<string[]>([]);
   const currentFolder = useMemo(() => {
+    // The one folder in this tree that isn't really local — its
+    // contents are the real, server-backed accepted Sources documents,
+    // not anything stored in fileTree's own state.
+    if (filePath.length === 1 && filePath[0] === "Sources") return acceptedSourceNodes;
     let node: FileNode[] = fileTree;
     for (const segment of filePath) {
       const match = node.find(n => n.name === segment && n.type === "folder");
       node = match?.children ?? [];
     }
     return node;
-  }, [fileTree, filePath]);
+  }, [fileTree, filePath, acceptedSourceNodes]);
   // Adds a new folder into whatever node currentFolder currently points
   // at, by walking the same path again — client-side only, no
   // dispatcher yet, but a real state mutation rather than a decorative
@@ -1236,6 +1295,14 @@ export default function App() {
   const [openDocument, setOpenDocument] = useState<{ name: string; file?: File; content: string } | null>(null);
   const [viewerExpanded, setViewerExpanded] = useState(false);
   const openFile = useCallback((node: FileNode) => {
+    // A node from the Library tab's "Sources" folder — route to the
+    // real server-backed fetch instead of the generic local-file-open
+    // path below, which has no way to reach this document's actual
+    // content (it isn't a local File object, isn't mock text either).
+    if (node.sourceDocId) {
+      const doc = sourceDocuments.find(d => d.id === node.sourceDocId);
+      if (doc) { handleOpenSourceDocument(doc); return; }
+    }
     setOpenDocument({
       name: node.name,
       file: node.file,
@@ -1245,7 +1312,7 @@ export default function App() {
           ? `Mock content for ${node.name} — this is a seed entry with no real file behind it. Import a real file (drag it into Files) to see actual content. Editable in memory only either way; nothing persists past a reload.`
           : "",
     });
-  }, []);
+  }, [sourceDocuments, handleOpenSourceDocument]);
   // Real file import — drag a file from the OS onto the Files tab, or
   // click Import. Gives the browser a real File object client-side, no
   // backend/upload needed at all — that's what lets DocumentViewer
@@ -1291,7 +1358,8 @@ export default function App() {
   // app-wide for now, not per-chat). Polls while a batch is running
   // (server.py has no push/websocket for this yet, same reasoning
   // /research's own status poll uses), stops itself once done/errored.
-  const [sourceDocuments, setSourceDocuments] = useState<SourceDocument[]>([]);
+  // (sourceDocuments itself is declared earlier, near the file tree —
+  // acceptedSourceNodes there needs it before this point in render order.)
   // Distinct terms actually present in sourceDocuments, most-recent-first
   // (sourceDocuments itself is already newest-first from the backend) —
   // the document LIST's own grouping, independent of sourceChips (the
@@ -1337,30 +1405,8 @@ export default function App() {
   const handleReviewSource = (id: string, status: "accepted" | "rejected") => {
     reviewSourceDocument(id, status).then(() => refreshSourceDocuments());
   };
-  const [openingSourceDocId, setOpeningSourceDocId] = useState<string | null>(null);
-  // Opens a source document's real saved content in the existing
-  // right-panel viewer (openDocument/viewerPane, same mechanism every
-  // other document type in this app already uses) — 2026-09-06, JuanJo:
-  // "I can't see the documents it created, so I can't review them." A
-  // synthetic File wraps the fetched markdown text so DocumentViewer's
-  // existing MarkdownView (marked + DOMPurify) renders it as real HTML
-  // instead of showing raw **/[[ markdown syntax.
-  const handleOpenSourceDocument = (doc: SourceDocument) => {
-    setOpeningSourceDocId(doc.id);
-    const filename = `${doc.title || "source"}.md`;
-    getSourceDocument(doc.id)
-      .then(full => {
-        const text = full.content ?? `*Content unavailable for this document — it was never saved to storage.*\n\nSource: ${doc.url}`;
-        setOpenDocument({ name: filename, file: new File([text], filename, { type: "text/markdown" }), content: "" });
-      })
-      .catch(() => {
-        setOpenDocument({
-          name: filename,
-          file: new File(["*Couldn't load this document — NAVI may be unreachable.*"], filename, { type: "text/markdown" }),
-          content: "",
-        });
-      })
-      .finally(() => setOpeningSourceDocId(null));
+  const handleDeleteSource = (id: string) => {
+    deleteSourceDocument(id).then(() => refreshSourceDocuments());
   };
   // Knowledge lives alongside Activity in the left sidebar (moved out
   // of the right Sources panel, JuanJo 2026-08-29) — both are records
@@ -3457,25 +3503,45 @@ export default function App() {
                                       {doc.status === "accepted" ? "Accepted" : doc.status === "rejected" ? "Rejected" : "Needs review"}
                                     </span>
                                   </div>
+                                  {/* Only ever set for a document the dispatcher
+                                      auto-rejected before a human saw it (2026-09-06,
+                                      JuanJo: "why some were rejected... must be
+                                      informed to the user") — a human rejecting one
+                                      manually leaves this null, since they already
+                                      know why they did it. */}
+                                  {doc.reason && (
+                                    <div style={{ fontSize: fontSize.xxs, color: status.danger.color, marginTop: 2, lineHeight: 1.4 }}>
+                                      {doc.reason}
+                                    </div>
+                                  )}
                                 </div>
-                                {doc.status === "pending_review" && (
-                                  <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
-                                    <button
-                                      onClick={e => { e.stopPropagation(); handleReviewSource(doc.id, "accepted"); }}
-                                      title="Accept"
-                                      style={{ width: 22, height: 22, borderRadius: radius.xs, border: "none", background: "transparent", cursor: "pointer", color: status.success.color, display: "flex", alignItems: "center", justifyContent: "center" }}
-                                    >
-                                      <CheckIcon size={13} />
-                                    </button>
-                                    <button
-                                      onClick={e => { e.stopPropagation(); handleReviewSource(doc.id, "rejected"); }}
-                                      title="Reject"
-                                      style={{ width: 22, height: 22, borderRadius: radius.xs, border: "none", background: "transparent", cursor: "pointer", color: status.danger.color, display: "flex", alignItems: "center", justifyContent: "center" }}
-                                    >
-                                      <XIcon size={13} />
-                                    </button>
-                                  </div>
-                                )}
+                                <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                                  {doc.status === "pending_review" && (
+                                    <>
+                                      <button
+                                        onClick={e => { e.stopPropagation(); handleReviewSource(doc.id, "accepted"); }}
+                                        title="Accept"
+                                        style={{ width: 22, height: 22, borderRadius: radius.xs, border: "none", background: "transparent", cursor: "pointer", color: status.success.color, display: "flex", alignItems: "center", justifyContent: "center" }}
+                                      >
+                                        <CheckIcon size={13} />
+                                      </button>
+                                      <button
+                                        onClick={e => { e.stopPropagation(); handleReviewSource(doc.id, "rejected"); }}
+                                        title="Reject"
+                                        style={{ width: 22, height: 22, borderRadius: radius.xs, border: "none", background: "transparent", cursor: "pointer", color: status.danger.color, display: "flex", alignItems: "center", justifyContent: "center" }}
+                                      >
+                                        <XIcon size={13} />
+                                      </button>
+                                    </>
+                                  )}
+                                  <button
+                                    onClick={e => { e.stopPropagation(); handleDeleteSource(doc.id); }}
+                                    title="Delete permanently"
+                                    style={{ width: 22, height: 22, borderRadius: radius.xs, border: "none", background: "transparent", cursor: "pointer", color: neutral.textFaint, display: "flex", alignItems: "center", justifyContent: "center" }}
+                                  >
+                                    <TrashIcon size={13} />
+                                  </button>
+                                </div>
                               </div>
                             ))}
                         </div>

@@ -14,6 +14,10 @@ export interface SourceDocument {
   domain: string;
   filen_path: string | null;
   status: SourceDocumentStatus;
+  // Set only for a document the dispatcher auto-rejected before a human
+  // ever saw it (tools/registry.py's content-quality guard) — explains
+  // WHY, instead of the term just having zero documents with no trace.
+  reason: string | null;
   created_at: number;
 }
 
@@ -59,5 +63,10 @@ export async function reviewSourceDocument(id: string, status: "accepted" | "rej
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ status }),
   });
+  return res.json();
+}
+
+export async function deleteSourceDocument(id: string): Promise<{ ok?: boolean; error?: string }> {
+  const res = await fetch(`${NAVI_BACKEND_URL}/sources/${encodeURIComponent(id)}`, { method: "DELETE" });
   return res.json();
 }
