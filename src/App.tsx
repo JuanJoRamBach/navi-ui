@@ -1,7 +1,6 @@
 import { useRef, useEffect, useState, useCallback, useMemo, lazy, Suspense } from "react";
 import {
   PaperAirplaneIcon,
-  CommandPaletteIcon,
   GitBranchIcon,
   PlusIcon,
   CpuIcon,
@@ -37,6 +36,8 @@ import {
   LinkIcon,
   SunIcon,
   MoonIcon,
+  CommentIcon,
+  SparkleFillIcon,
   // Reserved for the future step-log UI (not built yet — no host for
   // these until the fairy-animation research mode exists to pair with):
   // SearchIcon, SyncIcon
@@ -72,6 +73,7 @@ import { AgentWorkChat } from "./AgentWorkChat";
 import { AgentWorkWorkflows } from "./AgentWorkWorkflows";
 import { ConnectionsOverlay } from "./ConnectionsOverlay";
 import { AgentVault } from "./AgentVault";
+import { PromptVault } from "./PromptVault";
 import { AgentChat, type PendingAgentInput } from "./AgentChat";
 import { AgentWorkRunHistory } from "./AgentWorkRunHistory";
 import { AgentWorkCalendar } from "./AgentWorkCalendar";
@@ -152,6 +154,21 @@ const COMMAND_ROUTING_LABEL: Record<string, { label: string; dotColor?: string }
   "graph-data": { label: "Graphs" },
 };
 
+// The real, backend-executed /commands (dispatcher/parser.py's COMMANDS
+// list — a fixed regex match, each triggering its own distinct dispatcher
+// code path). Shown in the right sidebar's Commands tab alongside the
+// user's own saved Prompt Vault entries — these six are NOT data the way
+// a saved prompt is; a new one needs real dispatcher code written for it,
+// so this list only changes when parser.py's own does.
+const REAL_COMMANDS: { name: string; description: string }[] = [
+  { name: "research", description: "Multi-step async research — searches, reads pages, synthesizes a cited report." },
+  { name: "graph-data", description: "Forces a chart/graph from the data in your message." },
+  { name: "summarize", description: "Summarizes the given text or conversation." },
+  { name: "recap", description: "Recaps this conversation so far." },
+  { name: "note", description: "Saves a note to your Filen-backed storage." },
+  { name: "remind", description: "Schedules a reminder." },
+];
+
 // Real, server-side usage data — GET /usage/counters (server.py), backed
 // by storage/usage.py. Each provider's shape genuinely differs (Groq is
 // per-model, Cloudflare is one Neuron pool, OpenRouter is a live fetch
@@ -180,20 +197,6 @@ interface MistralUsage {
   usage: Record<string, unknown> | null;
   credit_usd: number;
 }
-
-// The command list shown in the toolbar's "Commands" panel. `available`
-// tracks what NAVI's parser actually recognizes today (see COMMANDS in
-// dispatcher/parser.py) versus what's agreed for a later version — kept
-// visible either way so the panel doubles as a roadmap, but greyed out
-// and labeled so tapping a not-yet-real one doesn't look broken.
-const COMMANDS: { name: string; description: string; available: boolean }[] = [
-  { name: "/research", description: "Deep dive with live web search, source reading, and notes.", available: true },
-  { name: "/graph-data", description: "Turns numbers into a real rendered chart instead of a described one.", available: true },
-  { name: "/summarize", description: "Condenses a long article, PDF, or posting into a tight digest.", available: true },
-  { name: "/remind", description: "Sets a reminder that arrives as a push notification when it's due.", available: true },
-  { name: "/recap", description: "Captures findings and decisions from this conversation as a structured summary.", available: true },
-  { name: "/note", description: "Lightly captures a passing thought or tangent — no structure forced.", available: true },
-];
 
 // Chat Canvas's ambient fairy — a single head position plus a short
 // trail of recent positions (for the tapering body), moving in real
@@ -836,7 +839,7 @@ export default function App() {
 
   const [draft, setDraft] = useState("");
   // Which toolbar popover is open, if any — only one at a time.
-  const [openPanel, setOpenPanel] = useState<"branches" | "models" | "routing" | "usage" | "settings" | "commands" | "projects" | "builds" | "agents" | "newWorkflow" | "connections" | "profile" | null>(null);
+  const [openPanel, setOpenPanel] = useState<"branches" | "models" | "routing" | "usage" | "settings" | "projects" | "builds" | "agents" | "newWorkflow" | "connections" | "profile" | null>(null);
   // Profile's own Connections option opens a full-screen overlay, not
   // another corner popover (2026-09-03, JuanJo: "an 'overlay window'
   // over all the UI" — deliberately NOT the same togglePanel mechanism
@@ -1081,6 +1084,10 @@ export default function App() {
   // for now, no dispatcher wired up yet — chips/ticks/expand are local
   // mock state.
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
+  // Chat canvas's right panel is tabbed (Sources / Commands) — the other
+  // canvases (Agent Work, Dev Slate) have their own fixed, non-tabbed
+  // right-panel content, so this only matters when activeCanvas==="chat".
+  const [rightPanelTab, setRightPanelTab] = useState<"sources" | "commands">("sources");
   // Left sidebar's own open/closed state, desktop only — mirrors
   // rightPanelOpen, but defaults to true (the panel starts visible,
   // same as it always was before this existed) rather than false.
@@ -1307,7 +1314,7 @@ export default function App() {
   // Workflows/Run History split already uses). "agents" is the new
   // Agent Vault tab (2026-09-03 design pass — JuanJo's brother's
   // suggestion, refined into left-sidebar-tab shape over several turns).
-  const [leftPanelTab, setLeftPanelTab] = useState<"activity" | "library" | "agents">("activity");
+  const [leftPanelTab, setLeftPanelTab] = useState<"activity" | "library" | "agents" | "prompts">("activity");
   const MOCK_KNOWLEDGE = [
     { title: "Local-first sync — synthesis", note: "from 3 accepted sources", origin: "search" as const },
     { title: "CRDT tradeoffs — synthesis", note: "from 2 accepted sources", origin: "search" as const },
@@ -2559,10 +2566,10 @@ export default function App() {
               to breathe at narrow widths regardless of how many tools
               get added later. */}
           <div style={{ display: "flex", alignItems: "flex-end", gap: sidebarTab.gap, minWidth: 0, overflow: "hidden" }}>
-            {(["activity", "library", "agents"] as const).map(tab => {
+            {(["activity", "library", "agents", "prompts"] as const).map(tab => {
               const active = leftPanelTab === tab;
-              const label = tab === "activity" ? "ACTIVITY" : tab === "library" ? "LIBRARY" : "AGENTS";
-              const Icon = tab === "activity" ? PulseIcon : tab === "library" ? FileDirectoryIcon : PersonIcon;
+              const label = tab === "activity" ? "ACTIVITY" : tab === "library" ? "LIBRARY" : tab === "agents" ? "AGENTS" : "PROMPTS";
+              const Icon = tab === "activity" ? PulseIcon : tab === "library" ? FileDirectoryIcon : tab === "agents" ? PersonIcon : CommentIcon;
               // Active tab glows with whichever canvas is currently
               // active — same accent.color/accent.glow the left rail's
               // own canvas-switcher buttons use (JuanJo, 2026-09-01:
@@ -2622,6 +2629,8 @@ export default function App() {
             setAgentSeed({ agentName: agent.name, instructions: agent.instructions, tools: agent.tools });
             setActiveCanvas("agentWork");
           }} />
+        ) : leftPanelTab === "prompts" ? (
+          <PromptVault />
         ) : leftPanelTab === "library" ? (
         <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
         <div style={{ flex: 7, minHeight: 0, display: "flex", flexDirection: "column" }}>
@@ -3117,16 +3126,31 @@ export default function App() {
                 Dev Slate
               </span>
             ) : (
-            // Files moved to the left sidebar (2026-08-31) — Sources is
-            // now the right panel's only tool, so this is a plain label
-            // like Agent Work's above, not a tab strip with one tab.
-            <span style={{
-              padding: `${sidebarTab.paddingV}px ${sidebarTab.paddingH}px`,
-              fontSize: sidebarTab.fontSize, fontWeight: sidebarTab.fontWeight, fontFamily,
-              letterSpacing: "0.04em", color: sidebarTab.activeColor,
-            }}>
-              SOURCES
-            </span>
+            // Sources / Commands tab strip (2026-09-06) — Commands moved
+            // here from the above-input popover since /commands only
+            // ever apply to Chat canvas anyway, same reasoning the right
+            // panel itself is Chat-scoped for.
+            <div style={{ display: "flex", alignItems: "center", gap: sidebarTab.gap }}>
+              {(["sources", "commands"] as const).map(tab => {
+                const active = rightPanelTab === tab;
+                return (
+                  <button
+                    key={tab}
+                    onClick={() => setRightPanelTab(tab)}
+                    style={{
+                      padding: `${sidebarTab.paddingV}px ${sidebarTab.paddingH}px`,
+                      fontSize: sidebarTab.fontSize, fontWeight: sidebarTab.fontWeight, fontFamily,
+                      letterSpacing: "0.04em",
+                      color: active ? sidebarTab.activeColor : sidebarTab.inactiveColor,
+                      background: active ? sidebarTab.activeBg : "transparent",
+                      border: "none", borderRadius: `${sidebarTab.radius}px`, cursor: "pointer",
+                    }}
+                  >
+                    {tab === "sources" ? "SOURCES" : "COMMANDS"}
+                  </button>
+                );
+              })}
+            </div>
             )}
             <button
               aria-label="Close sources panel"
@@ -3243,6 +3267,7 @@ export default function App() {
           <Group orientation="vertical" style={{ flex: 1, minHeight: 0 }}>
           <Panel id="right-tab-content" defaultSize={260} minSize={100}>
           <div className="hide-scrollbar" style={{ height: "100%", overflowY: "auto", display: "flex", flexDirection: "column" }}>
+          {rightPanelTab === "sources" && (
           <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
               <div style={{ padding: `${spacing.md}px ${spacing.lg}px 0` }}>
                 <div style={{
@@ -3374,7 +3399,35 @@ export default function App() {
                 </div>
               </div>
             </div>
-
+          )}
+          {rightPanelTab === "commands" && (
+            <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+              <div style={{ padding: `${spacing.md}px ${spacing.lg}px`, display: "flex", flexDirection: "column", gap: spacing.xs, flexShrink: 0 }}>
+                <div style={{ fontSize: fontSize.xxs, fontWeight: fontWeight.medium, color: neutral.textFaint, letterSpacing: "0.04em" }}>
+                  REAL COMMANDS
+                </div>
+                {REAL_COMMANDS.map(c => (
+                  <button
+                    key={c.name}
+                    onClick={() => setDraft(d => (d ? d + " " : "") + `/${c.name} `)}
+                    style={{
+                      display: "flex", flexDirection: "column", gap: 2, textAlign: "left",
+                      padding: spacing.sm, borderRadius: radius.sm,
+                      background: "var(--surface-panel)", border: "1px solid var(--border-default)",
+                      color: neutral.textPrimary, cursor: "pointer", fontFamily,
+                    }}
+                  >
+                    <span style={{ fontSize: fontSize.xs, fontWeight: fontWeight.medium }}>/{c.name}</span>
+                    <span style={{ fontSize: fontSize.xxs, color: neutral.textFaint }}>{c.description}</span>
+                  </button>
+                ))}
+              </div>
+              <div style={{ height: 1, background: "var(--border-subtle)", flexShrink: 0 }} />
+              <div style={{ flex: 1, minHeight: 0 }}>
+                <PromptVault onUse={template => setDraft(d => (d ? d + "\n" : "") + template)} />
+              </div>
+            </div>
+          )}
           </div>
           </Panel>
           {openDocument && (
@@ -3845,10 +3898,11 @@ export default function App() {
               Routing & fallbacks/Usage counters relocated to the sidebar
               (see MENU section above); this one stays on the chat screen
               per JuanJo's call, since it's about the current conversation's
-              model, not app-wide navigation. */}
+              model, not app-wide navigation. Commands moved out too
+              (2026-09-06) — into the right sidebar's own Commands tab,
+              since /commands only ever apply to Chat canvas anyway. */}
           {([
             { key: "models", icon: <CpuIcon size={10} />, label: "Today's models" },
-            { key: "commands", icon: <CommandPaletteIcon size={10} />, label: "Commands" },
           ] as const).map(({ key, icon, label }) => {
             const panelActive = openPanel === key;
             return (
@@ -4228,29 +4282,6 @@ export default function App() {
                         </div>
                         <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted, paddingLeft: DOT_SIZE + spacing.xs }}>
                           {r.chain.join(" → ")}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {openPanel === "commands" && (
-                <div>
-                  <div style={{ fontSize: fontSize.xs, color: neutral.textMuted, marginBottom: spacing.sm }}>
-                    Commands
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: spacing.sm }}>
-                    {COMMANDS.map(c => (
-                      <div key={c.name} style={{ opacity: c.available ? 1 : 0.5 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, fontSize: fontSize.xs, color: neutral.textPrimary }}>
-                          {c.name}
-                          {!c.available && (
-                            <span style={{ fontSize: fontSize.xxs, color: neutral.textMuted }}>(coming soon)</span>
-                          )}
-                        </div>
-                        <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted, marginTop: 2 }}>
-                          {c.description}
                         </div>
                       </div>
                     ))}
