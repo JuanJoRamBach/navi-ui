@@ -7,7 +7,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { XIcon, PlusIcon, SquareIcon, PencilIcon, ClockIcon } from "@primer/octicons-react";
-import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, tintedGlow, status, surface } from "./tokens";
+import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, tintedGlow, status, surface, controlSize, iconSize } from "./tokens";
 import { NODE_KIND_LIST, NODE_KINDS, type NodeKindId } from "./agentWorkNodeKinds";
 import { AGENT_WORK_NODE_TYPES, type AgentWorkNodeData, type AgentWorkGroupData } from "./AgentWorkGraphNode";
 import { convertBackendToGraph, convertGraphToBackend } from "./agentWorkGraphConvert";
@@ -271,37 +271,79 @@ function AddNodeMenu({ onPick, onClose }: { onPick: (kind: NodeKindId) => void; 
   );
 }
 
+// datetime-local reads/writes local time with no timezone suffix — pad
+// each field by hand rather than slicing toISOString() (which is UTC
+// and would silently shift the displayed time).
+function epochToDatetimeLocal(epochSeconds: number): string {
+  const d = new Date(epochSeconds * 1000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 const scheduleInputStyle: React.CSSProperties = {
   background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.12)",
   borderRadius: radius.xs, color: neutral.textPrimary, fontSize: fontSize.xxs, fontFamily,
   padding: `${spacing.xxs}px ${spacing.xs}px`, boxSizing: "border-box",
 };
 
-// Same fields/logic as AgentWorkNewWorkflowForm.tsx's own schedule
-// section, reused rather than reinvented — the ONLY schedule-setting UI
-// used to live on that older manual step-list form, never reachable
-// from the visual graph canvas at all (2026-09-04, JuanJo: "how do we
-// schedule an Agent... I don't see how"). Values are held in
-// GraphCanvas's own state and applied at save time by handleSave.
-function ScheduleMenu({ scheduled, onScheduledChange, intervalMinutes, onIntervalChange, repeatCountInput, onRepeatCountChange, onClose }: {
-  scheduled: boolean; onScheduledChange: (v: boolean) => void;
+const scheduleModeBtnStyle = (active: boolean): React.CSSProperties => ({
+  flex: 1, padding: `${spacing.xxs}px ${spacing.xs}px`, borderRadius: radius.xs,
+  border: `1px solid ${active ? `${accent}55` : "rgba(255,255,255,0.12)"}`,
+  background: active ? tintedGlow(CANVAS_ACCENT.agentWork.hue, 0.1) : "transparent",
+  color: active ? accent : neutral.textMuted, cursor: "pointer",
+  fontSize: fontSize.xxs, fontFamily,
+});
+
+export type ScheduleMode = "manual" | "interval" | "date";
+
+// A floating popover anchored on its own round canvas button (2026-09-06,
+// JuanJo: "it should be a button floating above the graph node canvas
+// (like the previous calendar)... the options should be shown instantly,
+// not hidden until you press run on a schedule") — replaces both the
+// earlier top-toolbar "Manual"/"Every Xm" button AND the checkbox-gated
+// version of this same menu. All three real choices (Manual / Repeating
+// / Specific date) are visible the moment the popover opens — a 3-way
+// segmented control, not a checkbox that has to be ticked first before
+// the actual options appear.
+//
+// "date" mode's backend shape needs no new trigger type at all —
+// dispatcher/agent_work.py's check_due_workflows() already treats a
+// scheduled trigger with no interval_seconds as "fire once, then clear
+// next_run_at" (see its own docstring), which is exactly one-time
+// semantics; this mode just leaves interval_seconds unset.
+function ScheduleMenu({
+  mode, onModeChange,
+  intervalMinutes, onIntervalChange, repeatCountInput, onRepeatCountChange,
+  dateInput, onDateInputChange, onClose,
+}: {
+  mode: ScheduleMode; onModeChange: (v: ScheduleMode) => void;
   intervalMinutes: number; onIntervalChange: (v: number) => void;
   repeatCountInput: string; onRepeatCountChange: (v: string) => void;
+  dateInput: string; onDateInputChange: (v: string) => void;
   onClose: () => void;
 }) {
   const ref = useClickOutside(onClose);
   return (
     <div ref={ref} style={{
-      position: "absolute", top: "100%", right: 0, marginTop: 4, zIndex: 321,
+      position: "absolute", top: "100%", right: 0, marginTop: 8, zIndex: 321,
       width: 240, background: surface.raised, border: "1px solid rgba(255,255,255,0.1)",
       borderRadius: radius.sm, padding: spacing.sm, display: "flex", flexDirection: "column", gap: spacing.xs,
       boxShadow: "0 12px 40px rgba(0,0,0,0.5)", fontFamily,
     }}>
-      <label style={{ display: "flex", alignItems: "center", gap: spacing.xs, fontSize: fontSize.xxs, color: neutral.textMuted, cursor: "pointer" }}>
-        <input type="checkbox" checked={scheduled} onChange={e => onScheduledChange(e.target.checked)} />
-        Run on a schedule (otherwise manual only)
-      </label>
-      {scheduled && (
+      <div style={{ fontSize: fontSize.xxs, fontWeight: fontWeight.medium, color: neutral.textMuted, letterSpacing: "0.04em" }}>
+        WHEN THIS RUNS
+      </div>
+      <div style={{ display: "flex", gap: 4 }}>
+        <button type="button" style={scheduleModeBtnStyle(mode === "manual")} onClick={() => onModeChange("manual")}>Manual</button>
+        <button type="button" style={scheduleModeBtnStyle(mode === "interval")} onClick={() => onModeChange("interval")}>Repeating</button>
+        <button type="button" style={scheduleModeBtnStyle(mode === "date")} onClick={() => onModeChange("date")}>Specific date</button>
+      </div>
+      {mode === "manual" && (
+        <div style={{ fontSize: fontSize.xxs, color: neutral.textFaint }}>
+          Only runs when you click Run Now.
+        </div>
+      )}
+      {mode === "interval" && (
         <>
           <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, fontSize: fontSize.xxs, color: neutral.textMuted, flexWrap: "wrap" }}>
             Every
@@ -323,6 +365,16 @@ function ScheduleMenu({ scheduled, onScheduledChange, intervalMinutes, onInterva
             times
           </div>
         </>
+      )}
+      {mode === "date" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: fontSize.xxs, color: neutral.textMuted }}>
+          Run once, at:
+          <input
+            type="datetime-local" value={dateInput}
+            onChange={e => onDateInputChange(e.target.value)}
+            style={{ ...scheduleInputStyle, width: "100%" }}
+          />
+        </div>
       )}
     </div>
   );
@@ -572,9 +624,14 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
   // form (AgentWorkNewWorkflowForm.tsx), never the visual graph canvas.
   // Same fields/logic as that form, reused here rather than reinvented.
   const [showScheduleMenu, setShowScheduleMenu] = useState(false);
-  const [scheduled, setScheduled] = useState(false);
+  const [scheduleMode, setScheduleMode] = useState<ScheduleMode>("manual");
   const [intervalMinutes, setIntervalMinutes] = useState(60);
   const [repeatCountInput, setRepeatCountInput] = useState("");
+  // datetime-local's own value format (local time, seconds-less,
+  // "YYYY-MM-DDTHH:mm") — kept as that raw string rather than an epoch
+  // until save time, since that's exactly what the input itself reads
+  // back and repopulates from.
+  const [dateInput, setDateInput] = useState("");
   const [connectDropMenu, setConnectDropMenu] = useState<{
     left: number; top: number; flowPosition: { x: number; y: number }; sourceId: string; handleType: "source" | "target";
   } | null>(null);
@@ -605,7 +662,7 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
     setEditingName(false);
     // A fresh fork starts manual-only, never inheriting whatever
     // schedule state happened to be left on the canvas beforehand.
-    setScheduled(false); setIntervalMinutes(60); setRepeatCountInput("");
+    setScheduleMode("manual"); setIntervalMinutes(60); setRepeatCountInput(""); setDateInput("");
     onSeedConsumed?.();
   }, [seed, nodes.length, setNodes, setEdges, onSeedConsumed]);
 
@@ -632,11 +689,22 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
       // scheduled workflow and saving again without touching the
       // Schedule button would silently downgrade it to manual-only.
       if (wf.trigger.type === "scheduled") {
-        setScheduled(true);
-        setIntervalMinutes(wf.trigger.interval_seconds ? Math.max(1, Math.round(wf.trigger.interval_seconds / 60)) : 60);
-        setRepeatCountInput(wf.trigger.remaining_runs != null ? String(wf.trigger.remaining_runs) : "");
+        if (wf.trigger.interval_seconds) {
+          setScheduleMode("interval");
+          setIntervalMinutes(Math.max(1, Math.round(wf.trigger.interval_seconds / 60)));
+          setRepeatCountInput(wf.trigger.remaining_runs != null ? String(wf.trigger.remaining_runs) : "");
+          setDateInput("");
+        } else {
+          // No interval_seconds on a scheduled trigger means one-time —
+          // reflect it as a real datetime-local value, not silently as
+          // "interval mode, 60 minutes" (would misrepresent + corrupt it
+          // on the next save).
+          setScheduleMode("date");
+          setRepeatCountInput("");
+          setDateInput(wf.trigger.next_run_at ? epochToDatetimeLocal(wf.trigger.next_run_at) : "");
+        }
       } else {
-        setScheduled(false); setIntervalMinutes(60); setRepeatCountInput("");
+        setScheduleMode("manual"); setIntervalMinutes(60); setRepeatCountInput(""); setDateInput("");
       }
       onWorkflowLoaded?.();
     }).catch(() => onWorkflowLoaded?.());
@@ -827,17 +895,29 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
       setSaveErrors(errors);
       return;
     }
+    if (scheduleMode === "date" && !dateInput) {
+      setSaveErrors(["Pick a date and time for this workflow to run, or switch back to Manual/Repeating."]);
+      return;
+    }
     setSaving(true);
     try {
       const saved = workflowName.trim();
       const repeatCount = repeatCountInput.trim() ? Math.max(1, Number(repeatCountInput) || 1) : null;
-      const trigger: WorkflowTrigger = scheduled
+      const trigger: WorkflowTrigger = scheduleMode === "manual"
+        ? { type: "manual" }
+        : scheduleMode === "date"
         ? {
+            // One-time — no interval_seconds at all (see
+            // check_due_workflows()'s own docstring: a falsy interval
+            // means "fire once, then stop", real backend behavior this
+            // reuses rather than inventing a new trigger.type for).
+            type: "scheduled", next_run_at: new Date(dateInput).getTime() / 1000, remaining_runs: 1,
+          }
+        : {
             type: "scheduled", interval_seconds: intervalMinutes * 60,
             next_run_at: Date.now() / 1000 + intervalMinutes * 60,
             remaining_runs: repeatCount,
-          }
-        : { type: "manual" };
+          };
       await createWorkflow(saved, null, graph, trigger);
       window.dispatchEvent(new Event(WORKFLOW_CREATED_EVENT));
       // No "close" to return to — this canvas IS Agent Work now, not an
@@ -846,7 +926,7 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
       // building the next workflow starts clean, with a brief
       // confirmation instead of silently vanishing.
       setNodes([]); setEdges([]); setSelectedId(null); setWorkflowName(""); setEditingName(true);
-      setScheduled(false); setIntervalMinutes(60); setRepeatCountInput("");
+      setScheduleMode("manual"); setIntervalMinutes(60); setRepeatCountInput(""); setDateInput("");
       setSavedName(saved);
       setTimeout(() => setSavedName(null), 4000);
     } catch {
@@ -963,30 +1043,6 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
             >
               <SquareIcon size={11} /> Group
             </button>
-            <div style={{ position: "relative" }}>
-              <button
-                onClick={() => setShowScheduleMenu(v => !v)}
-                title="Set when this workflow runs — manual only (default) or on a repeating schedule"
-                style={{
-                  display: "flex", alignItems: "center", gap: 4, padding: `${spacing.xxs}px ${spacing.sm}px`,
-                  borderRadius: radius.xs,
-                  border: `1px solid ${scheduled ? `${accent}55` : "rgba(255,255,255,0.15)"}`,
-                  background: scheduled ? tintedGlow(CANVAS_ACCENT.agentWork.hue, 0.1) : "transparent",
-                  color: scheduled ? accent : neutral.textMuted, cursor: "pointer",
-                  fontSize: fontSize.xs, fontWeight: fontWeight.medium, fontFamily,
-                }}
-              >
-                <ClockIcon size={11} /> {scheduled ? `Every ${intervalMinutes}m` : "Manual"}
-              </button>
-              {showScheduleMenu && (
-                <ScheduleMenu
-                  scheduled={scheduled} onScheduledChange={setScheduled}
-                  intervalMinutes={intervalMinutes} onIntervalChange={setIntervalMinutes}
-                  repeatCountInput={repeatCountInput} onRepeatCountChange={setRepeatCountInput}
-                  onClose={() => setShowScheduleMenu(false)}
-                />
-              )}
-            </div>
             <button
               onClick={handleSave}
               disabled={saving}
@@ -1107,6 +1163,52 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
               onClose={() => setConnectDropMenu(null)}
             />
           )}
+
+          {/* Floating round button over the canvas, top-right — same
+              weight/shape as the canvas chat button (App.tsx, bottom-
+              right) and the calendar button this replaces (2026-09-06,
+              JuanJo: "it should be a button floating above the graph
+              node canvas (like the previous calendar)"). NOT bottom-left
+              — that's where React Flow's own zoom Controls render
+              (JuanJo caught this: "it's over the zoom"). Its own popover
+              opens downward (top: "100%") since the button sits at the
+              top edge. */}
+          <div style={{
+            position: "absolute", top: spacing.xl, zIndex: 21,
+            // Shifts left with the right sidebar, same compensation the
+            // chat button (App.tsx) and the top bar's own button group
+            // already need — the sidebar overlays ON TOP of this canvas
+            // rather than shrinking it.
+            right: rightSidebarOpen ? "calc(var(--right-panel-width, 280px) + " + spacing.xl + "px)" : spacing.xl,
+            transition: "right 0.2s ease",
+          }}>
+            <button
+              aria-label="Set when this workflow runs"
+              title="Set when this workflow runs — manual only (default), a repeating schedule, or a specific date"
+              onClick={() => setShowScheduleMenu(v => !v)}
+              style={{
+                width: controlSize.md + 6, height: controlSize.md + 6, borderRadius: "50%",
+                border: `1px solid ${scheduleMode !== "manual" ? tintedGlow(CANVAS_ACCENT.agentWork.hue, 0.4) : "rgba(255,255,255,0.15)"}`,
+                background: scheduleMode !== "manual" ? tintedGlow(CANVAS_ACCENT.agentWork.hue, 0.15) : surface.raised,
+                color: scheduleMode !== "manual" ? CANVAS_ACCENT.agentWork.color : neutral.textMuted,
+                cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                boxShadow: scheduleMode !== "manual"
+                  ? `0 4px 18px rgba(0,0,0,0.4), 0 0 20px ${CANVAS_ACCENT.agentWork.glow}`
+                  : "0 4px 18px rgba(0,0,0,0.4)",
+              }}
+            >
+              <ClockIcon size={iconSize.md} />
+            </button>
+            {showScheduleMenu && (
+              <ScheduleMenu
+                mode={scheduleMode} onModeChange={setScheduleMode}
+                intervalMinutes={intervalMinutes} onIntervalChange={setIntervalMinutes}
+                repeatCountInput={repeatCountInput} onRepeatCountChange={setRepeatCountInput}
+                dateInput={dateInput} onDateInputChange={setDateInput}
+                onClose={() => setShowScheduleMenu(false)}
+              />
+            )}
+          </div>
         </div>
       </div>
     </div>

@@ -31,7 +31,6 @@ import {
   CodeIcon,
   PulseIcon,
   HomeIcon,
-  CalendarIcon,
   HistoryIcon,
   LinkIcon,
   SunIcon,
@@ -71,6 +70,7 @@ import { DevSlateDockview } from "./DevSlateDockview";
 import { useDevSlateState } from "./devslateStore";
 import { AgentWorkChat } from "./AgentWorkChat";
 import { AgentWorkWorkflows } from "./AgentWorkWorkflows";
+import { StackedPanels } from "./StackedPanels";
 import { ConnectionsOverlay } from "./ConnectionsOverlay";
 import { AgentVault } from "./AgentVault";
 import { PromptVault } from "./PromptVault";
@@ -78,7 +78,6 @@ import { TRUSTED_SOURCES_CHANGED_EVENT, addTrustedSite, listTrustedSites, remove
 import { getBatchStatus, listSourceDocuments, reviewSourceDocument, startBatchDispatch, type SourceDocument } from "./sources";
 import { AgentChat, type PendingAgentInput } from "./AgentChat";
 import { AgentWorkRunHistory } from "./AgentWorkRunHistory";
-import { AgentWorkCalendar } from "./AgentWorkCalendar";
 import { fetchModelCatalog, setPinnedModel, type ModelCatalog, type ModelCandidate } from "./devslate";
 import { AgentWorkNewWorkflowForm } from "./AgentWorkNewWorkflowForm";
 import { ChoiceButtons } from "./ChoiceButtons";
@@ -980,7 +979,6 @@ export default function App() {
   // doesn't interrupt the canvas work the way a fixed panel would.
   // Shell/mock content for now — this canvas has no real backend yet.
   const [agentWorkChatOpen, setAgentWorkChatOpen] = useState(false);
-  const [agentWorkCalendarOpen, setAgentWorkCalendarOpen] = useState(false);
   // Dev Slate's placeholder pane content — every zone in its shell (see
   // the devSlate canvas render below) uses this same shape so adding a
   // new pane later, or swapping a placeholder for real content, doesn't
@@ -3211,37 +3209,33 @@ export default function App() {
           {activeCanvas === "agentWork" ? (
             /* Workflows (primary — every saved workflow, its trigger,
                its most recent run, manual Run Now) over Run History
-               (secondary, smaller, inline-expandable rows). The
-               calendar concept that used to live in this primary slot
-               moved to its own floating overlay instead (JuanJo,
-               2026-09-01: fits the calendar-in-a-popover pattern better
-               than living in a cramped sidebar column) — see
-               AgentWorkCalendar.tsx + the floating button next to
-               Agent Work's chat button below. Plain flex split, not a
-               resizable Group — doesn't need drag-resize the way Dev
-               Slate's code column does. */
-            <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
-              <div style={{ flex: 7, minHeight: 0 }}>
-                <AgentWorkWorkflows onNewWorkflow={e => togglePanel("newWorkflow", e.currentTarget)} onViewInCanvas={setChatCreatedWorkflowId} />
-              </div>
-              <div style={{ height: 1, background: "var(--border-subtle)", flexShrink: 0 }} />
-              <div style={{ flex: 3, minHeight: 0 }}>
-                <AgentWorkRunHistory />
-              </div>
-            </div>
+               (secondary, smaller, inline-expandable rows). Real
+               resizable + individually-collapsible panels (2026-09-06,
+               JuanJo: "inside the sidebars the sections should be
+               resizeable vertically... each tool can be collapsed"),
+               not a fixed 70/30 flex split. The calendar concept that
+               used to live in this primary slot moved to Agent Vault's
+               own Schedule section instead — see AgentWorkCalendar.tsx. */
+            <StackedPanels
+              groupId="agent-work-right-panel"
+              top={{ id: "workflows", label: "Workflows", content: <AgentWorkWorkflows onNewWorkflow={e => togglePanel("newWorkflow", e.currentTarget)} onViewInCanvas={setChatCreatedWorkflowId} /> }}
+              bottom={{ id: "run-history", label: "Run History", content: <AgentWorkRunHistory /> }}
+            />
           ) : activeCanvas === "devSlate" ? (
             /* Task State (primary) over Change History (secondary) —
-               same shape as Agent Work's Schedule/Run History split
-               above, but real content, not devSlatePane placeholders:
-               task_state is the model's own running summary
-               (update_task_state, dispatcher/devslate_chat.py), Change
-               History is every write_file that's actually landed on
-               disk this session (devslateStore.ts's changeHistory,
-               appended in notifyFileWritten — the one place every
-               accepted write funnels through regardless of review-vs-
-               auto-accept). */
-            <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
-              <div style={{ flex: 7, minHeight: 0, padding: spacing.lg, overflowY: "auto" }}>
+               same resizable+collapsible shape as Agent Work's
+               Workflows/Run History split above, real content, not
+               devSlatePane placeholders: task_state is the model's own
+               running summary (update_task_state,
+               dispatcher/devslate_chat.py), Change History is every
+               write_file that's actually landed on disk this session
+               (devslateStore.ts's changeHistory, appended in
+               notifyFileWritten — the one place every accepted write
+               funnels through regardless of review-vs-auto-accept). */
+            <StackedPanels
+              groupId="dev-slate-right-panel"
+              top={{ id: "task-state", label: "Task State", content: (
+              <div style={{ padding: spacing.lg }}>
                 <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, marginBottom: spacing.sm }}>
                   <BookIcon size={16} fill={CANVAS_ACCENT.devSlate.color} />
                   <span style={{ fontSize: fontSize.sm, fontWeight: fontWeight.medium, color: neutral.textPrimary }}>Task State</span>
@@ -3279,8 +3273,9 @@ export default function App() {
                   </div>
                 )}
               </div>
-              <div style={{ height: 1, background: "var(--border-subtle)", flexShrink: 0 }} />
-              <div style={{ flex: 3, minHeight: 0, padding: spacing.lg, overflowY: "auto" }}>
+              ) }}
+              bottom={{ id: "change-history", label: "Change History", content: (
+              <div style={{ padding: spacing.lg }}>
                 <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, marginBottom: spacing.sm }}>
                   <HistoryIcon size={16} fill={CANVAS_ACCENT.devSlate.color} />
                   <span style={{ fontSize: fontSize.sm, fontWeight: fontWeight.medium, color: neutral.textPrimary }}>Change History</span>
@@ -3300,7 +3295,8 @@ export default function App() {
                   </div>
                 )}
               </div>
-            </div>
+              ) }}
+            />
           ) : viewerExpanded && openDocument ? (
             <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
               {viewerPane}
@@ -3620,45 +3616,6 @@ export default function App() {
             )}
           </div>
 
-          {/* Calendar popup — top-right corner, independent of the chat
-              button's bottom-right cluster entirely (JuanJo, 2026-09-01:
-              moved here after seeing the stacked version — it was
-              crowding/overlapping the chat popup, not just sitting
-              near it). Same right-shift-with-sidebar logic as the chat
-              button, mirrored to `top` instead of `bottom`.
-              Top offset accounts for the graph editor's own top bar
-              (added 2026-09-02, after this positioning was set) — 8px
-              below it, not overlapping (JuanJo: "the calendar is over
-              the top bar"). A fixed estimate of the bar's own height
-              (~56px in the common case, no save-error banner showing)
-              rather than measuring it live — the header's content is
-              static enough that this doesn't need a ResizeObserver. */}
-          <div style={{
-            position: "absolute", top: 56 + spacing.sm, zIndex: 21,
-            right: isDesktopSidebar && rightPanelOpen
-              ? `calc(var(--right-panel-width, 280px) + ${spacing.xl}px)`
-              : spacing.xl,
-            transition: "right 0.2s ease",
-          }}>
-            {agentWorkCalendarOpen ? (
-              <AgentWorkCalendar onClose={() => setAgentWorkCalendarOpen(false)} />
-            ) : (
-              <button
-                aria-label="Open schedule calendar"
-                onClick={() => setAgentWorkCalendarOpen(true)}
-                style={{
-                  width: controlSize.md + 6, height: controlSize.md + 6, borderRadius: "50%",
-                  border: `1px solid ${tintedGlow(CANVAS_ACCENT.agentWork.hue, 0.4)}`,
-                  background: tintedGlow(CANVAS_ACCENT.agentWork.hue, 0.15),
-                  color: CANVAS_ACCENT.agentWork.color, cursor: "pointer",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  boxShadow: `0 4px 18px rgba(0,0,0,0.4), 0 0 20px ${CANVAS_ACCENT.agentWork.glow}`,
-                }}
-              >
-                <CalendarIcon size={iconSize.md} />
-              </button>
-            )}
-          </div>
         </div>
       )}
 

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronLeftIcon, ChevronRightIcon, XIcon } from "@primer/octicons-react";
+import { ChevronLeftIcon, ChevronRightIcon } from "@primer/octicons-react";
 import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, tintedGlow } from "./tokens";
 import { listWorkflows, type WorkflowDefinition } from "./agentWork";
 
@@ -12,13 +12,15 @@ function dayKey(d: Date): string {
 
 // "What's going to fire when" across every scheduled workflow — a real
 // month-grid calendar (JuanJo, 2026-09-01: "it fits the Calendar design
-// really well"), not just a list. Lives in its own floating overlay,
-// triggered by a second button stacked above the chat button — not a
-// right-sidebar pane, since a calendar genuinely wants more width than
-// a sidebar column gives, and a popover keeps the user in their
-// workflow without navigating away (real UX guidance, not guessed —
-// see how_to_handle_context.md-adjacent session notes).
-export function AgentWorkCalendar({ onClose }: { onClose: () => void }) {
+// really well"), not just a list. Relocated 2026-09-06 (JuanJo: "we can
+// move the calendar to agent vault, at the bottom of it, reusing the
+// 2-tools-per-tab pattern") from its own floating popover (which the
+// Agent Work canvas's round button now opens a real per-workflow
+// SCHEDULE EDITOR instead — a different, no-longer-read-only surface,
+// not this global browsing view) into a plain embedded content block —
+// no popover chrome (border/shadow/close button/fixed width) of its own
+// anymore, since the embedding parent (AgentVault) now owns that.
+export function AgentWorkCalendar() {
   const [workflows, setWorkflows] = useState<WorkflowDefinition[]>([]);
   const [viewDate, setViewDate] = useState(() => new Date());
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -50,30 +52,14 @@ export function AgentWorkCalendar({ onClose }: { onClose: () => void }) {
   const selectedWorkflows = selectedKey ? scheduledByDay[selectedKey] ?? [] : [];
 
   return (
-    <div style={{
-      width: 320, display: "flex", flexDirection: "column",
-      background: neutral.surfaceSolid, border: "1px solid rgba(255,255,255,0.12)",
-      borderRadius: radius.lg, boxShadow: `0 8px 30px rgba(0,0,0,0.5), 0 0 20px ${CANVAS_ACCENT.agentWork.glow}`,
-      overflow: "hidden", fontFamily,
-    }}>
-      <div style={{
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: `${spacing.sm}px ${spacing.md}px`, borderBottom: "1px solid rgba(255,255,255,0.08)",
-      }}>
-        <span style={{ fontSize: fontSize.xs, fontWeight: fontWeight.medium, color: neutral.textPrimary }}>Schedule</span>
-        <button
-          aria-label="Close calendar"
-          onClick={onClose}
-          style={{
-            width: 22, height: 22, borderRadius: radius.xs, border: "none", background: "transparent",
-            color: neutral.textMuted, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
-          }}
-        >
-          <XIcon size={14} />
-        </button>
-      </div>
-
-      <div style={{ padding: spacing.sm }}>
+    // No scroll wrapper of its own — StackedPanels.tsx's own section body
+    // already owns scroll+resize+collapse for whatever's embedded in it
+    // (2026-09-06, JuanJo: "the fix is not a scrollbar, it must fit well
+    // without a scrollbar" — the real fix was making the SECTION resizable,
+    // not scrolling its contents), so this component just renders its
+    // natural height and lets the parent panel grow/shrink to fit.
+    <div style={{ display: "flex", flexDirection: "column", fontFamily }}>
+      <div style={{ padding: `${spacing.xs}px ${spacing.sm}px 0`, flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: spacing.xs }}>
           <button
             aria-label="Previous month"
@@ -82,7 +68,7 @@ export function AgentWorkCalendar({ onClose }: { onClose: () => void }) {
           >
             <ChevronLeftIcon size={14} />
           </button>
-          <span style={{ fontSize: fontSize.xs, fontWeight: fontWeight.medium, color: neutral.textPrimary }}>
+          <span style={{ fontSize: fontSize.xxs, fontWeight: fontWeight.medium, color: neutral.textPrimary }}>
             {viewDate.toLocaleDateString([], { month: "long", year: "numeric" })}
           </span>
           <button
@@ -125,27 +111,29 @@ export function AgentWorkCalendar({ onClose }: { onClose: () => void }) {
         </div>
       </div>
 
-      {selectedKey && (
-        <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", padding: spacing.sm, maxHeight: 160, overflowY: "auto" }}>
-          {selectedWorkflows.map(wf => (
-            <div key={wf.id} style={{ display: "flex", alignItems: "center", gap: spacing.xs, padding: `${spacing.xxs}px 0`, fontSize: fontSize.xxs }}>
-              <span style={{ width: 5, height: 5, borderRadius: 9999, background: accent, flexShrink: 0 }} />
-              <span style={{ color: neutral.textPrimary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{wf.name}</span>
-              <span style={{ color: neutral.textFaint, flexShrink: 0, marginLeft: "auto" }}>
-                {wf.trigger.type === "scheduled" && wf.trigger.next_run_at
-                  ? new Date(wf.trigger.next_run_at * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-                  : ""}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
+      <div style={{ flexShrink: 0 }}>
+        {selectedKey && (
+          <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", padding: spacing.sm }}>
+            {selectedWorkflows.map(wf => (
+              <div key={wf.id} style={{ display: "flex", alignItems: "center", gap: spacing.xs, padding: `${spacing.xxs}px 0`, fontSize: fontSize.xxs }}>
+                <span style={{ width: 5, height: 5, borderRadius: 9999, background: accent, flexShrink: 0 }} />
+                <span style={{ color: neutral.textPrimary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{wf.name}</span>
+                <span style={{ color: neutral.textFaint, flexShrink: 0, marginLeft: "auto" }}>
+                  {wf.trigger.type === "scheduled" && wf.trigger.next_run_at
+                    ? new Date(wf.trigger.next_run_at * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                    : ""}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
 
-      {workflows.every(wf => wf.trigger.type !== "scheduled") && (
-        <div style={{ padding: spacing.md, textAlign: "center", fontSize: fontSize.xxs, color: neutral.textFaint }}>
-          No scheduled workflows yet — everything's manual-trigger right now.
-        </div>
-      )}
+        {workflows.every(wf => wf.trigger.type !== "scheduled") && (
+          <div style={{ padding: spacing.md, textAlign: "center", fontSize: fontSize.xxs, color: neutral.textFaint }}>
+            No scheduled workflows yet — everything's manual-trigger right now.
+          </div>
+        )}
+      </div>
     </div>
   );
 }

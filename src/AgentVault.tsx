@@ -4,6 +4,8 @@ import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCE
 import { AGENT_VAULT_CHANGED_EVENT, createAgent, deleteAgent, listAgents, type AgentOutputType, type SavedAgent } from "./agents";
 import { getWorkflow, type WorkflowGraph } from "./agentWork";
 import { listMCPConnections } from "./mcpConnections";
+import { AgentWorkCalendar } from "./AgentWorkCalendar";
+import { StackedPanels } from "./StackedPanels";
 
 // A ready-made entry so a brand-new Vault isn't just an empty box — the
 // single most commonly wanted "review my changes" agent (JuanJo's
@@ -295,45 +297,62 @@ export function AgentVault({ onOpenInCanvas }: { onOpenInCanvas: (agent: SavedAg
     }
   };
 
+  const agentsContent = (
+    <div style={{ padding: spacing.xs }}>
+      {showNewForm && <NewAgentForm onCreated={() => { setShowNewForm(false); refresh(); }} onCancel={() => setShowNewForm(false)} />}
+      {agents === null ? (
+        <div style={{ fontSize: fontSize.xs, color: neutral.textFaint, textAlign: "center", padding: spacing.lg }}>Loading…</div>
+      ) : agents.length === 0 && !showNewForm ? (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: spacing.lg, textAlign: "center", color: neutral.textFaint, gap: spacing.xs }}>
+          <SparkleFillIcon size={20} fill={accent} />
+          <div style={{ fontSize: fontSize.xs, color: neutral.textMuted, fontWeight: fontWeight.medium }}>No agents yet</div>
+          <div style={{ fontSize: fontSize.xxs }}>Create a reusable one with the button above.</div>
+          <button
+            onClick={addPreset}
+            disabled={addingPreset}
+            style={{
+              display: "flex", alignItems: "center", gap: 4, marginTop: spacing.xs,
+              padding: `${spacing.xxs}px ${spacing.sm}px`, borderRadius: radius.xs,
+              border: "1px solid rgba(255,255,255,0.15)", background: "transparent",
+              color: neutral.textMuted, cursor: addingPreset ? "default" : "pointer",
+              fontSize: fontSize.xxs, fontFamily, opacity: addingPreset ? 0.6 : 1,
+            }}
+          >
+            <PlusIcon size={10} /> {addingPreset ? "Adding…" : `Add "${CODE_REVIEW_PRESET.name}" preset`}
+          </button>
+        </div>
+      ) : (
+        agents.map(a => <AgentCard key={a.id} agent={a} onDelete={() => handleDelete(a.id)} onOpenInCanvas={() => onOpenInCanvas(a)} />)
+      )}
+    </div>
+  );
+
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", fontFamily }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: `${spacing.xs}px ${spacing.sm}px`, borderBottom: "1px solid rgba(255,255,255,0.06)", flexShrink: 0 }}>
-        <span style={{ fontSize: fontSize.xxs, fontWeight: fontWeight.medium, color: neutral.textMuted, letterSpacing: "0.04em" }}>AGENTS</span>
-        <button
-          onClick={() => setShowNewForm(v => !v)}
-          title="New agent"
-          style={{ display: "flex", alignItems: "center", gap: 4, padding: `2px ${spacing.xs}px`, borderRadius: radius.xs, border: `1px solid ${accent}55`, background: tintedGlow(CANVAS_ACCENT.agentWork.hue, 0.1), color: accent, cursor: "pointer", fontSize: fontSize.xxs, fontFamily }}
-        >
-          <PlusIcon size={10} /> New
-        </button>
-      </div>
-      <div className="hide-scrollbar" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: spacing.xs }}>
-        {showNewForm && <NewAgentForm onCreated={() => { setShowNewForm(false); refresh(); }} onCancel={() => setShowNewForm(false)} />}
-        {agents === null ? (
-          <div style={{ fontSize: fontSize.xs, color: neutral.textFaint, textAlign: "center", padding: spacing.lg }}>Loading…</div>
-        ) : agents.length === 0 && !showNewForm ? (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: spacing.lg, textAlign: "center", color: neutral.textFaint, gap: spacing.xs }}>
-            <SparkleFillIcon size={20} fill={accent} />
-            <div style={{ fontSize: fontSize.xs, color: neutral.textMuted, fontWeight: fontWeight.medium }}>No agents yet</div>
-            <div style={{ fontSize: fontSize.xxs }}>Create a reusable one with the button above.</div>
+      {/* Agents (primary) over Schedule (secondary) — real resizable +
+          individually-collapsible panels (2026-09-06, JuanJo: "inside
+          the sidebars the sections should be resizeable vertically...
+          each tool can be collapsed"), not a fixed ratio. Schedule
+          relocated here from its own floating popover on the Agent Work
+          canvas — that button now opens a real per-workflow schedule
+          EDITOR instead, a different surface from this global "what's
+          firing when across everything" browsing view. */}
+      <StackedPanels
+        groupId="agent-vault-sidebar"
+        top={{
+          id: "agents", label: "Agents", content: agentsContent,
+          headerAction: (
             <button
-              onClick={addPreset}
-              disabled={addingPreset}
-              style={{
-                display: "flex", alignItems: "center", gap: 4, marginTop: spacing.xs,
-                padding: `${spacing.xxs}px ${spacing.sm}px`, borderRadius: radius.xs,
-                border: "1px solid rgba(255,255,255,0.15)", background: "transparent",
-                color: neutral.textMuted, cursor: addingPreset ? "default" : "pointer",
-                fontSize: fontSize.xxs, fontFamily, opacity: addingPreset ? 0.6 : 1,
-              }}
+              onClick={() => setShowNewForm(v => !v)}
+              title="New agent"
+              style={{ display: "flex", alignItems: "center", gap: 4, padding: `2px ${spacing.xs}px`, borderRadius: radius.xs, border: `1px solid ${accent}55`, background: tintedGlow(CANVAS_ACCENT.agentWork.hue, 0.1), color: accent, cursor: "pointer", fontSize: fontSize.xxs, fontFamily }}
             >
-              <PlusIcon size={10} /> {addingPreset ? "Adding…" : `Add "${CODE_REVIEW_PRESET.name}" preset`}
+              <PlusIcon size={10} /> New
             </button>
-          </div>
-        ) : (
-          agents.map(a => <AgentCard key={a.id} agent={a} onDelete={() => handleDelete(a.id)} onOpenInCanvas={() => onOpenInCanvas(a)} />)
-        )}
-      </div>
+          ),
+        }}
+        bottom={{ id: "schedule", label: "Schedule", content: <AgentWorkCalendar /> }}
+      />
     </div>
   );
 }
