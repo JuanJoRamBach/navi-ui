@@ -6,6 +6,22 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title><!-- figma:title --></title>
     <!-- figma:head-end -->
+    <!-- Sets data-theme before React mounts, so a returning user who
+         picked light theme doesn't see a flash of dark on every reload
+         (2026-09-06, JuanJo: "if someone chooses Day theme, it should
+         open in light theme every time"). Kept outside the figma-marked
+         block above so it isn't touched by whatever manages that region.
+         Matches App.tsx's own storage key (navi_color_theme) and default
+         (absent/anything else -> night/dark, unchanged from before). -->
+    <script>
+      (function () {
+        try {
+          if (localStorage.getItem("navi_color_theme") === "light") {
+            document.documentElement.setAttribute("data-theme", "light");
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <!-- figma:body-start -->

@@ -84,6 +84,11 @@ import { AgentWorkGraphEditor, type AgentWorkSeed } from "./AgentWorkGraphEditor
 
 const DOT_SIZE = 8;
 
+// Matches index.html's own inline script, which reads this same key to
+// set data-theme before React mounts (no flash of the wrong theme on a
+// reload for a user who picked light).
+const COLOR_THEME_STORAGE_KEY = "navi_color_theme";
+
 // Render's free tier spins the server down after ~15min idle; a cold
 // start can take anywhere from a few seconds to over a minute. Without
 // this, the first fetch after a spin-down just fails outright and the
@@ -489,7 +494,13 @@ export default function App() {
   const [chatMode, setChatModeState] = useState<ChatMode>("normal");
   // Theme — flips the whole palette via the data-theme attribute (CSS
   // variables in index.css) and re-draws canvas surfaces via the
-  // navi-theme-change event (see DevSlateDotGrid).
+  // navi-theme-change event (see DevSlateDotGrid). Persisted (2026-09-
+  // 06, JuanJo: "if someone chooses Day theme, it should open in light
+  // theme every time") — index.html's own inline script already reads
+  // the same COLOR_THEME_STORAGE_KEY (module scope, below) and sets
+  // data-theme before React mounts (avoids a flash of the wrong theme
+  // on load), so this initializer just needs to agree with whatever
+  // that script already decided.
   const [colorTheme, setColorTheme] = useState<"night" | "light">(() =>
     document.documentElement.getAttribute("data-theme") === "light" ? "light" : "night"
   );
@@ -613,7 +624,12 @@ export default function App() {
   // message chronologically. is that same reply once it lands, so this
   // still holds. Newest first, matching Past conversations' ordering.
   const activityItems = useMemo(() => {
-    const items: { command: string; timestamp: number; attachments: MessageAttachment[] }[] = [];
+    // sourceTerms/sourceDocs are always undefined here — only ever set
+    // on a synthetic Sources-batch entry (sourceActivityItems, declared
+    // later near sourceDocuments) — declared as optional on this shared
+    // shape so the merged list (mergedActivityItems) is one consistent
+    // type instead of a union neither render branch could cleanly read.
+    const items: { command: string; timestamp: number; attachments: MessageAttachment[]; sourceTerms?: string[]; sourceDocs?: SourceDocument[] }[] = [];
     for (let i = 0; i < messages.length; i++) {
       const m = messages[i];
       if (m.role !== "user" || !m.command) continue;
@@ -1207,6 +1223,47 @@ export default function App() {
       })
       .finally(() => setOpeningSourceDocId(null));
   }, []);
+  // Sources' Batch Dispatch never showed up in Activity at all (2026-
+  // 09-06, JuanJo: "the source I did in live navi, didn't get
+  // registered in Activity... this is needed for the MVP") — it's a
+  // real gap, not a bug: activityItems above is built entirely from
+  // this ONE conversation's own messages, but a Sources batch is an
+  // app-wide REST action with no conversation tied to it at all (see
+  // storage/sources.py's own note on why Sources is app-wide). Rather
+  // than force a batch into the per-conversation log it structurally
+  // doesn't belong to, this shows every batch's real activity ALONGSIDE
+  // the conversation's own commands — one merged timeline, since right
+  // now this is the only place anyone would look for either. One entry
+  // per batch_id (not per document) — the real terms actually searched
+  // plus every document that came out of it, "Needs review"/"Accepted"/
+  // "Rejected" and all, clickable straight into the same real-content
+  // viewer the Sources tab and Library both already use. This is the
+  // real "what happened" indicator the plain command name alone wasn't
+  // giving (JuanJo: "put the title in Activity, it has no indicator of
+  // what it is").
+  const sourceActivityItems = useMemo(() => {
+    const byBatch = new Map<string, SourceDocument[]>();
+    for (const doc of sourceDocuments) {
+      const group = byBatch.get(doc.batch_id);
+      if (group) group.push(doc); else byBatch.set(doc.batch_id, [doc]);
+    }
+    return Array.from(byBatch.values()).map(docs => ({
+      command: "sources",
+      // created_at is Python's time.time() (seconds) — every other
+      // activity timestamp here is JS's Date.now()-style milliseconds
+      // (formatTime/formatDayLabel both feed straight into `new
+      // Date(ms)`), so this needs the same *1000 conversion or every
+      // Sources entry would render at the Unix epoch.
+      timestamp: Math.min(...docs.map(d => d.created_at)) * 1000,
+      attachments: [] as MessageAttachment[],
+      sourceTerms: Array.from(new Set(docs.map(d => d.term))),
+      sourceDocs: docs,
+    }));
+  }, [sourceDocuments]);
+  const mergedActivityItems = useMemo(
+    () => [...activityItems, ...sourceActivityItems].sort((a, b) => b.timestamp - a.timestamp),
+    [activityItems, sourceActivityItems],
+  );
   // No fake seed data (2026-09-06, JuanJo: "placeholder content...
   // can't be there for an MVP") — this used to pre-populate Research/
   // Deliverables/scratch-notes.txt, none backed by a real file, all
@@ -2554,6 +2611,12 @@ export default function App() {
                 setColorTheme(next);
                 document.documentElement.setAttribute("data-theme", next);
                 window.dispatchEvent(new Event("navi-theme-change"));
+                try {
+                  localStorage.setItem(COLOR_THEME_STORAGE_KEY, next);
+                } catch {
+                  // localStorage can throw (private browsing, quota) —
+                  // the choice just won't survive a reload, not fatal.
+                }
               }}
               style={{
                 display: "flex", alignItems: "center", gap: spacing.sm,
@@ -2991,22 +3054,64 @@ export default function App() {
           padding: `0 ${spacing.lg}px ${spacing.lg}px`,
           flex: 1, minHeight: 0, overflowY: "auto",
         }}>
-          {activityItems.length === 0 ? (
+          {mergedActivityItems.length === 0 ? (
             <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted, marginTop: spacing.sm }}>
               No commands run yet in this conversation.
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: spacing.md, marginTop: spacing.sm }}>
-              {activityItems.map((item, i) => (
+              {mergedActivityItems.map((item, i) => (
                 <div key={i}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.xs }}>
                     <span style={{ fontSize: fontSize.sm, color: neutral.textPrimary, fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" }}>
                       /{item.command}
+                      {/* A real, specific title — not just the bare
+                          command name (2026-09-06, JuanJo: "put the
+                          title in Activity, it has no indicator of what
+                          it is"). Batch Dispatch's own real content is
+                          the terms it actually searched. */}
+                      {item.sourceTerms && (
+                        <span style={{ color: neutral.textMuted, fontWeight: fontWeight.regular }}>
+                          {" · "}{item.sourceTerms.join(", ")}
+                        </span>
+                      )}
                     </span>
                     <span style={{ fontSize: fontSize.xxs, color: neutral.textMuted, flexShrink: 0 }}>
                       {formatDayLabel(item.timestamp)}, {formatTime(item.timestamp)}
                     </span>
                   </div>
+                  {item.sourceDocs && item.sourceDocs.length > 0 && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: spacing.xs, marginTop: spacing.xs }}>
+                      {item.sourceDocs.map(doc => (
+                        <div
+                          key={doc.id}
+                          onClick={() => handleOpenSourceDocument(doc)}
+                          title="Open and read this document"
+                          style={{
+                            display: "flex", alignItems: "center", gap: spacing.xs,
+                            padding: `${spacing.xs}px ${spacing.sm}px`, borderRadius: radius.sm,
+                            background: "rgba(255,255,255,0.06)", border: "1px solid var(--border-default)",
+                            fontSize: fontSize.xs, cursor: "pointer",
+                          }}
+                        >
+                          <FileIcon size={iconSize.sm} />
+                          <span style={{
+                            flex: 1, overflow: "hidden", textOverflow: "ellipsis",
+                            whiteSpace: "nowrap", color: neutral.textPrimary,
+                          }}>
+                            {doc.title}
+                          </span>
+                          <span style={{
+                            fontSize: fontSize.xxs, padding: "1px 6px", borderRadius: 100, flexShrink: 0,
+                            color: doc.status === "accepted" ? status.success.color : doc.status === "rejected" ? status.danger.color : status.warning.color,
+                            background: doc.status === "accepted" ? status.success.bg : doc.status === "rejected" ? status.danger.bg : status.warning.bg,
+                          }}>
+                            {doc.status === "accepted" ? "Accepted" : doc.status === "rejected" ? "Rejected" : "Needs review"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   {item.attachments.length > 0 && (
                     <div style={{ display: "flex", flexDirection: "column", gap: spacing.xs, marginTop: spacing.xs }}>
                       {item.attachments.map(a => (
