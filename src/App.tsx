@@ -74,6 +74,7 @@ import { AgentWorkWorkflows } from "./AgentWorkWorkflows";
 import { ConnectionsOverlay } from "./ConnectionsOverlay";
 import { AgentVault } from "./AgentVault";
 import { PromptVault } from "./PromptVault";
+import { TRUSTED_SOURCES_CHANGED_EVENT, addTrustedSite, listTrustedSites, removeTrustedSite } from "./trustedSources";
 import { AgentChat, type PendingAgentInput } from "./AgentChat";
 import { AgentWorkRunHistory } from "./AgentWorkRunHistory";
 import { AgentWorkCalendar } from "./AgentWorkCalendar";
@@ -1269,38 +1270,23 @@ export default function App() {
       return next;
     });
   }, [filePath]);
-  const [sourceChips, setSourceChips] = useState<string[]>(["offline-first sync", "conflict resolution"]);
+  // Search-term chips for the Sources tab's fetch tool. Starts empty —
+  // this used to be prefilled with fake demo terms ("offline-first
+  // sync"/"conflict resolution"), which looked like a live search was
+  // already in progress. Real per-term results (below) aren't wired to
+  // any backend yet either — see REAL_COMMANDS-adjacent note in the
+  // render block on why Batch Dispatch is currently a no-op.
+  const [sourceChips, setSourceChips] = useState<string[]>([]);
   const [sourceDraft, setSourceDraft] = useState("");
-  const [sourceTerm1Open, setSourceTerm1Open] = useState(true);
-  const [sourceTicks, setSourceTicks] = useState<Record<number, boolean>>({ 0: true, 1: true, 2: false, 3: false });
-  // One-time review warning — pure UI for now, in-memory only (no
-  // persistence layer yet; that's backend work, deliberately deferred
-  // until after V3 UI). The first tick attempt in a session opens the
-  // warning instead of ticking; acknowledging it just dismisses the
-  // overlay — the user then ticks again themselves. Once wired to a
-  // real dispatcher, this same gate is where per-source tick
-  // enforcement will actually connect (see the not-yet-built
-  // enforcement item).
-  const [sourceWarningAcknowledged, setSourceWarningAcknowledged] = useState(false);
-  const [sourceWarningOpen, setSourceWarningOpen] = useState(false);
-  const handleSourceTickAttempt = useCallback((index: number, currentlyChecked: boolean) => {
-    if (!sourceWarningAcknowledged) {
-      setSourceWarningOpen(true);
-      return;
-    }
-    setSourceTicks(t => ({ ...t, [index]: !currentlyChecked }));
-  }, [sourceWarningAcknowledged]);
-  const MOCK_SOURCES = [
-    { title: "Local-first software — Ink & Switch", domain: "inkandswitch.com", tier: "good" as const },
-    { title: "CRDTs: The Hard Parts", domain: "youtube.com", tier: "good" as const },
-    { title: "A comprehensive study of Convergent...", domain: "hal.inria.fr", tier: "good" as const },
-    { title: "Building offline-first apps, a field guide", domain: "medium.com", tier: "less" as const },
-  ];
-  const SOURCE_TIER_META = {
-    good: { label: "Verified", color: status.success.color, bg: status.success.bg },
-    likely: { label: "Needs review", color: status.warning.color, bg: status.warning.bg },
-    less: { label: "Low confidence", color: status.danger.color, bg: status.danger.bg },
-  } as const;
+  // Trusted Sites registry — the Sources tab's second window.
+  const [trustedSites, setTrustedSites] = useState<string[]>([]);
+  const [trustedSiteDraft, setTrustedSiteDraft] = useState("");
+  useEffect(() => {
+    const refresh = () => listTrustedSites().then(setTrustedSites);
+    refresh();
+    window.addEventListener(TRUSTED_SOURCES_CHANGED_EVENT, refresh);
+    return () => window.removeEventListener(TRUSTED_SOURCES_CHANGED_EVENT, refresh);
+  }, []);
   // Knowledge lives alongside Activity in the left sidebar (moved out
   // of the right Sources panel, JuanJo 2026-08-29) — both are records
   // of past work rather than a live tool. Each entry is tagged with
@@ -3327,75 +3313,74 @@ export default function App() {
               </div>
 
               <div className="hide-scrollbar" style={{
-                flex: 1, overflowY: "auto", padding: `0 ${spacing.lg}px ${spacing.sm}px`,
+                flex: 2, minHeight: 0, overflowY: "auto", padding: `0 ${spacing.lg}px ${spacing.sm}px`,
                 display: "flex", flexDirection: "column", gap: spacing.sm,
-                maskImage: "linear-gradient(to bottom, black calc(100% - 20px), transparent)",
               }}>
-                {/* term 1: done, expandable */}
-                <div>
-                  <div
-                    onClick={() => setSourceTerm1Open(o => !o)}
-                    style={{ display: "flex", alignItems: "center", gap: spacing.sm, padding: "6px 0", cursor: "pointer" }}
-                  >
-                    {sourceTerm1Open ? <ChevronDownIcon size={12} /> : <ChevronRightIcon size={12} />}
-                    <span style={{ flex: 1, fontSize: 13, color: neutral.textPrimary }}>offline-first sync</span>
-                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: neutral.statusAwake }} />
-                    <span style={{ fontSize: 11, color: neutral.textMuted }}>4 sources</span>
+                {sourceChips.length === 0 ? (
+                  <div style={{ fontSize: fontSize.xs, color: neutral.textFaint, padding: `${spacing.md}px 0` }}>
+                    Add a search term above, then Batch Dispatch. Nothing's been searched yet this session.
                   </div>
-                  {sourceTerm1Open && (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                      {MOCK_SOURCES.map((s, i) => {
-                        const t = SOURCE_TIER_META[s.tier];
-                        const checked = !!sourceTicks[i];
-                        return (
-                          <div key={s.title} style={{
-                            display: "flex", alignItems: "center", gap: spacing.sm,
-                            padding: "7px 8px", borderRadius: radius.xs + 1, background: "rgba(255,255,255,0.06)",
-                          }}>
-                            <div
-                              onClick={() => handleSourceTickAttempt(i, checked)}
-                              style={{
-                                flexShrink: 0, width: 15, height: 15, borderRadius: 4, cursor: "pointer",
-                                display: "flex", alignItems: "center", justifyContent: "center",
-                                background: checked ? neutral.dotNeutral : "transparent",
-                                border: checked ? `1px solid ${neutral.dotNeutral}` : "1px solid rgba(255,255,255,0.3)",
-                              }}
-                            >
-                              {checked && <CheckIcon size={9} fill="#080608" />}
-                            </div>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{
-                                fontSize: fontSize.xs, color: neutral.textPrimary,
-                                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                              }}>{s.title}</div>
-                              <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 1 }}>
-                                <span style={{ fontSize: fontSize.xxs, color: neutral.textFaint }}>{s.domain}</span>
-                                <span style={{ fontSize: fontSize.xxs, padding: "1px 6px", borderRadius: 100, color: t.color, background: t.bg }}>{t.label}</span>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
+                ) : (
+                  sourceChips.map(term => (
+                    <div key={term} style={{ display: "flex", alignItems: "center", gap: spacing.sm, padding: "6px 0" }}>
+                      <ChevronRightIcon size={12} />
+                      <span style={{ flex: 1, fontSize: 13, color: neutral.textPrimary }}>{term}</span>
+                      <span style={{ fontSize: 11, color: neutral.textFaint }}>not dispatched yet</span>
                     </div>
+                  ))
+                )}
+              </div>
+
+              {/* Trusted Sites — the registry search/fetch is actually
+                  scoped to (2026-09-06, JuanJo). Second, lower window in
+                  this tab, same "tool on top / supporting list below"
+                  split Agent Work's Workflows/Run History and Dev
+                  Slate's Task State/Change History already use. Real,
+                  persisted (trustedSources.ts), not mock — but the
+                  ACTUAL scoping (making search/fetch only pull from
+                  these) is separate backend work, not done yet: this is
+                  the registry a future dispatcher change reads from. */}
+              <div style={{ borderTop: "1px solid var(--border-subtle)", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+                <div style={{ padding: `${spacing.sm}px ${spacing.lg}px 0`, fontSize: fontSize.xxs, fontWeight: fontWeight.medium, color: neutral.textFaint, letterSpacing: "0.04em", flexShrink: 0 }}>
+                  TRUSTED SITES
+                </div>
+                <div style={{ padding: `${spacing.xs}px ${spacing.lg}px 0`, flexShrink: 0 }}>
+                  <div style={{
+                    display: "flex", gap: 5, alignItems: "center", padding: 6,
+                    borderRadius: radius.lg, background: neutral.surface, border: "1px solid var(--border-default)",
+                  }}>
+                    <input
+                      placeholder="e.g. inkandswitch.com"
+                      value={trustedSiteDraft}
+                      onChange={e => setTrustedSiteDraft(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === "Enter" && trustedSiteDraft.trim()) {
+                          addTrustedSite(trustedSiteDraft.trim()).then(() => setTrustedSiteDraft(""));
+                        }
+                      }}
+                      style={{ flex: 1, minWidth: 60, background: "transparent", border: "none", outline: "none", color: neutral.textPrimary, fontSize: 12, padding: "4px 3px", fontFamily }}
+                    />
+                  </div>
+                </div>
+                <div className="hide-scrollbar" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: `${spacing.xs}px ${spacing.lg}px ${spacing.sm}px`, display: "flex", flexDirection: "column", gap: 4 }}>
+                  {trustedSites.length === 0 ? (
+                    <div style={{ fontSize: fontSize.xxs, color: neutral.textFaint }}>
+                      No trusted sites yet — add one above. Search/fetch will only pull from sites listed here.
+                    </div>
+                  ) : (
+                    trustedSites.map(site => (
+                      <div key={site} style={{
+                        display: "flex", alignItems: "center", gap: spacing.sm,
+                        padding: "5px 8px", borderRadius: radius.xs + 1, background: "rgba(255,255,255,0.06)",
+                      }}>
+                        <GlobeIcon size={11} />
+                        <span style={{ flex: 1, fontSize: fontSize.xs, color: neutral.textPrimary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{site}</span>
+                        <span onClick={() => removeTrustedSite(site)} style={{ cursor: "pointer", display: "flex", color: neutral.textFaint }}>
+                          <XIcon size={12} />
+                        </span>
+                      </div>
+                    ))
                   )}
-                </div>
-
-                {/* term 2: searching */}
-                <div style={{ display: "flex", alignItems: "center", gap: spacing.sm, padding: "6px 0" }}>
-                  <ChevronRightIcon size={12} />
-                  <span className="step-pulse" style={{ flex: 1, fontSize: 13, color: neutral.textMuted }}>conflict resolution</span>
-                  <span style={{ fontSize: 11, color: neutral.textMuted }}>searching…</span>
-                </div>
-
-                {/* term 3: needs input */}
-                <div style={{
-                  display: "flex", alignItems: "center", gap: spacing.sm, padding: "6px 8px",
-                  borderRadius: radius.xs + 1, background: status.warning.bg,
-                }}>
-                  <ChevronRightIcon size={12} />
-                  <span style={{ flex: 1, fontSize: 13, color: neutral.textPrimary }}>CRDT algorithms</span>
-                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: status.warning.color }} />
-                  <span style={{ fontSize: fontSize.xxs, color: status.warning.color }}>Needs input</span>
                 </div>
               </div>
             </div>
@@ -3459,67 +3444,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Sources review warning — one-time acknowledgment gate before a
-          source can be ticked. Anchored over the chat at the right
-          panel's height (not inside the panel itself — it's warning
-          about trusting chat output, so it sits where the chat is).
-          Scrim blocks the rest of the app so it has to be acknowledged,
-          not dismissed by clicking away. Logic-only for now: no real
-          enforcement is wired up yet (see the deferred tick-enforcement
-          item) — this just gets the UI in place ahead of that wiring. */}
-      {sourceWarningOpen && (
-        <>
-          <div
-            onClick={() => {}}
-            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 39 }}
-          />
-          <div style={{
-            position: "fixed", top: 96,
-            right: `calc(var(--right-panel-width, 280px) + ${spacing.xxl * 2}px)`,
-            width: 420, zIndex: 40,
-            background: "rgba(4,8,18,0.92)",
-            border: "1px solid rgba(230,180,80,0.4)",
-            borderRadius: radius.lg,
-            boxShadow: "0 8px 30px rgba(0,0,0,0.5), 0 0 20px rgba(230,180,80,0.18)",
-            padding: spacing.xl,
-            fontFamily,
-          }}>
-            <div style={{ display: "flex", gap: spacing.md, alignItems: "flex-start" }}>
-              <div style={{
-                flexShrink: 0, width: 34, height: 34, borderRadius: radius.sm,
-                background: "rgba(230,180,80,0.14)",
-                display: "flex", alignItems: "center", justifyContent: "center",
-              }}>
-                <AlertIcon size={18} fill="rgb(230,180,80)" />
-              </div>
-              <div>
-                <div style={{ fontSize: fontSize.sm, fontWeight: fontWeight.medium, color: neutral.textPrimary, marginBottom: spacing.xs }}>
-                  Review sources before use
-                </div>
-                <div style={{ fontSize: fontSize.xs, color: neutral.textMuted, lineHeight: lineHeight.base }}>
-                  A source has to be ticked before NAVI can use it in this chat. Sources that haven't been
-                  personally reviewed can lead to wrong or misleading conclusions — ticking one means you've
-                  looked at it and accepted it. This shows once; after this, it's on you to review what you tick.
-                </div>
-              </div>
-            </div>
-            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: spacing.lg }}>
-              <button
-                onClick={() => { setSourceWarningAcknowledged(true); setSourceWarningOpen(false); }}
-                style={{
-                  padding: `${spacing.sm + 1}px ${spacing.lg}px`, borderRadius: radius.sm,
-                  fontSize: fontSize.xs, fontWeight: fontWeight.medium, fontFamily, cursor: "pointer",
-                  color: neutral.textPrimary,
-                  background: "rgba(230,180,80,0.14)",
-                  border: "1px solid rgba(230,180,80,0.5)",
-                }}
-              >
-                I understand
-              </button>
-            </div>
-          </div>
-        </>
-      )}
 
       {/* Agent Work canvas — full-screen takeover, not a sidebar tool:
           a real node-graph workflow builder needs canvas width no
