@@ -79,7 +79,7 @@ import { getBatchStatus, listSourceDocuments, reviewSourceDocument, startBatchDi
 import { AgentChat, type PendingAgentInput } from "./AgentChat";
 import { AgentWorkRunHistory } from "./AgentWorkRunHistory";
 import { AgentWorkCalendar } from "./AgentWorkCalendar";
-import { fetchModelCatalog, setPinnedModel, type ModelCatalog } from "./devslate";
+import { fetchModelCatalog, setPinnedModel, type ModelCatalog, type ModelCandidate } from "./devslate";
 import { AgentWorkNewWorkflowForm } from "./AgentWorkNewWorkflowForm";
 import { ChoiceButtons } from "./ChoiceButtons";
 import { AgentWorkGraphEditor, type AgentWorkSeed } from "./AgentWorkGraphEditor";
@@ -4267,31 +4267,58 @@ export default function App() {
                   {chatModelCatalog && !chatModelCatalog.candidates.length && (
                     <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted }}>No ranked candidates cached yet.</div>
                   )}
-                  <div style={{ display: "flex", flexDirection: "column", gap: spacing.xs }}>
-                    {chatModelCatalog?.candidates.map(c => {
-                      const isCurrent = chatModelCatalog.current?.provider === c.provider && chatModelCatalog.current?.model === c.model;
-                      return (
-                        <button
-                          key={`${c.provider}/${c.model}`}
-                          disabled={savingChatModel || isCurrent}
-                          onClick={() => void pickChatModel(c.provider, c.model)}
-                          style={{
-                            display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: spacing.xs,
-                            width: "100%", border: "none", background: isCurrent ? "rgba(255,255,255,0.06)" : "transparent",
-                            borderRadius: radius.xs, padding: `${spacing.xs}px`, cursor: isCurrent ? "default" : "pointer",
-                            textAlign: "left", fontFamily,
-                          }}
-                        >
-                          <span>
-                            <div style={{ fontSize: fontSize.xs, color: neutral.textPrimary }}>{c.model}</div>
-                            <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted, marginTop: 2 }}>
-                              {c.provider}{c.context_length ? ` · ${c.context_length.toLocaleString()} ctx` : ""}
-                            </div>
-                          </span>
-                          {isCurrent && <CheckIcon size={12} />}
-                        </button>
-                      );
-                    })}
+                  {/* Grouped by provider (2026-09-06) — was one flat list,
+                      undifferentiated regardless of how many candidates
+                      qualified. Providers are ordered by wherever their
+                      best-ranked candidate falls (candidates arrive
+                      already best-first from the server), so the overall
+                      best option's provider still leads — grouping adds
+                      structure without hiding the ranking. Quality/speed
+                      are jobs/model_ranking.py's own real ranking numbers
+                      now, not new computation — 0 means "no benchmark
+                      match," not "worst," so it's only shown when > 0. */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: spacing.md }}>
+                    {(() => {
+                      const groups: { provider: string; candidates: ModelCandidate[] }[] = [];
+                      for (const c of chatModelCatalog?.candidates ?? []) {
+                        const group = groups.find(g => g.provider === c.provider);
+                        if (group) group.candidates.push(c); else groups.push({ provider: c.provider, candidates: [c] });
+                      }
+                      return groups.map(group => (
+                        <div key={group.provider}>
+                          <div style={{ fontSize: fontSize.xxs, fontWeight: fontWeight.medium, color: neutral.textFaint, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: spacing.xs }}>
+                            {group.provider}
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: spacing.xs }}>
+                            {group.candidates.map(c => {
+                              const isCurrent = chatModelCatalog!.current?.provider === c.provider && chatModelCatalog!.current?.model === c.model;
+                              return (
+                                <button
+                                  key={`${c.provider}/${c.model}`}
+                                  disabled={savingChatModel || isCurrent}
+                                  onClick={() => void pickChatModel(c.provider, c.model)}
+                                  style={{
+                                    display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: spacing.xs,
+                                    width: "100%", border: "none", background: isCurrent ? "rgba(255,255,255,0.06)" : "transparent",
+                                    borderRadius: radius.xs, padding: `${spacing.xs}px`, cursor: isCurrent ? "default" : "pointer",
+                                    textAlign: "left", fontFamily,
+                                  }}
+                                >
+                                  <span>
+                                    <div style={{ fontSize: fontSize.xs, color: neutral.textPrimary }}>{c.model}</div>
+                                    <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted, marginTop: 2 }}>
+                                      {c.context_length ? `${c.context_length.toLocaleString()} ctx` : ""}
+                                      {!!c.quality && ` · quality ${c.quality.toFixed(1)}`}
+                                    </div>
+                                  </span>
+                                  {isCurrent && <CheckIcon size={12} />}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ));
+                    })()}
                   </div>
                 </div>
               )}

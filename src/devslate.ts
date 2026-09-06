@@ -28,6 +28,11 @@ export interface ModelCandidate {
   provider: string;
   model: string;
   context_length: number | null;
+  // Real numbers jobs/model_ranking.py's own ranking sorts by (2026-09-06),
+  // not display-only estimates — 0 means "no matching benchmark entry,"
+  // not "worst score," since an unranked model isn't necessarily bad.
+  quality?: number;
+  speed?: number;
 }
 
 export interface ModelCatalog {
