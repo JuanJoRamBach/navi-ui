@@ -38,9 +38,10 @@ import {
   CommentIcon,
   SparkleFillIcon,
   TrashIcon,
+  SyncIcon,
   // Reserved for the future step-log UI (not built yet — no host for
   // these until the fairy-animation research mode exists to pair with):
-  // SearchIcon, SyncIcon
+  // SearchIcon
 } from "@primer/octicons-react";
 import {
   type ChatMode, MODE_THEME, CANVAS_ACCENT, OKLCH_HUE,
@@ -82,6 +83,8 @@ import { AgentWorkNewWorkflowForm } from "./AgentWorkNewWorkflowForm";
 import { ChoiceButtons } from "./ChoiceButtons";
 import { AgentWorkGraphEditor, type AgentWorkSeed } from "./AgentWorkGraphEditor";
 import { BrowserPane } from "./BrowserPane";
+import { isTauriRuntime } from "./tauriRuntime";
+import { checkForUpdate, type UpdateCheckResult } from "./tauriUpdater";
 
 const DOT_SIZE = 8;
 
@@ -505,6 +508,16 @@ export default function App() {
   const [colorTheme, setColorTheme] = useState<"night" | "light">(() =>
     document.documentElement.getAttribute("data-theme") === "light" ? "light" : "night"
   );
+  // Only meaningful in the Tauri desktop build — a plain web build (this
+  // very GitHub Pages deploy) is already always "up to date" the moment
+  // it loads, there's no installed binary to check against.
+  const [updateCheck, setUpdateCheck] = useState<UpdateCheckResult | null>(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [installingUpdate, setInstallingUpdate] = useState(false);
+  const handleCheckForUpdate = () => {
+    setCheckingUpdate(true);
+    checkForUpdate().then(setUpdateCheck).finally(() => setCheckingUpdate(false));
+  };
   useEffect(() => { canvasBaseRef.current = resolveCanvasBase(); }, [colorTheme]);
   const rafRef = useRef(0);
   // Logical (CSS) pixel size — shared between the draw loop and selectChatMode(),
@@ -2636,6 +2649,47 @@ export default function App() {
               {colorTheme === "night" ? <SunIcon size={iconSize.sm} /> : <MoonIcon size={iconSize.sm} />}
               <span className="sidebar-menu-btn-label">{colorTheme === "night" ? "Light theme" : "Dark theme"}</span>
             </button>
+            {isTauriRuntime() && (
+              <button
+                className="sidebar-menu-btn"
+                title="Check for a newer NAVI version"
+                disabled={checkingUpdate || installingUpdate}
+                onClick={() => {
+                  if (updateCheck?.status === "available") {
+                    setInstallingUpdate(true);
+                    updateCheck.install().catch(() => setInstallingUpdate(false));
+                    // No .finally(() => setInstallingUpdate(false)) here on
+                    // purpose — on Windows, install() exits the app the
+                    // moment the installer launches successfully (real,
+                    // documented behavior), so this component is gone
+                    // before that would ever run; only the error path
+                    // above needs to reset the button.
+                    return;
+                  }
+                  handleCheckForUpdate();
+                }}
+                style={{
+                  display: "flex", alignItems: "center", gap: spacing.sm,
+                  height: OUTER_RAIL_ROW_HEIGHT, boxSizing: "border-box",
+                  padding: `0 ${spacing.sm}px`,
+                  borderRadius: radius.sm, border: "none", background: "transparent",
+                  color: updateCheck?.status === "available" ? CANVAS_ACCENT.chat.color : neutral.textPrimary,
+                  cursor: checkingUpdate || installingUpdate ? "default" : "pointer", textAlign: "left",
+                  fontSize: fontSize.xs, fontFamily, fontWeight: fontWeight.medium,
+                  opacity: checkingUpdate || installingUpdate ? 0.6 : 1,
+                }}
+              >
+                <SyncIcon size={iconSize.sm} />
+                <span className="sidebar-menu-btn-label">
+                  {installingUpdate ? "Installing…"
+                    : checkingUpdate ? "Checking…"
+                    : updateCheck?.status === "available" ? `Update to v${updateCheck.version}`
+                    : updateCheck?.status === "up-to-date" ? "Up to date"
+                    : updateCheck?.status === "error" ? "Check failed — retry"
+                    : "Check for updates"}
+                </span>
+              </button>
+            )}
             {pushStatus !== "unsupported" && (
               <button
                 className="sidebar-menu-btn"
