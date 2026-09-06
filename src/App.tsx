@@ -75,6 +75,7 @@ import { ConnectionsOverlay } from "./ConnectionsOverlay";
 import { AgentVault } from "./AgentVault";
 import { PromptVault } from "./PromptVault";
 import { TRUSTED_SOURCES_CHANGED_EVENT, addTrustedSite, listTrustedSites, removeTrustedSite } from "./trustedSources";
+import { getBatchStatus, listSourceDocuments, reviewSourceDocument, startBatchDispatch, type SourceDocument } from "./sources";
 import { AgentChat, type PendingAgentInput } from "./AgentChat";
 import { AgentWorkRunHistory } from "./AgentWorkRunHistory";
 import { AgentWorkCalendar } from "./AgentWorkCalendar";
@@ -1287,6 +1288,51 @@ export default function App() {
     window.addEventListener(TRUSTED_SOURCES_CHANGED_EVENT, refresh);
     return () => window.removeEventListener(TRUSTED_SOURCES_CHANGED_EVENT, refresh);
   }, []);
+  // Batch Dispatch — real documents (App.tsx doesn't scope these to one
+  // conversation; see storage/sources.py's own note on why Sources is
+  // app-wide for now, not per-chat). Polls while a batch is running
+  // (server.py has no push/websocket for this yet, same reasoning
+  // /research's own status poll uses), stops itself once done/errored.
+  const [sourceDocuments, setSourceDocuments] = useState<SourceDocument[]>([]);
+  const [dispatchRunning, setDispatchRunning] = useState(false);
+  const [dispatchError, setDispatchError] = useState<string | null>(null);
+  const refreshSourceDocuments = useCallback(() => {
+    listSourceDocuments().then(setSourceDocuments).catch(() => {});
+  }, []);
+  useEffect(refreshSourceDocuments, [refreshSourceDocuments]);
+  useEffect(() => {
+    if (!dispatchRunning) return;
+    const poll = setInterval(() => {
+      getBatchStatus().then(({ batch }) => {
+        if (batch && batch.status !== "running") {
+          setDispatchRunning(false);
+          setDispatchError(batch.status === "error" ? batch.error : null);
+          refreshSourceDocuments();
+        }
+      }).catch(() => {});
+    }, 2000);
+    return () => clearInterval(poll);
+  }, [dispatchRunning, refreshSourceDocuments]);
+  const handleBatchDispatch = () => {
+    setDispatchError(null);
+    if (!trustedSites.length) {
+      setDispatchError("Add at least one trusted site below before dispatching.");
+      return;
+    }
+    setDispatchRunning(true);
+    startBatchDispatch(sourceChips, trustedSites).then(result => {
+      if (result.error) {
+        setDispatchError(result.error);
+        setDispatchRunning(false);
+      }
+    }).catch(() => {
+      setDispatchError("Couldn't reach NAVI — check it's running.");
+      setDispatchRunning(false);
+    });
+  };
+  const handleReviewSource = (id: string, status: "accepted" | "rejected") => {
+    reviewSourceDocument(id, status).then(() => refreshSourceDocuments());
+  };
   // Knowledge lives alongside Activity in the left sidebar (moved out
   // of the right Sources panel, JuanJo 2026-08-29) — both are records
   // of past work rather than a live tool. Each entry is tagged with
@@ -3297,19 +3343,24 @@ export default function App() {
 
               <div style={{ padding: `${spacing.sm + 2}px ${spacing.lg}px ${spacing.md}px`, flexShrink: 0 }}>
                 <button
-                  disabled={!sourceChips.length}
+                  disabled={!sourceChips.length || dispatchRunning}
+                  onClick={handleBatchDispatch}
                   style={{
                     width: "100%", padding: 8, borderRadius: radius.xs + 2, fontSize: fontSize.xs,
                     fontWeight: fontWeight.medium, fontFamily,
-                    cursor: sourceChips.length ? "pointer" : "not-allowed",
+                    cursor: sourceChips.length && !dispatchRunning ? "pointer" : "not-allowed",
                     color: sourceChips.length ? actionInk : neutral.textFaint,
                     background: sourceChips.length ? CANVAS_ACCENT.chat.color : "rgba(4,8,18,0.3)",
                     border: sourceChips.length ? "none" : "1px solid rgba(255,255,255,0.1)",
                     boxShadow: sourceChips.length ? `0 6px 18px -8px ${CANVAS_ACCENT.chat.glow}` : "none",
+                    opacity: dispatchRunning ? 0.7 : 1,
                   }}
                 >
-                  Batch Dispatch
+                  {dispatchRunning ? "Dispatching…" : "Batch Dispatch"}
                 </button>
+                {dispatchError && (
+                  <div style={{ fontSize: fontSize.xxs, color: status.danger.color, marginTop: spacing.xs }}>{dispatchError}</div>
+                )}
               </div>
 
               <div className="hide-scrollbar" style={{
@@ -3321,13 +3372,62 @@ export default function App() {
                     Add a search term above, then Batch Dispatch. Nothing's been searched yet this session.
                   </div>
                 ) : (
-                  sourceChips.map(term => (
-                    <div key={term} style={{ display: "flex", alignItems: "center", gap: spacing.sm, padding: "6px 0" }}>
-                      <ChevronRightIcon size={12} />
-                      <span style={{ flex: 1, fontSize: 13, color: neutral.textPrimary }}>{term}</span>
-                      <span style={{ fontSize: 11, color: neutral.textFaint }}>not dispatched yet</span>
-                    </div>
-                  ))
+                  sourceChips.map(term => {
+                    const docs = sourceDocuments.filter(d => d.term === term);
+                    return (
+                      <div key={term}>
+                        <div style={{ display: "flex", alignItems: "center", gap: spacing.sm, padding: "6px 0" }}>
+                          <ChevronRightIcon size={12} />
+                          <span style={{ flex: 1, fontSize: 13, color: neutral.textPrimary }}>{term}</span>
+                          <span style={{ fontSize: 11, color: neutral.textFaint }}>
+                            {docs.length === 0 ? "not dispatched yet" : `${docs.length} document${docs.length === 1 ? "" : "s"}`}
+                          </span>
+                        </div>
+                        {docs.length > 0 && (
+                          <div style={{ display: "flex", flexDirection: "column", gap: 5, marginTop: 4 }}>
+                            {docs.map(doc => (
+                              <div key={doc.id} style={{
+                                display: "flex", alignItems: "center", gap: spacing.sm,
+                                padding: "7px 8px", borderRadius: radius.xs + 1, background: "rgba(255,255,255,0.06)",
+                              }}>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ fontSize: fontSize.xs, color: neutral.textPrimary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{doc.title}</div>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 1 }}>
+                                    <span style={{ fontSize: fontSize.xxs, color: neutral.textFaint }}>{doc.domain}</span>
+                                    <span style={{
+                                      fontSize: fontSize.xxs, padding: "1px 6px", borderRadius: 100,
+                                      color: doc.status === "accepted" ? status.success.color : doc.status === "rejected" ? status.danger.color : status.warning.color,
+                                      background: doc.status === "accepted" ? status.success.bg : doc.status === "rejected" ? status.danger.bg : status.warning.bg,
+                                    }}>
+                                      {doc.status === "accepted" ? "Accepted" : doc.status === "rejected" ? "Rejected" : "Needs review"}
+                                    </span>
+                                  </div>
+                                </div>
+                                {doc.status === "pending_review" && (
+                                  <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                                    <button
+                                      onClick={() => handleReviewSource(doc.id, "accepted")}
+                                      title="Accept"
+                                      style={{ width: 22, height: 22, borderRadius: radius.xs, border: "none", background: "transparent", cursor: "pointer", color: status.success.color, display: "flex", alignItems: "center", justifyContent: "center" }}
+                                    >
+                                      <CheckIcon size={13} />
+                                    </button>
+                                    <button
+                                      onClick={() => handleReviewSource(doc.id, "rejected")}
+                                      title="Reject"
+                                      style={{ width: 22, height: 22, borderRadius: radius.xs, border: "none", background: "transparent", cursor: "pointer", color: status.danger.color, display: "flex", alignItems: "center", justifyContent: "center" }}
+                                    >
+                                      <XIcon size={13} />
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
                 )}
               </div>
 
