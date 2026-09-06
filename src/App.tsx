@@ -3441,11 +3441,11 @@ export default function App() {
           </Group>
           )}
 
-          {/* persistent footer disclaimer — Sources-specific. Right
-              panel only ever shows Sources now (Files moved to the left
-              sidebar), so this just needs the activeCanvas check —
-              Agent Work's panel doesn't render Sources at all. */}
-          {activeCanvas === "chat" && !viewerExpanded && (
+          {/* persistent footer disclaimer — Sources-specific. Now that
+              the right panel is tabbed (Sources / Commands, 2026-09-06),
+              this also needs the rightPanelTab check — it was leaking
+              onto the Commands tab otherwise. */}
+          {activeCanvas === "chat" && rightPanelTab === "sources" && !viewerExpanded && (
             <div style={{
               padding: `${spacing.sm + 2}px ${spacing.lg}px`, borderTop: "1px solid var(--border-subtle)",
               display: "flex", gap: 7, alignItems: "flex-start", flexShrink: 0,
