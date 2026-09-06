@@ -57,13 +57,11 @@ import {
 } from "./storage";
 import { Group, Panel, Separator, type LayoutChangedMeta } from "react-resizable-panels";
 import { sidebarTab, sidebarBreadcrumb, sidebarRow } from "./sidebar-tokens";
-import { isTextLike } from "./fileFormats";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 // pdf.js/docx-preview are heavy (real PDF/DOCX rendering) — lazy so
 // they only load once someone actually opens a document, not on every
-// app load. isTextLike/extensionOf stay a normal import since they're
-// tiny and needed synchronously (openFile, above).
+// app load.
 const DocumentViewer = lazy(() => import("./DocumentViewer").then(m => ({ default: m.DocumentViewer })));
 import { NAVI_BACKEND_URL } from "./config";
 import { getPushStatus, subscribeToPush, type PushStatus } from "./push";
@@ -1185,6 +1183,14 @@ export default function App() {
   // below — the Library tab's own click handler — needs to call this
   // too, for a FileNode with a sourceDocId.
   const handleOpenSourceDocument = useCallback((doc: SourceDocument) => {
+    // The viewer (openDocument/viewerPane) only renders at all when the
+    // right panel itself is open (it's nested inside {rightPanelOpen &&
+    // (...)}) — opening a document from Library while the right sidebar
+    // is closed would set state with nothing on screen to show it (2026-
+    // 09-06, JuanJo: "clicking on a document in Library should force the
+    // right sidebar open"). Clicking from the Sources tab itself already
+    // implies the right panel is open, so this is a no-op there.
+    setRightPanelOpen(true);
     setOpeningSourceDocId(doc.id);
     const filename = `${doc.title || "source"}.md`;
     getSourceDocument(doc.id)
@@ -1201,23 +1207,16 @@ export default function App() {
       })
       .finally(() => setOpeningSourceDocId(null));
   }, []);
+  // No fake seed data (2026-09-06, JuanJo: "placeholder content...
+  // can't be there for an MVP") — this used to pre-populate Research/
+  // Deliverables/scratch-notes.txt, none backed by a real file, all
+  // opening to a "Mock content..." placeholder when clicked. "Sources"
+  // is the one real entry: currentFolder below overrides its contents
+  // with acceptedSourceNodes whenever it's the active path, so nothing
+  // needs seeding here for it either. Everything else starts genuinely
+  // empty — real local files (drag/import) still work exactly as before.
   const [fileTree, setFileTree] = useState<FileNode[]>([
-    // Real children now (2026-09-06, JuanJo: "the 'library' tab has
-    // placeholders... the accepted documents should be shown on
-    // library, under a 'sources' folder") — this used to seed 3 fake
-    // mock entries with no real file behind them. Left empty here on
-    // purpose: currentFolder below overrides this folder's contents
-    // with acceptedSourceNodes whenever it's the active path, so
-    // anything seeded here would never actually be seen.
     { name: "Sources", type: "folder", children: [] },
-    { name: "Research", type: "folder", children: [
-      { name: "competitor-pricing.xlsx", type: "file" },
-      { name: "market-notes.md", type: "file" },
-    ] },
-    { name: "Deliverables", type: "folder", children: [
-      { name: "onboarding-flow-v2.png", type: "file" },
-    ] },
-    { name: "scratch-notes.txt", type: "file" },
   ]);
   const [filePath, setFilePath] = useState<string[]>([]);
   const currentFolder = useMemo(() => {
@@ -1303,15 +1302,12 @@ export default function App() {
       const doc = sourceDocuments.find(d => d.id === node.sourceDocId);
       if (doc) { handleOpenSourceDocument(doc); return; }
     }
-    setOpenDocument({
-      name: node.name,
-      file: node.file,
-      content: node.file
-        ? "" // real files load their own content inside DocumentViewer (async — pdf.js/docx-preview/file.text())
-        : isTextLike(node.name)
-          ? `Mock content for ${node.name} — this is a seed entry with no real file behind it. Import a real file (drag it into Files) to see actual content. Editable in memory only either way; nothing persists past a reload.`
-          : "",
-    });
+    // Every remaining file-type node carries a real File object — there's
+    // no more mock/seed data that creates one without it (2026-09-06,
+    // no placeholders for an MVP), so content is always "" here: real
+    // files load their own content inside DocumentViewer asynchronously
+    // (pdf.js/docx-preview/file.text()).
+    setOpenDocument({ name: node.name, file: node.file, content: "" });
   }, [sourceDocuments, handleOpenSourceDocument]);
   // Real file import — drag a file from the OS onto the Files tab, or
   // click Import. Gives the browser a real File object client-side, no
@@ -1422,12 +1418,6 @@ export default function App() {
   // Agent Vault tab (2026-09-03 design pass — JuanJo's brother's
   // suggestion, refined into left-sidebar-tab shape over several turns).
   const [leftPanelTab, setLeftPanelTab] = useState<"activity" | "library" | "agents" | "prompts">("activity");
-  const MOCK_KNOWLEDGE = [
-    { title: "Local-first sync — synthesis", note: "from 3 accepted sources", origin: "search" as const },
-    { title: "CRDT tradeoffs — synthesis", note: "from 2 accepted sources", origin: "search" as const },
-    { title: "Competitor pricing notes", note: "from research summary", origin: "research" as const },
-    { title: "Brainstorm: onboarding flow ideas", note: "saved from chat", origin: "brainstorm" as const },
-  ];
   // Drives the .chat-column/.centered-col right-floor in index.css —
   // only shift the chat left of center while the panel is actually
   // open, not permanently once isDesktopSidebar is true.
@@ -2986,28 +2976,14 @@ export default function App() {
           padding: `0 ${spacing.lg}px ${spacing.lg}px`,
           flex: 3, minHeight: 0, overflowY: "auto",
         }}>
-          {MOCK_KNOWLEDGE.length === 0 ? (
-            <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted, marginTop: spacing.sm }}>
-              Nothing saved yet — accepted sources and research get synthesized here.
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: spacing.sm, marginTop: spacing.sm }}>
-              {MOCK_KNOWLEDGE.map(item => (
-                <div key={item.title} style={{ padding: `${spacing.xs}px ${spacing.sm}px`, borderRadius: radius.sm, background: "rgba(255,255,255,0.06)" }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.xs }}>
-                    <span style={{ fontSize: fontSize.xs, color: neutral.textPrimary }}>{item.title}</span>
-                    <span style={{
-                      fontSize: fontSize.xxs, color: neutral.textMuted, flexShrink: 0,
-                      fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
-                    }}>
-                      /{item.origin}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: fontSize.xxs, color: neutral.textFaint, marginTop: 2 }}>{item.note}</div>
-                </div>
-              ))}
-            </div>
-          )}
+          {/* No real synthesis pipeline exists yet to back a genuine
+              "Knowledge" list — this used to unconditionally render 4
+              hardcoded fake items regardless of any real state (2026-
+              09-06, JuanJo: "placeholder content... can't be there for
+              an MVP"). Honest always-empty state until that's real. */}
+          <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted, marginTop: spacing.sm }}>
+            Nothing saved yet — accepted sources and research get synthesized here.
+          </div>
         </div>
         </div>
         ) : (
