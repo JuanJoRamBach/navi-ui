@@ -24,3 +24,7 @@ logs/
 # continuity, not project documentation, not meant to be committed.
 # Auto-loaded via CLAUDE.md's @IDEAS.md import.
 IDEAS.md
+
+# Reference material JuanJo leaves on-disk for Claude Code sessions to
+# read from — local to this machine only, not meant to be committed.
+/design system/
