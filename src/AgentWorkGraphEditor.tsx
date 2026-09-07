@@ -6,12 +6,12 @@ import {
   type Node, type Edge, type Connection, type OnConnectEnd, type FinalConnectionState, type EdgeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { XIcon, PlusIcon, SquareIcon, PencilIcon, ClockIcon, CopyIcon, CheckIcon } from "@primer/octicons-react";
+import { XIcon, PlusIcon, SquareIcon, PencilIcon, ClockIcon, CopyIcon, CheckIcon, CodeIcon, ChevronRightIcon } from "@primer/octicons-react";
 import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, tintedGlow, status, surface, controlSize, iconSize } from "./tokens";
 import { NODE_KIND_LIST, NODE_KINDS, type NodeKindId } from "./agentWorkNodeKinds";
 import { AGENT_WORK_NODE_TYPES, type AgentWorkNodeData, type AgentWorkGroupData } from "./AgentWorkGraphNode";
 import { convertBackendToGraph, convertGraphToBackend } from "./agentWorkGraphConvert";
-import { createWorkflow, getWebhookUrl, getWorkflow, WORKFLOW_CREATED_EVENT, type WorkflowTrigger } from "./agentWork";
+import { createWorkflow, getNodeSample, getWebhookUrl, getWorkflow, WORKFLOW_CREATED_EVENT, type WorkflowTrigger } from "./agentWork";
 
 // The Agent Vault "Open in canvas" fork (2026-09-03) — one-way, per the
 // design: seeds a real Input -> Generate with AI -> Output starter
@@ -400,6 +400,177 @@ function ConnectDropMenu({ left, top, onPick, onClose }: { left: number; top: nu
   );
 }
 
+// Recursively browses a node's real recorded output, parsed as JSON —
+// the actual field-picking half of the reference picker below (2026-09-07,
+// real gap: "a lot of people use the webhook to get something out of an
+// api. will the webhook get the correct input?" — yes, but there was no
+// way to pull ONE field out of it for a deterministic node's field
+// without this). Every leaf AND every expandable branch is clickable —
+// picking a branch inserts a reference to that whole sub-object, picking
+// a leaf inserts that exact value's path. Primitives render their real
+// value (truncated) right in the row so browsing is actually informative,
+// not just a bare list of key names.
+function JsonKeyTree({ value, path, onPick }: { value: unknown; path: string; onPick: (path: string) => void }) {
+  const entries: [string, unknown][] | null =
+    value !== null && typeof value === "object" && !Array.isArray(value) ? Object.entries(value as Record<string, unknown>) :
+    Array.isArray(value) ? value.map((v, i) => [String(i), v] as [string, unknown]) :
+    null;
+  if (!entries) return null;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column" }}>
+      {entries.map(([key, v]) => {
+        const childPath = path ? `${path}.${key}` : key;
+        const isExpandable = v !== null && typeof v === "object";
+        return (
+          <div key={key}>
+            <button
+              onClick={() => onPick(childPath)}
+              title={`Insert {{state.${childPath}}}`}
+              style={{
+                display: "flex", alignItems: "center", gap: 4, width: "100%", textAlign: "left",
+                padding: `2px ${spacing.xs}px`, border: "none", background: "transparent",
+                color: neutral.textPrimary, cursor: "pointer", fontSize: fontSize.xxs, fontFamily: "monospace",
+              }}
+            >
+              <span style={{ color: CANVAS_ACCENT.agentWork.color, flexShrink: 0 }}>{key}</span>
+              {!isExpandable && (
+                <span style={{ color: neutral.textFaint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  : {JSON.stringify(v)}
+                </span>
+              )}
+            </button>
+            {isExpandable && (
+              <div style={{ paddingLeft: spacing.sm, borderLeft: "1px solid rgba(255,255,255,0.08)", marginLeft: 6 }}>
+                <JsonKeyTree value={v} path={childPath} onPick={onPick} />
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// "Insert reference" — lets a text/textarea field pull in an earlier
+// node's output, either the whole thing or (when that node's last real
+// run produced JSON — a webhook trigger, most commonly) one specific
+// field via a real browsable tree instead of typing {{state.n1}} blind.
+// Only ever shows OTHER nodes, never the one currently being edited.
+function ReferencePicker({ otherNodes, workflowId, onInsert }: {
+  otherNodes: { id: string; label: string }[]; workflowId: string | null;
+  onInsert: (text: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
+  // undefined = not fetched yet, null = no sample / not JSON (whole-value
+  // reference is still offered either way).
+  const [sample, setSample] = useState<unknown>(undefined);
+
+  const openNode = async (nodeId: string) => {
+    setActiveNodeId(nodeId);
+    setSample(undefined);
+    if (!workflowId) { setSample(null); return; }
+    try {
+      const { output } = await getNodeSample(workflowId, nodeId);
+      if (!output) { setSample(null); return; }
+      try { setSample(JSON.parse(output)); } catch { setSample(null); }
+    } catch {
+      setSample(null);
+    }
+  };
+
+  const close = () => { setOpen(false); setActiveNodeId(null); setSample(undefined); };
+  // `fullPath` is either a bare node id ("n1", from the "whole output"
+  // button) or a node id plus dot-path (e.g. "n1.customer.email", from
+  // JsonKeyTree — its own root `path` prop starts as activeNodeId, so
+  // every child path it produces already includes the node id prefix).
+  // Either way, wrapping it in the real {{state...}} syntax happens
+  // exactly once, here, not scattered across every call site.
+  const pick = (fullPath: string) => { onInsert(`{{state.${fullPath}}}`); close(); };
+  const ref = useClickOutside(close);
+
+  if (otherNodes.length === 0) return null;
+
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button
+        onClick={() => (open ? close() : setOpen(true))}
+        title="Insert a reference to an earlier step's output"
+        style={{
+          display: "flex", alignItems: "center", gap: 3, padding: `1px ${spacing.xxs}px`, borderRadius: radius.xs,
+          border: "1px solid rgba(255,255,255,0.15)", background: "transparent",
+          color: neutral.textFaint, cursor: "pointer", fontSize: fontSize.xxs, fontFamily,
+        }}
+      >
+        <CodeIcon size={10} /> Insert reference
+      </button>
+      {open && (
+        <div
+          onClick={e => e.stopPropagation()}
+          style={{
+            position: "absolute", top: "100%", left: 0, marginTop: 4, zIndex: 60, width: 240,
+            background: surface.raised, border: "1px solid rgba(255,255,255,0.15)", borderRadius: radius.sm,
+            boxShadow: "0 12px 32px rgba(0,0,0,0.5)", maxHeight: 260, overflowY: "auto", padding: spacing.xxs,
+          }}
+        >
+          {activeNodeId === null ? (
+            otherNodes.map(n => (
+              <button
+                key={n.id}
+                onClick={() => openNode(n.id)}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%",
+                  textAlign: "left", padding: `${spacing.xxs}px ${spacing.xs}px`, borderRadius: radius.xs,
+                  border: "none", background: "transparent", color: neutral.textPrimary,
+                  cursor: "pointer", fontSize: fontSize.xxs, fontFamily,
+                }}
+              >
+                {n.label} <ChevronRightIcon size={10} />
+              </button>
+            ))
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              <button
+                onClick={() => setActiveNodeId(null)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 2, border: "none", background: "transparent",
+                  color: neutral.textFaint, cursor: "pointer", fontSize: fontSize.xxs, fontFamily, padding: `0 ${spacing.xs}px`,
+                }}
+              >
+                ‹ Back
+              </button>
+              <button
+                onClick={() => pick(activeNodeId)}
+                style={{
+                  textAlign: "left", padding: `${spacing.xxs}px ${spacing.xs}px`, borderRadius: radius.xs,
+                  border: `1px solid ${CANVAS_ACCENT.agentWork.color}55`, background: tintedGlow(CANVAS_ACCENT.agentWork.hue, 0.1),
+                  color: CANVAS_ACCENT.agentWork.color, cursor: "pointer", fontSize: fontSize.xxs, fontWeight: fontWeight.medium, fontFamily,
+                }}
+              >
+                Use the whole output
+              </button>
+              {sample === undefined ? (
+                <div style={{ fontSize: fontSize.xxs, color: neutral.textFaint, padding: `${spacing.xxs}px ${spacing.xs}px` }}>Loading…</div>
+              ) : sample === null ? (
+                <div style={{ fontSize: fontSize.xxs, color: neutral.textFaint, padding: `${spacing.xxs}px ${spacing.xs}px`, lineHeight: 1.4 }}>
+                  {workflowId
+                    ? "No JSON to browse yet — this step hasn't produced structured output in a real run. Run this workflow once, then reopen it here."
+                    : "Save this workflow and run it once first — then reopen it here to browse this step's real fields."}
+                </div>
+              ) : (
+                <div style={{ padding: `${spacing.xxs}px 0` }}>
+                  <JsonKeyTree value={sample} path={activeNodeId} onPick={pick} />
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Floating popover anchored under the selected node — not a right
 // sidebar (2026-09-03, JuanJo: "when I click the nodes, it opens a
 // right sidebar. It should open a window under the nodes (like a
@@ -409,8 +580,9 @@ function ConnectDropMenu({ left, top, onPick, onClose }: { left: number; top: nu
 // in a fixed layout slot. Every edit here only touches local canvas
 // state — nothing is sent to NAVI until "Save as Agent/Workflow" is
 // pressed.
-function NodeInspector({ node, onChange, onDelete, onClose }: {
-  node: Node<AgentWorkNodeData>; onChange: (values: Record<string, string>) => void;
+function NodeInspector({ node, otherNodes, workflowId, onChange, onDelete, onClose }: {
+  node: Node<AgentWorkNodeData>; otherNodes: { id: string; label: string }[]; workflowId: string | null;
+  onChange: (values: Record<string, string>) => void;
   onDelete: () => void; onClose: () => void;
 }) {
   const kind = NODE_KINDS[node.data.kindId];
@@ -444,9 +616,21 @@ function NodeInspector({ node, onChange, onDelete, onClose }: {
             borderRadius: radius.xs, color: neutral.textPrimary, fontSize: fontSize.xs, fontFamily,
             padding: `${spacing.xxs}px ${spacing.xs}px`, boxSizing: "border-box",
           };
+          // Referencing an earlier step only makes sense for a field that
+          // accepts free text — a select's value has to be one of its
+          // fixed options, so no picker there.
+          const canReference = field.kind !== "select";
+          const insertReference = (ref: string) => {
+            onChange({ ...node.data.values, [field.key]: value ? `${value} ${ref}` : ref });
+          };
           return (
             <div key={field.key}>
-              <div style={{ fontSize: fontSize.xxs, color: neutral.textFaint, marginBottom: 2 }}>{field.label}</div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.xs, marginBottom: 2 }}>
+                <div style={{ fontSize: fontSize.xxs, color: neutral.textFaint }}>{field.label}</div>
+                {canReference && (
+                  <ReferencePicker otherNodes={otherNodes} workflowId={workflowId} onInsert={insertReference} />
+                )}
+              </div>
               {field.kind === "textarea" ? (
                 <textarea
                   value={value} placeholder={field.placeholder} rows={4}
@@ -562,8 +746,9 @@ function GroupInspectorAnchor({ node, onChangeItems, onClose }: {
 // Rendered as an absolute child of the same wrapper ReactFlow fills, so
 // its (0,0) already lines up with the flow pane's own — no bounding-rect
 // math needed on top of the viewport transform.
-function NodeInspectorAnchor({ node, onChange, onDelete, onClose }: {
-  node: Node<AgentWorkNodeData>; onChange: (values: Record<string, string>) => void;
+function NodeInspectorAnchor({ node, otherNodes, workflowId, onChange, onDelete, onClose }: {
+  node: Node<AgentWorkNodeData>; otherNodes: { id: string; label: string }[]; workflowId: string | null;
+  onChange: (values: Record<string, string>) => void;
   onDelete: () => void; onClose: () => void;
 }) {
   const { x, y, zoom } = useViewport();
@@ -573,7 +758,7 @@ function NodeInspectorAnchor({ node, onChange, onDelete, onClose }: {
   const top = node.position.y * zoom + y + height * zoom + 8;
   return (
     <div style={{ position: "absolute", left, top, transform: "translateX(-50%)", zIndex: 50 }}>
-      <NodeInspector node={node} onChange={onChange} onDelete={onDelete} onClose={onClose} />
+      <NodeInspector node={node} otherNodes={otherNodes} workflowId={workflowId} onChange={onChange} onDelete={onDelete} onClose={onClose} />
     </div>
   );
 }
@@ -605,6 +790,14 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
 }) {
   const [nodes, setNodes, onNodesChange] = useNodesState<AgentWorkAnyNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  // The real id of whatever workflow is currently loaded on the canvas
+  // (2026-09-07) — only ever set by loading an already-saved workflow via
+  // loadWorkflowId below; "Save as Agent/Workflow" always creates a NEW
+  // workflow (a known, separate gap — there's no update-existing flow),
+  // so a freshly-saved graph has no id to attach here before the canvas
+  // resets. Used by the reference picker to know whether it can fetch a
+  // node's real sample output at all.
+  const [currentWorkflowId, setCurrentWorkflowId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [workflowName, setWorkflowName] = useState("");
@@ -693,6 +886,7 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
       setEdges(loadedEdges);
       setWorkflowName(wf.name);
       setEditingName(false);
+      setCurrentWorkflowId(wf.id);
       // Reflect the REAL loaded trigger, not whatever was left over from
       // a previous session on this canvas — otherwise viewing an already-
       // scheduled workflow and saving again without touching the
@@ -952,6 +1146,7 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
       // confirmation instead of silently vanishing.
       setNodes([]); setEdges([]); setSelectedId(null); setWorkflowName(""); setEditingName(true);
       setScheduleMode("manual"); setIntervalMinutes(60); setRepeatCountInput(""); setDateInput("");
+      setCurrentWorkflowId(null); // the canvas is blank now — whatever was loaded no longer applies
       setSavedName(saved);
       // Only auto-hides when there's no webhook URL to give someone time
       // to actually copy — the plain "saved" case stays a brief toast.
@@ -1222,6 +1417,18 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
           {selectedNode && (
             <NodeInspectorAnchor
               node={selectedNode}
+              // Every OTHER real (non-group) node, numbered by canvas
+              // position for disambiguation — two "Generate with AI"
+              // nodes would otherwise show identical labels in the
+              // reference picker. Not restricted to true upstream
+              // predecessors (would need real edge-reachability
+              // analysis); listing every other node is a reasonable v1 —
+              // referencing a node that hasn't run yet just means
+              // there's no sample to browse, not a wrong answer.
+              otherNodes={nodes.filter(isExecNode).filter(n => n.id !== selectedNode.id).map((n, i) => ({
+                id: n.id, label: `${i + 1}. ${NODE_KINDS[n.data.kindId].label}`,
+              }))}
+              workflowId={currentWorkflowId}
               onChange={updateSelectedValues}
               onDelete={deleteSelected}
               onClose={() => setSelectedId(null)}

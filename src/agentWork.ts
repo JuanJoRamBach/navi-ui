@@ -186,6 +186,16 @@ export async function getWebhookUrl(workflowId: string): Promise<{ url?: string;
   return res.json();
 }
 
+// The most recent real output a node has produced, for the canvas's
+// reference picker (2026-09-07) to browse actual JSON keys instead of
+// guessing a payload's shape blind — the same "test it once, then map
+// real fields" flow Zapier's own product requires. `output` is null
+// when this node has never completed a run yet.
+export async function getNodeSample(workflowId: string, nodeId: string): Promise<{ output: string | null }> {
+  const res = await fetch(`${NAVI_BACKEND_URL}/agent/workflows/${encodeURIComponent(workflowId)}/nodes/${encodeURIComponent(nodeId)}/sample`);
+  return res.json();
+}
+
 export async function listRuns(workflowId?: string, status?: string): Promise<AgentRun[]> {
   const params = new URLSearchParams();
   if (workflowId) params.set("workflow_id", workflowId);
