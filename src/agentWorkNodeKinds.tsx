@@ -2,7 +2,7 @@ import type { ComponentType } from "react";
 import {
   PencilIcon, SparkleFillIcon, SearchIcon, LinkIcon, PlugIcon,
   PaperAirplaneIcon, MailIcon, FileIcon, GitBranchIcon, SignInIcon, SignOutIcon,
-  WebhookIcon, ClockIcon,
+  WebhookIcon, ClockIcon, ReplyIcon,
 } from "@primer/octicons-react";
 
 // The full node palette, settled 2026-09-02 after checking real naming
@@ -24,7 +24,7 @@ import {
 export type NodeKindId =
   | "writeText" | "generateAi" | "searchWeb" | "readPage"
   | "apiCall" | "sendMessage" | "sendMail" | "saveFile" | "choosePath"
-  | "input" | "output" | "webhookTrigger" | "delay";
+  | "input" | "output" | "webhookTrigger" | "delay" | "respondToWebhook";
 
 export type FieldKind = "text" | "textarea" | "select" | "url";
 
@@ -182,6 +182,26 @@ export const NODE_KINDS: Record<NodeKindId, NodeKindDef> = {
     description: "Pauses this workflow for a fixed time before continuing — useful for spacing out messages or waiting for something else to catch up.",
     icon: ClockIcon, hue: 210,
     fields: [{ key: "seconds", label: "Wait for (seconds)", kind: "text", placeholder: "e.g. 30" }],
+  },
+  // Respond to Webhook (2026-09-07) — n8n's own node of the same name.
+  // Only meaningful when this workflow's trigger is a Webhook Trigger:
+  // holds the caller's HTTP connection open (server.py's
+  // /agent/webhooks/{token} route) until execution reaches this node,
+  // then answers with the body/status configured here instead of the
+  // default immediate "ok, we started" ack — the piece a real API
+  // integration (return a computed value, not just fire-and-forget)
+  // needs. Reached in a workflow that ISN'T webhook-triggered (run
+  // manually/on schedule), it's a harmless no-op — nothing crashes,
+  // there's just no caller left to answer (see dispatcher/agent_work.py's
+  // _run_respond_webhook_node).
+  respondToWebhook: {
+    id: "respondToWebhook", label: "Respond to Webhook",
+    description: "Sends a real answer back to whatever called the Webhook Trigger that started this run — use the reference picker to pull in an earlier step's output.",
+    icon: ReplyIcon, hue: 175,
+    fields: [
+      { key: "body", label: "Response body", kind: "textarea", placeholder: "What to send back — literal text, or insert a reference to an earlier step" },
+      { key: "statusCode", label: "Status code", kind: "text", placeholder: "200" },
+    ],
   },
 };
 

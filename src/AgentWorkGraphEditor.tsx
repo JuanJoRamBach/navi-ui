@@ -144,11 +144,21 @@ function AgentWorkEdge({ id, source, sourceX, sourceY, targetX, targetY, sourceP
   // other edge stays exactly as it was: just the delete button.
   const sourceNode = getNode(source);
   const isChoosePathBranch = (sourceNode?.data as { kindId?: string } | undefined)?.kindId === "choosePath";
-  const label = (data as { label?: string } | undefined)?.label ?? "";
+  const edgeData = data as { label?: string; on?: "error" } | undefined;
+  const label = edgeData?.label ?? "";
+  // Error edges (2026-09-07) — n8n's own per-node error output pin,
+  // expressed as a toggle on the connection itself rather than a second
+  // handle on every node (a bigger canvas change for the same effect).
+  // Mutually exclusive with a Choose a Path branch label on purpose: a
+  // choose_path node's routing is already fully decided by which label
+  // the model picks, so layering "also maybe an error" on top of that
+  // would be a second, conflicting routing mechanism off the same node.
+  const isErrorEdge = edgeData?.on === "error";
+  const edgeStyle = isErrorEdge ? { ...style, stroke: status.danger.color, strokeDasharray: "6 4" } : style;
 
   return (
     <>
-      <BaseEdge id={id} path={edgePath} style={style} markerEnd={markerEnd} />
+      <BaseEdge id={id} path={edgePath} style={edgeStyle} markerEnd={markerEnd} />
       <EdgeLabelRenderer>
         <div
           onMouseEnter={() => setHovered(true)}
@@ -175,6 +185,31 @@ function AgentWorkEdge({ id, source, sourceX, sourceY, targetX, targetY, sourceP
                 color: label ? "#e08a38" : neutral.textFaint, fontFamily,
               }}
             />
+          )}
+          {!isChoosePathBranch && (
+            <button
+              onClick={e => {
+                e.stopPropagation();
+                setEdges(eds => eds.map(edge => {
+                  if (edge.id !== id) return edge;
+                  const nextData = { ...edge.data } as { label?: string; on?: "error" };
+                  if (isErrorEdge) delete nextData.on; else nextData.on = "error";
+                  return { ...edge, data: nextData };
+                }));
+              }}
+              title={isErrorEdge
+                ? "This connection only runs if the previous step fails. Click to make it a normal connection again."
+                : "Make this connection only run if the previous step fails — n8n's error output, for a fallback or a \"notify someone\" path."}
+              style={{
+                fontSize: 10, padding: "2px 6px", borderRadius: 10, whiteSpace: "nowrap",
+                border: `1px solid ${isErrorEdge ? status.danger.border : "rgba(255,255,255,0.2)"}`,
+                background: isErrorEdge ? status.danger.bg : surface.raised,
+                color: isErrorEdge ? status.danger.color : neutral.textFaint,
+                cursor: "pointer", fontFamily,
+              }}
+            >
+              {isErrorEdge ? "on error" : "on error?"}
+            </button>
           )}
           <button
             onClick={e => { e.stopPropagation(); setEdges(eds => eds.filter(edge => edge.id !== id)); }}

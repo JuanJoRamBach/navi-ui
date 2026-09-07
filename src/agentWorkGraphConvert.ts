@@ -15,7 +15,7 @@ import { neutral } from "./tokens";
 const BACKEND_READY: Record<NodeKindId, boolean> = {
   writeText: true, generateAi: true, searchWeb: true, readPage: true,
   saveFile: true, sendMessage: true, apiCall: false, sendMail: true, choosePath: true,
-  input: true, output: true, webhookTrigger: true, delay: true,
+  input: true, output: true, webhookTrigger: true, delay: true, respondToWebhook: true,
 };
 
 const TOOL_FOR_KIND: Partial<Record<NodeKindId, string>> = {
@@ -35,6 +35,7 @@ const BACKEND_KIND_FOR_NODE_KIND: Partial<Record<NodeKindId, string>> = {
   sendMail: "send_email",
   webhookTrigger: "webhookTrigger",
   delay: "delay",
+  respondToWebhook: "respond_webhook",
 };
 
 export interface GraphConversionResult {
@@ -115,6 +116,16 @@ export function convertGraphToBackend(
       if (backendKind === "delay") {
         return { id: n.id, kind: backendKind, seconds: values.seconds ?? "" };
       }
+      if (backendKind === "respond_webhook") {
+        // Both fields are typed directly into this node (not inlined via
+        // a Write Text box — see NODE_KINDS' own respondToWebhook entry),
+        // so they read straight off values like input/output's `value`
+        // field does, no literalTextByTarget lookup needed.
+        return {
+          id: n.id, kind: backendKind,
+          body: values.body ?? "", ...(values.statusCode ? { status_code: values.statusCode } : {}),
+        };
+      }
       if (backendKind) {
         // webhookTrigger today — nothing to configure on the node itself
         // (see its own NODE_KINDS entry). dispatcher/agent_work.py never
@@ -148,8 +159,8 @@ export function convertGraphToBackend(
   const backendEdges = edges
     .filter(e => !writeTextIds.has(e.source) && !writeTextIds.has(e.target))
     .map(e => {
-      const label = (e.data as { label?: string } | undefined)?.label;
-      return { from: e.source, to: e.target, ...(label ? { label } : {}) };
+      const data = e.data as { label?: string; on?: "error" } | undefined;
+      return { from: e.source, to: e.target, ...(data?.label ? { label: data.label } : {}), ...(data?.on === "error" ? { on: "error" as const } : {}) };
     });
 
   // A node whose only content source was an inlined writeText that was
@@ -220,6 +231,17 @@ const KIND_FOR_TOOL: Partial<Record<string, NodeKindId>> = {
 // own value, checked separately from KIND_FOR_TOOL.
 const CANVAS_KIND_FOR_BACKEND_KIND: Partial<Record<string, NodeKindId>> = {
   send_email: "sendMail",
+  respond_webhook: "respondToWebhook",
+  // Real pre-existing gap, fixed in passing (2026-09-07): this map had
+  // neither a "delay" nor a "webhookTrigger" entry, so reloading a saved
+  // workflow containing either fell through to the "generateAi" default
+  // below — silently reappearing as a wrong node (Delay lost its seconds
+  // value; a Webhook Trigger lost its whole identity, including its
+  // "output is the incoming payload" meaning). Directly load-bearing for
+  // "Save Edits" (this same session): editing an existing webhook-
+  // triggered workflow reloads it through exactly this path.
+  delay: "delay",
+  webhookTrigger: "webhookTrigger",
 };
 
 // sendMessage/saveFile/sendMail have no text field of their own on the
@@ -287,6 +309,9 @@ export function convertBackendToGraph(graph: WorkflowGraph): { nodes: Node<Agent
       kindId === "sendMessage" ? { channel: "telegram" } :
       kindId === "saveFile" ? {} :
       kindId === "sendMail" ? { to: n.to ?? "", subject: n.subject ?? "" } :
+      kindId === "respondToWebhook" ? { body: n.body ?? "", statusCode: n.status_code ?? "" } :
+      kindId === "delay" ? { seconds: n.seconds ?? "" } :
+      kindId === "webhookTrigger" ? {} :
       { instructions: prompt }; // generateAi, searchWeb
 
     nodes.push({ id: n.id, type: "agentWorkNode", position: { x, y: Y_MAIN }, data: { kindId, values } });

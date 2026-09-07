@@ -33,6 +33,11 @@ export interface WorkflowGraphNode {
   // prior_context through unchanged. A plain number as a string, same
   // "numbers stored as text" convention every other editor field uses.
   seconds?: string;
+  // Respond to Webhook only (2026-09-07) — the HTTP status code to send
+  // back to whatever called the workflow's Webhook Trigger. A plain
+  // string, same "numbers stored as text" convention as `seconds`; the
+  // backend defaults to 200 when this is missing/unparseable.
+  status_code?: string;
 }
 
 export interface WorkflowGraphEdge {
@@ -42,6 +47,13 @@ export interface WorkflowGraphEdge {
   // represents (dispatcher/agent_work.py's _run_choose_path_node picks
   // one label per run; every OTHER edge out of that node gets pruned).
   label?: string;
+  // Error edges (2026-09-07) — n8n's per-node error output pin. When
+  // present and its `from` node fails, dispatcher/agent_work.py routes
+  // to this edge's target instead of failing the whole run, and prunes
+  // this node's normal (non-error) outgoing edges. Absent (the default)
+  // means "normal/success edge" — unchanged behavior for every workflow
+  // built before this existed.
+  on?: "error";
 }
 
 // Fan-out ("sub-flow") metadata — dispatcher/agent_work.py runs every
