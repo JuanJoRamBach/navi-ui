@@ -26,6 +26,23 @@ export type NodeKindId =
   | "apiCall" | "sendMessage" | "sendMail" | "saveFile" | "choosePath"
   | "input" | "output" | "webhookTrigger" | "delay" | "respondToWebhook";
 
+// Node picker categories (2026-09-07 redesign) — matches this file's
+// own pre-existing split, stated in the comment above (deterministic
+// dispatch vs "genuinely needs a model call"), rather than inventing a
+// new taxonomy: AI = the four kinds that actually call an LLM
+// (generateAi/searchWeb/readPage/choosePath — fetching a page and
+// searching the web both need a real model call to interpret the
+// result, same as generating text). Actions = deterministic real-world
+// dispatch. Flow Control = shapes the run itself (timing, branching
+// inputs/outputs, answering the caller) without doing a real-world
+// action or an AI call. Triggers = starts a run. Order below
+// (CATEGORY_ORDER) mirrors n8n's own real category order: Trigger,
+// Action, Core (flow control), Cluster (AI) — swapped Action/AI here
+// since NAVI's most-reached-for nodes lean AI-first, matching
+// generateAi being the default fallback kind (agentWorkGraphConvert.ts).
+export type NodeCategory = "Triggers" | "Actions" | "AI" | "Flow Control";
+export const CATEGORY_ORDER: NodeCategory[] = ["Triggers", "Actions", "AI", "Flow Control"];
+
 export type FieldKind = "text" | "textarea" | "select" | "url";
 
 export interface NodeFieldDef {
@@ -42,6 +59,7 @@ export interface NodeKindDef {
   description: string;
   icon: ComponentType<{ size?: number; fill?: string }>;
   hue: number; // distinct accent per kind, for at-a-glance scanning on a canvas with many nodes
+  category: NodeCategory;
   fields: NodeFieldDef[];
   // A graph-entry node (2026-09-07, Webhook Trigger) has nothing feeding
   // it — showing an input handle would just invite a dangling/confusing
@@ -57,31 +75,31 @@ export const NODE_KINDS: Record<NodeKindId, NodeKindDef> = {
   writeText: {
     id: "writeText", label: "Write Text",
     description: "A fixed piece of text you already know — no AI involved, sent or saved exactly as written.",
-    icon: PencilIcon, hue: 60,
+    icon: PencilIcon, hue: 60, category: "Actions",
     fields: [{ key: "text", label: "Text", kind: "textarea", placeholder: "Type the exact text..." }],
   },
   generateAi: {
     id: "generateAi", label: "Generate with AI",
     description: "Have AI write the text for this step, based on your instructions and anything earlier steps found.",
-    icon: SparkleFillIcon, hue: 280,
+    icon: SparkleFillIcon, hue: 280, category: "AI",
     fields: [{ key: "instructions", label: "Instructions", kind: "textarea", placeholder: "What should the AI write?" }],
   },
   searchWeb: {
     id: "searchWeb", label: "Search the Web",
     description: "Look something up online.",
-    icon: SearchIcon, hue: 145,
+    icon: SearchIcon, hue: 145, category: "AI",
     fields: [{ key: "instructions", label: "What to search for", kind: "textarea", placeholder: "e.g. today's top tech news" }],
   },
   readPage: {
     id: "readPage", label: "Read a Web Page",
     description: "Fetch and read one specific page.",
-    icon: LinkIcon, hue: 195,
+    icon: LinkIcon, hue: 195, category: "AI",
     fields: [{ key: "url", label: "Page URL", kind: "url", placeholder: "https://..." }],
   },
   apiCall: {
     id: "apiCall", label: "Make an API Call",
     description: "Talk directly to any service that has an API — for anything not covered by a dedicated node.",
-    icon: PlugIcon, hue: 25,
+    icon: PlugIcon, hue: 25, category: "Actions",
     fields: [
       { key: "url", label: "URL", kind: "url", placeholder: "https://api.example.com/..." },
       { key: "method", label: "Method", kind: "select", options: [
@@ -94,7 +112,7 @@ export const NODE_KINDS: Record<NodeKindId, NodeKindDef> = {
   sendMessage: {
     id: "sendMessage", label: "Send Message To",
     description: "Send a chat message — Telegram, Discord, and more as they're added.",
-    icon: PaperAirplaneIcon, hue: 205,
+    icon: PaperAirplaneIcon, hue: 205, category: "Actions",
     fields: [
       { key: "channel", label: "Channel", kind: "select", options: [
         { value: "telegram", label: "Telegram" },
@@ -105,7 +123,7 @@ export const NODE_KINDS: Record<NodeKindId, NodeKindDef> = {
   sendMail: {
     id: "sendMail", label: "Send Mail To",
     description: "Send an email — its own node since email needs a subject line, unlike chat messages.",
-    icon: MailIcon, hue: 350,
+    icon: MailIcon, hue: 350, category: "Actions",
     fields: [
       { key: "to", label: "To", kind: "text", placeholder: "recipient@example.com" },
       { key: "subject", label: "Subject", kind: "text" },
@@ -114,13 +132,13 @@ export const NODE_KINDS: Record<NodeKindId, NodeKindDef> = {
   saveFile: {
     id: "saveFile", label: "Save a File",
     description: "Save the step's content to persistent storage.",
-    icon: FileIcon, hue: 40,
+    icon: FileIcon, hue: 40, category: "Actions",
     fields: [{ key: "filename", label: "Filename (optional)", kind: "text", placeholder: "auto-named if left blank" }],
   },
   choosePath: {
     id: "choosePath", label: "Choose a Path",
     description: "Branch — only the path matching your condition runs, the rest are skipped.",
-    icon: GitBranchIcon, hue: 15,
+    icon: GitBranchIcon, hue: 15, category: "AI",
     fields: [{ key: "condition", label: "Condition", kind: "textarea", placeholder: "e.g. if the news is about AI" }],
   },
   // Input/output (2026-09-03) — formalizes what a fan-out group's
@@ -133,13 +151,13 @@ export const NODE_KINDS: Record<NodeKindId, NodeKindDef> = {
   input: {
     id: "input", label: "Input",
     description: "Marks where external data enters this workflow — no AI involved, the value is used exactly as set.",
-    icon: SignInIcon, hue: 100,
+    icon: SignInIcon, hue: 100, category: "Flow Control",
     fields: [{ key: "value", label: "Value", kind: "textarea", placeholder: "The literal value this workflow starts with" }],
   },
   output: {
     id: "output", label: "Output",
     description: "Returns whatever the connected step produced — for an agent used as a step inside another workflow, not a real-world action like sending a message.",
-    icon: SignOutIcon, hue: 330,
+    icon: SignOutIcon, hue: 330, category: "Flow Control",
     fields: [
       { key: "value", label: "Fallback value (optional)", kind: "textarea", placeholder: "Used only if nothing upstream produced anything" },
       // Same output_type vocabulary as Agent Vault's saved agents
@@ -168,7 +186,7 @@ export const NODE_KINDS: Record<NodeKindId, NodeKindDef> = {
   webhookTrigger: {
     id: "webhookTrigger", label: "Webhook Trigger",
     description: "Starts this workflow the moment another tool reaches out — a payment going through in Stripe, code pushed to GitHub, a scheduling service like cron-job.org. You'll get an address to paste into that other tool's \"Webhook URL\" (or \"Callback URL\") setting once you save this workflow.",
-    icon: WebhookIcon, hue: 175, hasInput: false,
+    icon: WebhookIcon, hue: 175, category: "Triggers", hasInput: false,
     fields: [],
   },
   // Delay (2026-09-07) — the plain "wait N seconds" primitive every
@@ -180,7 +198,7 @@ export const NODE_KINDS: Record<NodeKindId, NodeKindDef> = {
   delay: {
     id: "delay", label: "Delay",
     description: "Pauses this workflow for a fixed time before continuing — useful for spacing out messages or waiting for something else to catch up.",
-    icon: ClockIcon, hue: 210,
+    icon: ClockIcon, hue: 210, category: "Flow Control",
     fields: [{ key: "seconds", label: "Wait for (seconds)", kind: "text", placeholder: "e.g. 30" }],
   },
   // Respond to Webhook (2026-09-07) — n8n's own node of the same name.
@@ -197,7 +215,7 @@ export const NODE_KINDS: Record<NodeKindId, NodeKindDef> = {
   respondToWebhook: {
     id: "respondToWebhook", label: "Respond to Webhook",
     description: "Sends a real answer back to whatever called the Webhook Trigger that started this run — use the reference picker to pull in an earlier step's output.",
-    icon: ReplyIcon, hue: 175,
+    icon: ReplyIcon, hue: 175, category: "Flow Control",
     fields: [
       { key: "body", label: "Response body", kind: "textarea", placeholder: "What to send back — literal text, or insert a reference to an earlier step" },
       { key: "statusCode", label: "Status code", kind: "text", placeholder: "200" },

@@ -6,9 +6,9 @@ import {
   type Node, type Edge, type Connection, type OnConnectEnd, type FinalConnectionState, type EdgeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { XIcon, PlusIcon, SquareIcon, PencilIcon, ClockIcon, CopyIcon, CheckIcon, CodeIcon, ChevronRightIcon } from "@primer/octicons-react";
+import { XIcon, PlusIcon, SquareIcon, PencilIcon, ClockIcon, CopyIcon, CheckIcon, CodeIcon, ChevronRightIcon, SearchIcon } from "@primer/octicons-react";
 import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, tintedGlow, status, surface, controlSize, iconSize } from "./tokens";
-import { NODE_KIND_LIST, NODE_KINDS, type NodeKindId } from "./agentWorkNodeKinds";
+import { NODE_KIND_LIST, NODE_KINDS, CATEGORY_ORDER, type NodeKindId, type NodeKindDef } from "./agentWorkNodeKinds";
 import { AGENT_WORK_NODE_TYPES, type AgentWorkNodeData, type AgentWorkGroupData } from "./AgentWorkGraphNode";
 import { convertBackendToGraph, convertGraphToBackend } from "./agentWorkGraphConvert";
 import { createWorkflow, getNodeSample, getWebhookUrl, getWorkflow, updateWorkflow, WORKFLOW_CREATED_EVENT, type WorkflowTrigger } from "./agentWork";
@@ -284,6 +284,39 @@ function NodeKindItems({ onPick, onDragStart }: { onPick: (kind: NodeKindId) => 
   );
 }
 
+// One row in the redesigned Add Node browser below — bigger than
+// NodeKindItems' compact chips (that shared component stays exactly as
+// it was, still used by the fast connect-drop quick-add — JuanJo's own
+// call, 2026-09-07: that's a different moment, continuing a wire fast
+// rather than browsing, so it shouldn't get heavier). This one has room
+// for the real description text inline instead of a native `title`
+// tooltip nobody discovers (the actual gap this redesign exists to
+// close), while keeping the same drag-to-place + click-to-add gestures.
+function NodeKindBrowserRow({ kind, onPick, onDragStart }: {
+  kind: NodeKindDef; onPick: (kind: NodeKindId) => void; onDragStart?: () => void;
+}) {
+  const Icon = kind.icon;
+  const color = `oklch(65% 0.14 ${kind.hue})`;
+  return (
+    <div
+      draggable
+      onDragStart={e => { e.dataTransfer.setData("application/agentwork-node-kind", kind.id); e.dataTransfer.effectAllowed = "move"; onDragStart?.(); }}
+      onClick={() => onPick(kind.id)}
+      style={{
+        display: "flex", alignItems: "flex-start", gap: spacing.xs, padding: `${spacing.xs}px ${spacing.sm}px`,
+        borderRadius: radius.sm, border: `1px solid ${color}33`, background: tintedGlow(kind.hue, 0.06),
+        cursor: "grab", fontFamily, textAlign: "left",
+      }}
+    >
+      <span style={{ display: "flex", flexShrink: 0, color, marginTop: 1 }}><Icon size={14} /></span>
+      <div style={{ display: "flex", flexDirection: "column", gap: 1, minWidth: 0 }}>
+        <span style={{ fontSize: fontSize.xs, color: neutral.textPrimary, fontWeight: fontWeight.medium, lineHeight: 1.3 }}>{kind.label}</span>
+        <span style={{ fontSize: fontSize.xxs, color: neutral.textFaint, lineHeight: 1.4 }}>{kind.description}</span>
+      </div>
+    </div>
+  );
+}
+
 // On-demand menu, not a persistent docked palette (2026-09-02 research
 // pass before this was built) — a permanently-visible left-side list is
 // what caused the earlier space-competition/layout bug in the first
@@ -292,16 +325,72 @@ function NodeKindItems({ onPick, onDragStart }: { onPick: (kind: NodeKindId) => 
 // "+" button are all on-demand, not docked. Opens below the "+ Add
 // Node" button in the top bar. Click creates the node centered in the
 // current canvas view; drag places it exactly where dropped.
+//
+// Redesigned 2026-09-07 (real UX research behind the shape, not just
+// "make it bigger" — see IDEAS.md): every node's description used to be
+// a native `title=` tooltip nobody hovers-and-waits to discover; that's
+// the actual gap this closes, not a cosmetic resize. Still a floating
+// panel anchored to the SAME button (not the right sidebar, not a
+// docked palette — the space-competition history above and the fact
+// that the right sidebar is a user-resized, already-occupied panel both
+// argue against either). Search first, matching n8n's own actual
+// interaction (press their node-panel hotkey, type, hit enter — category
+// browsing is secondary there too): autofocused, filters label AND
+// description, category headers stay visible labels rather than tabs so
+// searching across every category never requires switching one first.
+// Capped at 92vw so it doesn't blow out on a narrow/mobile PWA session.
 function AddNodeMenu({ onPick, onClose }: { onPick: (kind: NodeKindId) => void; onClose: () => void }) {
   const ref = useClickOutside(onClose);
+  const [query, setQuery] = useState("");
+  const q = query.trim().toLowerCase();
+  const matches = (kind: NodeKindDef) => !q || kind.label.toLowerCase().includes(q) || kind.description.toLowerCase().includes(q);
+  const groups = CATEGORY_ORDER
+    .map(category => ({ category, kinds: NODE_KIND_LIST.filter(k => k.category === category && matches(k)) }))
+    .filter(g => g.kinds.length > 0);
+
   return (
     <div ref={ref} style={{
       position: "absolute", top: "100%", left: 0, marginTop: 4, zIndex: 321,
-      width: 200, background: surface.raised, border: "1px solid rgba(255,255,255,0.1)",
-      borderRadius: radius.sm, padding: spacing.xs, display: "flex", flexDirection: "column", gap: 3,
-      boxShadow: "0 12px 40px rgba(0,0,0,0.5)", maxHeight: 360, overflowY: "auto",
+      width: "min(340px, 92vw)", background: surface.raised, border: "1px solid rgba(255,255,255,0.1)",
+      borderRadius: radius.sm, boxShadow: "0 12px 40px rgba(0,0,0,0.5)",
+      display: "flex", flexDirection: "column", maxHeight: 420,
     }}>
-      <NodeKindItems onPick={onPick} onDragStart={onClose} />
+      <div style={{ padding: spacing.xs, borderBottom: "1px solid rgba(255,255,255,0.08)", flexShrink: 0 }}>
+        <div style={{
+          display: "flex", alignItems: "center", gap: spacing.xs, padding: `${spacing.xxs}px ${spacing.xs}px`,
+          borderRadius: radius.xs, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.04)",
+        }}>
+          <SearchIcon size={12} fill={neutral.textFaint} />
+          <input
+            autoFocus value={query} onChange={e => setQuery(e.target.value)}
+            placeholder="Search nodes…"
+            style={{
+              flex: 1, minWidth: 0, background: "transparent", border: "none", outline: "none",
+              color: neutral.textPrimary, fontSize: fontSize.xs, fontFamily,
+            }}
+          />
+        </div>
+      </div>
+      <div style={{ padding: spacing.xs, display: "flex", flexDirection: "column", gap: spacing.sm, overflowY: "auto" }}>
+        {groups.length === 0 && (
+          <div style={{ padding: spacing.sm, fontSize: fontSize.xxs, color: neutral.textFaint, textAlign: "center" }}>
+            No nodes match "{query}".
+          </div>
+        )}
+        {groups.map(g => (
+          <div key={g.category} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            <div style={{
+              fontSize: fontSize.xxs, fontWeight: fontWeight.medium, color: neutral.textFaint,
+              letterSpacing: "0.04em", textTransform: "uppercase", padding: `0 ${spacing.xs}px`,
+            }}>
+              {g.category}
+            </div>
+            {g.kinds.map(kind => (
+              <NodeKindBrowserRow key={kind.id} kind={kind} onPick={onPick} onDragStart={onClose} />
+            ))}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
