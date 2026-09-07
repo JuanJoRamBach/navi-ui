@@ -6,12 +6,12 @@ import {
   type Node, type Edge, type Connection, type OnConnectEnd, type FinalConnectionState, type EdgeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { XIcon, PlusIcon, SquareIcon, PencilIcon, ClockIcon } from "@primer/octicons-react";
+import { XIcon, PlusIcon, SquareIcon, PencilIcon, ClockIcon, CopyIcon, CheckIcon } from "@primer/octicons-react";
 import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, tintedGlow, status, surface, controlSize, iconSize } from "./tokens";
 import { NODE_KIND_LIST, NODE_KINDS, type NodeKindId } from "./agentWorkNodeKinds";
 import { AGENT_WORK_NODE_TYPES, type AgentWorkNodeData, type AgentWorkGroupData } from "./AgentWorkGraphNode";
 import { convertBackendToGraph, convertGraphToBackend } from "./agentWorkGraphConvert";
-import { createWorkflow, getWorkflow, WORKFLOW_CREATED_EVENT, type WorkflowTrigger } from "./agentWork";
+import { createWorkflow, getWebhookUrl, getWorkflow, WORKFLOW_CREATED_EVENT, type WorkflowTrigger } from "./agentWork";
 
 // The Agent Vault "Open in canvas" fork (2026-09-03) — one-way, per the
 // design: seeds a real Input -> Generate with AI -> Output starter
@@ -617,6 +617,15 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
   const [saving, setSaving] = useState(false);
   const [saveErrors, setSaveErrors] = useState<string[]>([]);
   const [savedName, setSavedName] = useState<string | null>(null);
+  // Set only when the just-saved graph actually has a Webhook Trigger
+  // node (2026-09-07, real gap found live: the URL only ever showed up
+  // in the separate Workflows list, with nothing on the node itself or
+  // right after saving pointing anyone there — "you do realize the token
+  // is nowhere?"). Kept visible until manually dismissed rather than the
+  // plain savedName banner's 4s auto-hide below — a URL needs to actually
+  // be copied, not just glanced at.
+  const [savedWebhookUrl, setSavedWebhookUrl] = useState<string | null>(null);
+  const [webhookCopied, setWebhookCopied] = useState(false);
   const [showAddNodeMenu, setShowAddNodeMenu] = useState(false);
   // Schedule (2026-09-04, JuanJo: "how do we schedule an Agent... I
   // don't see how") — handleSave below hardcoded {type:"manual"}, the
@@ -918,8 +927,24 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
             next_run_at: Date.now() / 1000 + intervalMinutes * 60,
             remaining_runs: repeatCount,
           };
-      await createWorkflow(saved, null, graph, trigger);
+      const createdWorkflow = await createWorkflow(saved, null, graph, trigger);
       window.dispatchEvent(new Event(WORKFLOW_CREATED_EVENT));
+      // A graph with a Webhook Trigger node needs its URL surfaced RIGHT
+      // here — the separate Workflows-list "Webhook" button still works,
+      // but nothing on the canvas or the node itself ever pointed anyone
+      // there, so it read as "the token is nowhere." Fetching it fires
+      // set_webhook_trigger server-side too (idempotent — see its own
+      // docstring), which is what actually attaches the webhook trigger
+      // to this workflow in the first place.
+      const hasWebhookTrigger = graph.nodes.some(n => n.kind === "webhookTrigger");
+      if (hasWebhookTrigger) {
+        try {
+          const result = await getWebhookUrl(createdWorkflow.id);
+          setSavedWebhookUrl(result.url ?? null);
+        } catch {
+          setSavedWebhookUrl(null);
+        }
+      }
       // No "close" to return to — this canvas IS Agent Work now, not an
       // overlay opened on top of it (2026-09-02: eliminated the empty-
       // canvas landing page entirely). Reset to a blank canvas so
@@ -928,7 +953,9 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
       setNodes([]); setEdges([]); setSelectedId(null); setWorkflowName(""); setEditingName(true);
       setScheduleMode("manual"); setIntervalMinutes(60); setRepeatCountInput(""); setDateInput("");
       setSavedName(saved);
-      setTimeout(() => setSavedName(null), 4000);
+      // Only auto-hides when there's no webhook URL to give someone time
+      // to actually copy — the plain "saved" case stays a brief toast.
+      if (!hasWebhookTrigger) setTimeout(() => setSavedName(null), 4000);
     } catch {
       setSaveErrors(["Couldn't save — NAVI may be unreachable. Try again."]);
     } finally {
@@ -1066,13 +1093,61 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
             {saveErrors.map((err, i) => <div key={i}>{err}</div>)}
           </div>
         )}
-        {savedName && (
+        {savedName && !savedWebhookUrl && (
           <div style={{
             padding: `${spacing.xs}px ${spacing.sm}px`, borderRadius: radius.xs,
             border: `1px solid ${status.success.border}`, background: status.success.bg,
             fontSize: fontSize.xxs, color: status.success.color,
           }}>
             Saved "{savedName}" — find it in the Workflows sidebar.
+          </div>
+        )}
+        {savedName && savedWebhookUrl && (
+          <div style={{
+            display: "flex", flexDirection: "column", gap: spacing.xxs, padding: `${spacing.xs}px ${spacing.sm}px`,
+            borderRadius: radius.xs, border: `1px solid ${status.success.border}`, background: status.success.bg,
+          }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: fontSize.xxs, color: status.success.color }}>
+              <span>Saved "{savedName}" — this is its webhook URL:</span>
+              <button
+                onClick={() => { setSavedName(null); setSavedWebhookUrl(null); }}
+                title="Dismiss"
+                style={{ display: "flex", background: "none", border: "none", color: "inherit", cursor: "pointer", opacity: 0.7 }}
+              >
+                <XIcon size={11} />
+              </button>
+            </div>
+            <div style={{ display: "flex", gap: spacing.xs }}>
+              <input
+                readOnly value={savedWebhookUrl}
+                onClick={e => (e.target as HTMLInputElement).select()}
+                style={{
+                  flex: 1, minWidth: 0, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.15)",
+                  borderRadius: radius.xs, color: neutral.textPrimary, fontSize: fontSize.xxs, fontFamily: "monospace",
+                  padding: `${spacing.xxs}px ${spacing.xs}px`, boxSizing: "border-box",
+                }}
+              />
+              <button
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(savedWebhookUrl);
+                    setWebhookCopied(true);
+                    setTimeout(() => setWebhookCopied(false), 1500);
+                  } catch {
+                    // Clipboard API unavailable/denied — the URL is still
+                    // selectable text in the field above.
+                  }
+                }}
+                title="Copy"
+                style={{
+                  display: "flex", alignItems: "center", padding: `0 ${spacing.xs}px`, borderRadius: radius.xs,
+                  border: `1px solid ${status.success.border}`, background: "transparent", color: status.success.color,
+                  cursor: "pointer", flexShrink: 0,
+                }}
+              >
+                {webhookCopied ? <CheckIcon size={12} /> : <CopyIcon size={12} />}
+              </button>
+            </div>
           </div>
         )}
       </div>
