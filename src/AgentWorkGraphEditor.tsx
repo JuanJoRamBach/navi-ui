@@ -11,7 +11,7 @@ import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCE
 import { NODE_KIND_LIST, NODE_KINDS, type NodeKindId } from "./agentWorkNodeKinds";
 import { AGENT_WORK_NODE_TYPES, type AgentWorkNodeData, type AgentWorkGroupData } from "./AgentWorkGraphNode";
 import { convertBackendToGraph, convertGraphToBackend } from "./agentWorkGraphConvert";
-import { createWorkflow, getNodeSample, getWebhookUrl, getWorkflow, WORKFLOW_CREATED_EVENT, type WorkflowTrigger } from "./agentWork";
+import { createWorkflow, getNodeSample, getWebhookUrl, getWorkflow, updateWorkflow, WORKFLOW_CREATED_EVENT, type WorkflowTrigger } from "./agentWork";
 
 // The Agent Vault "Open in canvas" fork (2026-09-03) — one-way, per the
 // design: seeds a real Input -> Generate with AI -> Output starter
@@ -790,14 +790,20 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
 }) {
   const [nodes, setNodes, onNodesChange] = useNodesState<AgentWorkAnyNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
-  // The real id of whatever workflow is currently loaded on the canvas
-  // (2026-09-07) — only ever set by loading an already-saved workflow via
-  // loadWorkflowId below; "Save as Agent/Workflow" always creates a NEW
-  // workflow (a known, separate gap — there's no update-existing flow),
-  // so a freshly-saved graph has no id to attach here before the canvas
-  // resets. Used by the reference picker to know whether it can fetch a
-  // node's real sample output at all.
+  // The real id (and trigger) of whatever workflow is currently loaded on
+  // the canvas (2026-09-07) — only ever set by loading an already-saved
+  // workflow via loadWorkflowId below. currentWorkflowId also drives
+  // handleSave's real update-vs-create branch now: set means "Save Edits"
+  // (PUT, same id, same webhook token if it has one), unset means "Save
+  // as Agent/Workflow" (POST, a brand new row) — a freshly-created
+  // workflow has no id to attach here before the canvas resets, so it
+  // naturally falls back to create next time. currentWorkflowTrigger is
+  // what lets an edit-save PRESERVE an existing webhook trigger — nothing
+  // in the schedule UI below can represent "webhook", so without this,
+  // saving an edit to a webhook-triggered workflow would silently
+  // downgrade it back to manual and orphan its real URL.
   const [currentWorkflowId, setCurrentWorkflowId] = useState<string | null>(null);
+  const [currentWorkflowTrigger, setCurrentWorkflowTrigger] = useState<WorkflowTrigger | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [workflowName, setWorkflowName] = useState("");
@@ -887,6 +893,7 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
       setWorkflowName(wf.name);
       setEditingName(false);
       setCurrentWorkflowId(wf.id);
+      setCurrentWorkflowTrigger(wf.trigger);
       // Reflect the REAL loaded trigger, not whatever was left over from
       // a previous session on this canvas — otherwise viewing an already-
       // scheduled workflow and saving again without touching the
@@ -1105,8 +1112,9 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
     setSaving(true);
     try {
       const saved = workflowName.trim();
+      const isEditingExisting = currentWorkflowId !== null;
       const repeatCount = repeatCountInput.trim() ? Math.max(1, Number(repeatCountInput) || 1) : null;
-      const trigger: WorkflowTrigger = scheduleMode === "manual"
+      const scheduleTrigger: WorkflowTrigger = scheduleMode === "manual"
         ? { type: "manual" }
         : scheduleMode === "date"
         ? {
@@ -1121,7 +1129,15 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
             next_run_at: Date.now() / 1000 + intervalMinutes * 60,
             remaining_runs: repeatCount,
           };
-      const createdWorkflow = await createWorkflow(saved, null, graph, trigger);
+      // An edit-save PRESERVES an existing webhook trigger — nothing in
+      // the schedule UI above can represent "webhook", so without this,
+      // saving an edit to a webhook-triggered workflow would silently
+      // downgrade it back to manual/scheduled and orphan its real URL.
+      const trigger: WorkflowTrigger =
+        isEditingExisting && currentWorkflowTrigger?.type === "webhook" ? currentWorkflowTrigger : scheduleTrigger;
+      const savedWorkflow = isEditingExisting
+        ? await updateWorkflow(currentWorkflowId, saved, null, graph, trigger)
+        : await createWorkflow(saved, null, graph, trigger);
       window.dispatchEvent(new Event(WORKFLOW_CREATED_EVENT));
       // A graph with a Webhook Trigger node needs its URL surfaced RIGHT
       // here — the separate Workflows-list "Webhook" button still works,
@@ -1129,28 +1145,42 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
       // there, so it read as "the token is nowhere." Fetching it fires
       // set_webhook_trigger server-side too (idempotent — see its own
       // docstring), which is what actually attaches the webhook trigger
-      // to this workflow in the first place.
+      // to this workflow the FIRST time this graph gets a webhookTrigger
+      // node — updating currentWorkflowTrigger from the real result so a
+      // second edit-save right after (still on this same canvas) doesn't
+      // reconstruct "manual" from the schedule UI and stomp the webhook
+      // that was JUST attached a moment ago.
       const hasWebhookTrigger = graph.nodes.some(n => n.kind === "webhookTrigger");
       if (hasWebhookTrigger) {
         try {
-          const result = await getWebhookUrl(createdWorkflow.id);
+          const result = await getWebhookUrl(savedWorkflow.id);
           setSavedWebhookUrl(result.url ?? null);
+          const token = result.url?.split("/").pop();
+          if (token) setCurrentWorkflowTrigger({ type: "webhook", token });
         } catch {
           setSavedWebhookUrl(null);
         }
       }
-      // No "close" to return to — this canvas IS Agent Work now, not an
-      // overlay opened on top of it (2026-09-02: eliminated the empty-
-      // canvas landing page entirely). Reset to a blank canvas so
-      // building the next workflow starts clean, with a brief
-      // confirmation instead of silently vanishing.
-      setNodes([]); setEdges([]); setSelectedId(null); setWorkflowName(""); setEditingName(true);
-      setScheduleMode("manual"); setIntervalMinutes(60); setRepeatCountInput(""); setDateInput("");
-      setCurrentWorkflowId(null); // the canvas is blank now — whatever was loaded no longer applies
-      setSavedName(saved);
-      // Only auto-hides when there's no webhook URL to give someone time
-      // to actually copy — the plain "saved" case stays a brief toast.
-      if (!hasWebhookTrigger) setTimeout(() => setSavedName(null), 4000);
+      if (isEditingExisting) {
+        // Stay right here — an edit-save has nothing to "start clean"
+        // for, you're still looking at the same workflow, just updated.
+        setSavedName(saved);
+        if (!hasWebhookTrigger) setTimeout(() => setSavedName(null), 4000);
+      } else {
+        // No "close" to return to — this canvas IS Agent Work now, not an
+        // overlay opened on top of it (2026-09-02: eliminated the empty-
+        // canvas landing page entirely). Reset to a blank canvas so
+        // building the next workflow starts clean, with a brief
+        // confirmation instead of silently vanishing.
+        setNodes([]); setEdges([]); setSelectedId(null); setWorkflowName(""); setEditingName(true);
+        setScheduleMode("manual"); setIntervalMinutes(60); setRepeatCountInput(""); setDateInput("");
+        setCurrentWorkflowId(null); setCurrentWorkflowTrigger(null); // the canvas is blank now — whatever was loaded no longer applies
+        setSavedName(saved);
+        // Only auto-hides when there's no webhook URL to give someone
+        // time to actually copy — the plain "saved" case stays a brief
+        // toast.
+        if (!hasWebhookTrigger) setTimeout(() => setSavedName(null), 4000);
+      }
     } catch {
       setSaveErrors(["Couldn't save — NAVI may be unreachable. Try again."]);
     } finally {
@@ -1275,7 +1305,8 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
                 fontSize: fontSize.xs, fontWeight: fontWeight.medium, fontFamily,
               }}
             >
-              <PlusIcon size={11} /> {saving ? "Saving…" : "Save as Agent/Workflow"}
+              {currentWorkflowId ? <PencilIcon size={11} /> : <PlusIcon size={11} />}
+              {" "}{saving ? "Saving…" : currentWorkflowId ? "Save Edits" : "Save as Agent/Workflow"}
             </button>
           </div>
         </div>

@@ -217,7 +217,12 @@ function WorkflowCard({ wf, lastRun, running, starred, starring, onRun, onDelete
   // repeating, wasting resources" risk being flagged against. "No
   // expiration set" mirrors the same wording the manual creation form
   // uses for the same field.
-  const triggerLabel = trigger.type !== "scheduled"
+  // Real bug fixed 2026-09-07: webhook wasn't a case here at all before
+  // it existed as a real trigger type — every webhook-triggered workflow
+  // showed "Manual" in this list, which is just wrong, not a simplification.
+  const triggerLabel = trigger.type === "webhook"
+    ? "Webhook"
+    : trigger.type !== "scheduled"
     ? "Manual"
     : trigger.next_run_at == null
       ? "Scheduled · done"

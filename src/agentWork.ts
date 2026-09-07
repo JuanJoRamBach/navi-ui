@@ -71,7 +71,13 @@ export type WorkflowTrigger =
   // convention (e.g. GitLab's own token-expiration API uses null the
   // same way) — see dispatcher/agent_work.py's check_due_workflows for
   // the backend side.
-  | { type: "scheduled"; interval_seconds?: number; next_run_at?: number | null; remaining_runs?: number | null };
+  | { type: "scheduled"; interval_seconds?: number; next_run_at?: number | null; remaining_runs?: number | null }
+  // The token IS the credential (see dispatcher/agent_work.py's
+  // set_webhook_trigger) — real, was already returned by the backend on
+  // any workflow with a webhook trigger, just never modeled in this
+  // union until an edit-save needed to tell "preserve this" apart from
+  // "build a manual/scheduled trigger from the schedule UI" (2026-09-07).
+  | { type: "webhook"; token: string };
 
 export interface WorkflowDefinition {
   id: string;
@@ -122,6 +128,21 @@ export async function createWorkflow(
 ): Promise<WorkflowDefinition> {
   const res = await fetch(`${NAVI_BACKEND_URL}/agent/workflows`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, description, graph, trigger }),
+  });
+  return res.json();
+}
+
+// Real update-in-place (2026-09-07) — "Save Edits" on an already-loaded
+// workflow, as opposed to createWorkflow above which always makes a new
+// one. Same id comes back; use this instead of createWorkflow whenever
+// editing something that was loaded via getWorkflow, not built fresh.
+export async function updateWorkflow(
+  id: string, name: string, description: string | null, graph: WorkflowGraph, trigger: WorkflowTrigger,
+): Promise<WorkflowDefinition> {
+  const res = await fetch(`${NAVI_BACKEND_URL}/agent/workflows/${encodeURIComponent(id)}`, {
+    method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name, description, graph, trigger }),
   });
