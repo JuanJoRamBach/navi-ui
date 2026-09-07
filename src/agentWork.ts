@@ -12,8 +12,9 @@ export interface WorkflowGraphNode {
   tools?: string[];
   // Real discriminator (2026-09-06) — dispatcher/agent_work.py's
   // _run_node checks this first, falling back to `tools` for a node
-  // saved before this existed. "send_email" and "webhookTrigger" need it
-  // from the canvas; the rest still convert via the legacy `tools` shape.
+  // saved before this existed. "send_email", "webhookTrigger", and
+  // "delay" need it from the canvas; the rest still convert via the
+  // legacy `tools` shape.
   kind?: string;
   // send_email only: recipient(s) (comma-separated for multiple) and the
   // real HTML/plain body. Either can be a literal, OR the literal string
@@ -28,6 +29,10 @@ export interface WorkflowGraphNode {
   // PDF file (dispatcher/agent_work.py's _run_output_node), which a
   // following send_to_telegram step sends as an attachment.
   output_type?: string;
+  // Delay only (2026-09-07) — how long to pause before passing
+  // prior_context through unchanged. A plain number as a string, same
+  // "numbers stored as text" convention every other editor field uses.
+  seconds?: string;
 }
 
 export interface WorkflowGraphEdge {

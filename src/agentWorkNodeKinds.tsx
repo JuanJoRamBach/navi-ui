@@ -2,7 +2,7 @@ import type { ComponentType } from "react";
 import {
   PencilIcon, SparkleFillIcon, SearchIcon, LinkIcon, PlugIcon,
   PaperAirplaneIcon, MailIcon, FileIcon, GitBranchIcon, SignInIcon, SignOutIcon,
-  WebhookIcon,
+  WebhookIcon, ClockIcon,
 } from "@primer/octicons-react";
 
 // The full node palette, settled 2026-09-02 after checking real naming
@@ -24,7 +24,7 @@ import {
 export type NodeKindId =
   | "writeText" | "generateAi" | "searchWeb" | "readPage"
   | "apiCall" | "sendMessage" | "sendMail" | "saveFile" | "choosePath"
-  | "input" | "output" | "webhookTrigger";
+  | "input" | "output" | "webhookTrigger" | "delay";
 
 export type FieldKind = "text" | "textarea" | "select" | "url";
 
@@ -170,6 +170,18 @@ export const NODE_KINDS: Record<NodeKindId, NodeKindDef> = {
     description: "Starts this workflow when an outside service calls its URL — the incoming data becomes this node's output. Get the URL from this workflow's own \"Webhook\" button once saved.",
     icon: WebhookIcon, hue: 175, hasInput: false,
     fields: [],
+  },
+  // Delay (2026-09-07) — the plain "wait N seconds" primitive every
+  // automation tool has (n8n's Wait, Zapier's Delay, Make's Sleep).
+  // Deterministic, no AI involved — passes whatever fed into it straight
+  // through once the wait is over (dispatcher/agent_work.py's
+  // _run_delay_node), so it drops into an existing chain without
+  // breaking anything downstream.
+  delay: {
+    id: "delay", label: "Delay",
+    description: "Pauses this workflow for a fixed time before continuing — useful for spacing out messages or waiting for something else to catch up.",
+    icon: ClockIcon, hue: 210,
+    fields: [{ key: "seconds", label: "Wait for (seconds)", kind: "text", placeholder: "e.g. 30" }],
   },
 };
 

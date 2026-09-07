@@ -15,7 +15,7 @@ import { neutral } from "./tokens";
 const BACKEND_READY: Record<NodeKindId, boolean> = {
   writeText: true, generateAi: true, searchWeb: true, readPage: true,
   saveFile: true, sendMessage: true, apiCall: false, sendMail: true, choosePath: true,
-  input: true, output: true, webhookTrigger: true,
+  input: true, output: true, webhookTrigger: true, delay: true,
 };
 
 const TOOL_FOR_KIND: Partial<Record<NodeKindId, string>> = {
@@ -30,9 +30,11 @@ const TOOL_FOR_KIND: Partial<Record<NodeKindId, string>> = {
 // bare tool name has no room for. webhookTrigger needs no fields at all
 // (see its own comment at the backendNodes.map call site below) — it's
 // here for the same reason, not because it has send_email-shaped data.
+// delay needs exactly one field, `seconds` — its own branch below.
 const BACKEND_KIND_FOR_NODE_KIND: Partial<Record<NodeKindId, string>> = {
   sendMail: "send_email",
   webhookTrigger: "webhookTrigger",
+  delay: "delay",
 };
 
 export interface GraphConversionResult {
@@ -110,6 +112,9 @@ export function convertGraphToBackend(
           ...(inlined ? { body: inlined } : {}),
         };
       }
+      if (backendKind === "delay") {
+        return { id: n.id, kind: backendKind, seconds: values.seconds ?? "" };
+      }
       if (backendKind) {
         // webhookTrigger today — nothing to configure on the node itself
         // (see its own NODE_KINDS entry). dispatcher/agent_work.py never
@@ -159,6 +164,13 @@ export function convertGraphToBackend(
       const hasIncoming = backendEdges.some(e => e.to === n.id);
       if (!("body" in n && n.body) && !hasIncoming) {
         errors.push(`"Send Mail To" has no body — connect a Write Text/Generate with AI node, or type something in it.`);
+      }
+      continue;
+    }
+    if (kindId === "delay") {
+      const seconds = "seconds" in n ? Number(n.seconds) : NaN;
+      if (!("seconds" in n) || n.seconds === "" || Number.isNaN(seconds) || seconds < 0) {
+        errors.push(`"Delay" needs a valid number of seconds (0 or more).`);
       }
       continue;
     }
