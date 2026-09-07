@@ -266,7 +266,23 @@ function NodeKindItems({ onPick, onDragStart }: { onPick: (kind: NodeKindId) => 
           <div
             key={kind.id}
             draggable
-            onDragStart={e => { e.dataTransfer.setData("application/agentwork-node-kind", kind.id); e.dataTransfer.effectAllowed = "move"; onDragStart?.(); }}
+            onDragStart={e => {
+              e.dataTransfer.setData("application/agentwork-node-kind", kind.id);
+              e.dataTransfer.effectAllowed = "move";
+              // Deferred, not called inline (2026-09-07 fix): calling
+              // onDragStart synchronously here closes/unmounts the menu
+              // WHILE the browser is still processing dragstart (React
+              // 18 batches the resulting setState, but doesn't guarantee
+              // it lands after the browser finishes) — removing the
+              // drag source element mid-dragstart is a known real
+              // cross-browser flakiness source (Firefox in particular
+              // can silently abort a drag whose source node vanishes
+              // before the drag image is captured). setTimeout(...,0)
+              // guarantees the data is already set (that part MUST stay
+              // synchronous, done above) before the close runs on the
+              // next tick.
+              if (onDragStart) setTimeout(onDragStart, 0);
+            }}
             onClick={() => onPick(kind.id)}
             title={kind.description}
             style={{
@@ -300,7 +316,15 @@ function NodeKindBrowserRow({ kind, onPick, onDragStart }: {
   return (
     <div
       draggable
-      onDragStart={e => { e.dataTransfer.setData("application/agentwork-node-kind", kind.id); e.dataTransfer.effectAllowed = "move"; onDragStart?.(); }}
+      onDragStart={e => {
+        e.dataTransfer.setData("application/agentwork-node-kind", kind.id);
+        e.dataTransfer.effectAllowed = "move";
+        // Deferred, not inline — same real cross-browser fix as
+        // NodeKindItems above: closing/unmounting the menu synchronously
+        // inside dragstart risks the browser losing the drag before it
+        // finishes capturing it.
+        if (onDragStart) setTimeout(onDragStart, 0);
+      }}
       onClick={() => onPick(kind.id)}
       style={{
         display: "flex", alignItems: "flex-start", gap: spacing.xs, padding: `${spacing.xs}px ${spacing.sm}px`,
