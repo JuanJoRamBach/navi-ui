@@ -2,6 +2,7 @@ import type { ComponentType } from "react";
 import {
   PencilIcon, SparkleFillIcon, SearchIcon, LinkIcon, PlugIcon,
   PaperAirplaneIcon, MailIcon, FileIcon, GitBranchIcon, SignInIcon, SignOutIcon,
+  WebhookIcon,
 } from "@primer/octicons-react";
 
 // The full node palette, settled 2026-09-02 after checking real naming
@@ -23,7 +24,7 @@ import {
 export type NodeKindId =
   | "writeText" | "generateAi" | "searchWeb" | "readPage"
   | "apiCall" | "sendMessage" | "sendMail" | "saveFile" | "choosePath"
-  | "input" | "output";
+  | "input" | "output" | "webhookTrigger";
 
 export type FieldKind = "text" | "textarea" | "select" | "url";
 
@@ -42,6 +43,14 @@ export interface NodeKindDef {
   icon: ComponentType<{ size?: number; fill?: string }>;
   hue: number; // distinct accent per kind, for at-a-glance scanning on a canvas with many nodes
   fields: NodeFieldDef[];
+  // A graph-entry node (2026-09-07, Webhook Trigger) has nothing feeding
+  // it — showing an input handle would just invite a dangling/confusing
+  // edge into a node whose "output" is set by something outside the
+  // graph entirely (an incoming HTTP call), not by a predecessor.
+  // Omitted (undefined) means true, same as every existing kind's actual
+  // behavior before this field existed — only a kind that explicitly
+  // opts out sets this to false.
+  hasInput?: boolean;
 }
 
 export const NODE_KINDS: Record<NodeKindId, NodeKindDef> = {
@@ -146,6 +155,21 @@ export const NODE_KINDS: Record<NodeKindId, NodeKindDef> = {
         { value: "markdown", label: "Markdown" },
       ] },
     ],
+  },
+  // Webhook Trigger (2026-09-07) — a real graph-entry node, n8n/Zapier/
+  // Make's own convention for "something outside NAVI calls a URL to
+  // start this." No fields: there's nothing to configure on the node
+  // itself — the actual webhook URL is generated server-side once the
+  // workflow is saved (dispatcher/agent_work.py's set_webhook_trigger,
+  // surfaced from AgentWorkWorkflows.tsx's own "Webhook" action, not from
+  // this node's inspector, since a canvas-only node has no workflow_id
+  // yet to attach a token to). Its "output" is whatever payload the call
+  // arrived with — seeded before the run starts, not computed here.
+  webhookTrigger: {
+    id: "webhookTrigger", label: "Webhook Trigger",
+    description: "Starts this workflow when an outside service calls its URL — the incoming data becomes this node's output. Get the URL from this workflow's own \"Webhook\" button once saved.",
+    icon: WebhookIcon, hue: 175, hasInput: false,
+    fields: [],
   },
 };
 

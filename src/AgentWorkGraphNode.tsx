@@ -45,7 +45,9 @@ export function AgentWorkGraphNode({ data, selected }: NodeProps & { data: Agent
       boxShadow: selected ? `0 0 0 3px ${tintedGlow(kind.hue, 0.25)}, 0 4px 16px rgba(0,0,0,0.4)` : "0 4px 16px rgba(0,0,0,0.35)",
       padding: spacing.sm,
     }}>
-      <Handle type="target" position={Position.Left} style={{ background: color, width: 8, height: 8, border: "none" }} />
+      {kind.hasInput !== false && (
+        <Handle type="target" position={Position.Left} style={{ background: color, width: 8, height: 8, border: "none" }} />
+      )}
       <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, minWidth: 0 }}>
         <span style={{ display: "flex", flexShrink: 0, color }}>
           <Icon size={14} />

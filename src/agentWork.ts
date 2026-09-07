@@ -12,8 +12,8 @@ export interface WorkflowGraphNode {
   tools?: string[];
   // Real discriminator (2026-09-06) — dispatcher/agent_work.py's
   // _run_node checks this first, falling back to `tools` for a node
-  // saved before this existed. Only "send_email" needs it from the
-  // canvas today; the rest still convert via the legacy `tools` shape.
+  // saved before this existed. "send_email" and "webhookTrigger" need it
+  // from the canvas; the rest still convert via the legacy `tools` shape.
   kind?: string;
   // send_email only: recipient(s) (comma-separated for multiple) and the
   // real HTML/plain body. Either can be a literal, OR the literal string
@@ -168,6 +168,16 @@ export async function deleteWorkflow(workflowId: string): Promise<boolean> {
 
 export async function runWorkflowNow(workflowId: string): Promise<{ run_id?: string; error?: string }> {
   const res = await fetch(`${NAVI_BACKEND_URL}/agent/workflows/${encodeURIComponent(workflowId)}/run`, { method: "POST" });
+  return res.json();
+}
+
+// Idempotent (2026-09-07) — calling this again for a workflow that
+// already has a webhook trigger just returns the same URL, never
+// generates a new token (see dispatcher/agent_work.py's
+// set_webhook_trigger docstring for why: a fresh token would silently
+// break whatever external service already has the old URL configured).
+export async function getWebhookUrl(workflowId: string): Promise<{ url?: string; error?: string }> {
+  const res = await fetch(`${NAVI_BACKEND_URL}/agent/workflows/${encodeURIComponent(workflowId)}/webhook`, { method: "POST" });
   return res.json();
 }
 

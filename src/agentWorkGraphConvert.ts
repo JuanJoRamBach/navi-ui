@@ -15,7 +15,7 @@ import { neutral } from "./tokens";
 const BACKEND_READY: Record<NodeKindId, boolean> = {
   writeText: true, generateAi: true, searchWeb: true, readPage: true,
   saveFile: true, sendMessage: true, apiCall: false, sendMail: true, choosePath: true,
-  input: true, output: true,
+  input: true, output: true, webhookTrigger: true,
 };
 
 const TOOL_FOR_KIND: Partial<Record<NodeKindId, string>> = {
@@ -27,9 +27,12 @@ const TOOL_FOR_KIND: Partial<Record<NodeKindId, string>> = {
 // agent_work.py's _run_node checks this first) plus their own
 // structured fields, rather than the legacy `tools: [name]` shape
 // TOOL_FOR_KIND produces — send_email needs to/body/subject, which a
-// bare tool name has no room for.
+// bare tool name has no room for. webhookTrigger needs no fields at all
+// (see its own comment at the backendNodes.map call site below) — it's
+// here for the same reason, not because it has send_email-shaped data.
 const BACKEND_KIND_FOR_NODE_KIND: Partial<Record<NodeKindId, string>> = {
   sendMail: "send_email",
+  webhookTrigger: "webhookTrigger",
 };
 
 export interface GraphConversionResult {
@@ -92,13 +95,13 @@ export function convertGraphToBackend(
     .map(n => {
       const { kindId, values } = n.data;
       const backendKind = BACKEND_KIND_FOR_NODE_KIND[kindId];
-      if (backendKind) {
-        // send_email today — real structured fields, not a bare prompt.
-        // `body` comes from an inlined Write Text box or an upstream
-        // edge (same NEEDS_INLINE_TEXT convention sendMessage/saveFile
-        // already use below), never a field on this node itself, so it's
-        // simply omitted when there's no inlined text — the backend's
-        // own `body or prior_context` fallback (dispatcher/agent_work.py)
+      if (backendKind === "send_email") {
+        // Real structured fields, not a bare prompt. `body` comes from an
+        // inlined Write Text box or an upstream edge (same
+        // NEEDS_INLINE_TEXT convention sendMessage/saveFile already use
+        // below), never a field on this node itself, so it's simply
+        // omitted when there's no inlined text — the backend's own
+        // `body or prior_context` fallback (dispatcher/agent_work.py)
         // picks up a real upstream edge's output at run time.
         const inlined = literalTextByTarget.get(n.id);
         return {
@@ -106,6 +109,15 @@ export function convertGraphToBackend(
           to: values.to ?? "", ...(values.subject ? { subject: values.subject } : {}),
           ...(inlined ? { body: inlined } : {}),
         };
+      }
+      if (backendKind) {
+        // webhookTrigger today — nothing to configure on the node itself
+        // (see its own NODE_KINDS entry). dispatcher/agent_work.py never
+        // calls _run_node on this kind at all; its output is pre-seeded
+        // from the incoming webhook payload before the run starts, so it
+        // needs just the bare `kind` discriminator, no prompt/tools/other
+        // fields.
+        return { id: n.id, kind: backendKind };
       }
       let prompt =
         kindId === "generateAi" ? (values.instructions ?? "") :

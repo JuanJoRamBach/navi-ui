@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { PlayIcon, PlusIcon, CalendarIcon, CommentDiscussionIcon, TrashIcon, AlertIcon, ChevronDownIcon, ChevronRightIcon, StarIcon, StarFillIcon, EyeIcon } from "@primer/octicons-react";
+import { PlayIcon, PlusIcon, CalendarIcon, CommentDiscussionIcon, TrashIcon, AlertIcon, ChevronDownIcon, ChevronRightIcon, StarIcon, StarFillIcon, EyeIcon, WebhookIcon, CopyIcon, CheckIcon } from "@primer/octicons-react";
 import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, tintedGlow, status, surface } from "./tokens";
-import { WORKFLOW_CREATED_EVENT, deleteWorkflow, listRuns, listWorkflows, runWorkflowNow, starWorkflow, unstarWorkflow, type AgentRun, type WorkflowDefinition } from "./agentWork";
+import { WORKFLOW_CREATED_EVENT, deleteWorkflow, getWebhookUrl, listRuns, listWorkflows, runWorkflowNow, starWorkflow, unstarWorkflow, type AgentRun, type WorkflowDefinition } from "./agentWork";
 import { AGENT_VAULT_CHANGED_EVENT, listAgents } from "./agents";
 
 const accent = CANVAS_ACCENT.agentWork.color;
@@ -95,6 +95,100 @@ function DeleteConfirmDialog({ name, scheduled, deleting, error, onCancel, onCon
   );
 }
 
+// Shows/copies a workflow's webhook URL (2026-09-07) — fetched fresh
+// every open rather than cached on the card, since getWebhookUrl is
+// idempotent server-side anyway (same URL back every time) and this way
+// there's no stale-URL risk if it's ever regenerated some other way.
+function WebhookUrlDialog({ workflowId, name, onClose }: { workflowId: string; name: string; onClose: () => void }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    getWebhookUrl(workflowId).then(result => {
+      if (result.url) setUrl(result.url);
+      else setError(result.error ?? "Couldn't get a webhook URL.");
+    }).catch(() => setError("Couldn't reach NAVI — check it's running."));
+  }, [workflowId]);
+
+  const copy = async () => {
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard API unavailable/denied — the URL is still selectable
+      // text in the field below, so this isn't a dead end.
+    }
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 200,
+        display: "flex", alignItems: "center", justifyContent: "center", fontFamily,
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          width: 380, background: surface.raised, border: "1px solid rgba(255,255,255,0.1)",
+          borderRadius: radius.sm, padding: spacing.md, display: "flex", flexDirection: "column", gap: spacing.sm,
+          boxShadow: "0 12px 40px rgba(0,0,0,0.5)",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, color: accent }}>
+          <WebhookIcon size={16} />
+          <span style={{ fontSize: fontSize.sm, fontWeight: fontWeight.medium, color: neutral.textPrimary }}>Webhook URL</span>
+        </div>
+        <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted, lineHeight: 1.5 }}>
+          POST to this URL to start <strong style={{ color: neutral.textPrimary }}>{name}</strong>. Same URL every
+          time — copying it again later won't break anything already configured with it.
+        </div>
+        {error && <div style={{ fontSize: fontSize.xxs, color: status.danger.color }}>{error}</div>}
+        {!error && (
+          <div style={{ display: "flex", gap: spacing.xs }}>
+            <input
+              readOnly value={url ?? "Loading…"}
+              onClick={e => (e.target as HTMLInputElement).select()}
+              style={{
+                flex: 1, minWidth: 0, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.12)",
+                borderRadius: radius.xs, color: neutral.textPrimary, fontSize: fontSize.xxs, fontFamily: "monospace",
+                padding: `${spacing.xxs}px ${spacing.xs}px`, boxSizing: "border-box",
+              }}
+            />
+            <button
+              onClick={copy}
+              disabled={!url}
+              title="Copy"
+              style={{
+                display: "flex", alignItems: "center", padding: `0 ${spacing.xs}px`, borderRadius: radius.xs,
+                border: `1px solid ${accent}55`, background: "transparent", color: accent,
+                cursor: url ? "pointer" : "default", opacity: url ? 1 : 0.5, flexShrink: 0,
+              }}
+            >
+              {copied ? <CheckIcon size={12} /> : <CopyIcon size={12} />}
+            </button>
+          </div>
+        )}
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: spacing.xxs }}>
+          <button
+            onClick={onClose}
+            style={{
+              padding: `${spacing.xxs}px ${spacing.sm}px`, borderRadius: radius.xs, border: "1px solid rgba(255,255,255,0.15)",
+              background: "transparent", color: neutral.textMuted, cursor: "pointer", fontSize: fontSize.xs, fontFamily,
+            }}
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // One workflow, as a real card — not a flat list row (2026-09-02,
 // JuanJo: "those 'workflows' feel like placeholders, not actual working
 // features" + "a UI Card for being over the right sidebar, separating
@@ -102,13 +196,18 @@ function DeleteConfirmDialog({ name, scheduled, deleting, error, onCancel, onCon
 // step's actual prompt and tool(s), and the real schedule detail (not
 // just "1 left") — the whole point being that a saved workflow should
 // read as a real, inspectable thing, not a name with a Run button.
-function WorkflowCard({ wf, lastRun, running, starred, starring, onRun, onDeleteClick, onToggleStar, onViewInCanvas }: {
+function WorkflowCard({ wf, lastRun, running, starred, starring, onRun, onDeleteClick, onToggleStar, onViewInCanvas, onShowWebhook }: {
   wf: WorkflowDefinition; lastRun: AgentRun | undefined; running: boolean; starred: boolean; starring: boolean;
-  onRun: () => void; onDeleteClick: () => void; onToggleStar: () => void; onViewInCanvas: () => void;
+  onRun: () => void; onDeleteClick: () => void; onToggleStar: () => void; onViewInCanvas: () => void; onShowWebhook: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const trigger = wf.trigger;
   const scheduled = trigger.type === "scheduled";
+  // Only offered when the graph actually has a Webhook Trigger node —
+  // showing this on every plain manual/scheduled workflow would be a
+  // dead-end button (getWebhookUrl works regardless, but the resulting
+  // URL fires a workflow whose entry node isn't listening for it).
+  const hasWebhookTrigger = wf.graph.nodes.some(n => n.kind === "webhookTrigger");
   // Wording matters here (2026-09-01, JuanJo: "we must show the user
   // that those 'jobs' exist... no 'forever' wording") — an indefinite
   // schedule and a bounded one used to look identical ("Scheduled"
@@ -165,6 +264,19 @@ function WorkflowCard({ wf, lastRun, running, starred, starring, onRun, onDelete
             >
               <EyeIcon size={10} />
             </button>
+            {hasWebhookTrigger && (
+              <button
+                onClick={onShowWebhook}
+                title="Get this workflow's webhook URL"
+                style={{
+                  display: "flex", alignItems: "center", padding: `2px ${spacing.xxs}px`, borderRadius: radius.xs,
+                  border: "1px solid rgba(255,255,255,0.1)", background: "transparent",
+                  color: neutral.textFaint, cursor: "pointer",
+                }}
+              >
+                <WebhookIcon size={10} />
+              </button>
+            )}
             <button
               onClick={onRun}
               disabled={running}
@@ -333,6 +445,7 @@ export function AgentWorkWorkflows({ onNewWorkflow, fill = true, onViewInCanvas,
   const [confirmTarget, setConfirmTarget] = useState<{ id: string; name: string; scheduled: boolean } | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [webhookTarget, setWebhookTarget] = useState<{ id: string; name: string } | null>(null);
 
   const refresh = useCallback(() => {
     listWorkflows().then(setWorkflows).catch(() => setWorkflows([]));
@@ -504,6 +617,7 @@ export function AgentWorkWorkflows({ onNewWorkflow, fill = true, onViewInCanvas,
           onDeleteClick={() => { setConfirmTarget({ id: wf.id, name: wf.name, scheduled: wf.trigger.type === "scheduled" }); setDeleteError(null); }}
           onToggleStar={() => toggleStar(wf.id)}
           onViewInCanvas={() => onViewInCanvas?.(wf.id)}
+          onShowWebhook={() => setWebhookTarget({ id: wf.id, name: wf.name })}
         />
       ))}
       </div>
@@ -515,6 +629,13 @@ export function AgentWorkWorkflows({ onNewWorkflow, fill = true, onViewInCanvas,
           error={deleteError}
           onCancel={() => { setConfirmTarget(null); setDeleteError(null); }}
           onConfirm={confirmDelete}
+        />
+      )}
+      {webhookTarget && (
+        <WebhookUrlDialog
+          workflowId={webhookTarget.id}
+          name={webhookTarget.name}
+          onClose={() => setWebhookTarget(null)}
         />
       )}
     </div>
