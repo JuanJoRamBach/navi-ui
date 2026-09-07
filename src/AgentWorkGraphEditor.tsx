@@ -1107,12 +1107,16 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
             display: "flex", flexDirection: "column", gap: spacing.xxs, padding: `${spacing.xs}px ${spacing.sm}px`,
             borderRadius: radius.xs, border: `1px solid ${status.success.border}`, background: status.success.bg,
           }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: fontSize.xxs, color: status.success.color }}>
-              <span>Saved "{savedName}" — this is its webhook URL:</span>
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: spacing.sm, fontSize: fontSize.xxs, color: status.success.color, lineHeight: 1.5 }}>
+              <span>
+                Saved "{savedName}". Paste this into whatever other tool should start it — look for a setting
+                there called "Webhook URL," "Callback URL," or an automation/notification trigger (Stripe, GitHub,
+                a form tool, cron-job.org, etc. all have one):
+              </span>
               <button
                 onClick={() => { setSavedName(null); setSavedWebhookUrl(null); }}
                 title="Dismiss"
-                style={{ display: "flex", background: "none", border: "none", color: "inherit", cursor: "pointer", opacity: 0.7 }}
+                style={{ display: "flex", flexShrink: 0, background: "none", border: "none", color: "inherit", cursor: "pointer", opacity: 0.7 }}
               >
                 <XIcon size={11} />
               </button>

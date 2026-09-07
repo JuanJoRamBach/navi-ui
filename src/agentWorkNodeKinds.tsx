@@ -167,7 +167,7 @@ export const NODE_KINDS: Record<NodeKindId, NodeKindDef> = {
   // arrived with — seeded before the run starts, not computed here.
   webhookTrigger: {
     id: "webhookTrigger", label: "Webhook Trigger",
-    description: "Starts this workflow when an outside service calls its URL — the incoming data becomes this node's output. Get the URL from this workflow's own \"Webhook\" button once saved.",
+    description: "Starts this workflow the moment another tool reaches out — a payment going through in Stripe, code pushed to GitHub, a scheduling service like cron-job.org. You'll get an address to paste into that other tool's \"Webhook URL\" (or \"Callback URL\") setting once you save this workflow.",
     icon: WebhookIcon, hue: 175, hasInput: false,
     fields: [],
   },

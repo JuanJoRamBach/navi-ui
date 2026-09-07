@@ -144,8 +144,10 @@ function WebhookUrlDialog({ workflowId, name, onClose }: { workflowId: string; n
           <span style={{ fontSize: fontSize.sm, fontWeight: fontWeight.medium, color: neutral.textPrimary }}>Webhook URL</span>
         </div>
         <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted, lineHeight: 1.5 }}>
-          POST to this URL to start <strong style={{ color: neutral.textPrimary }}>{name}</strong>. Same URL every
-          time — copying it again later won't break anything already configured with it.
+          Paste this into whatever other tool should start <strong style={{ color: neutral.textPrimary }}>{name}</strong> —
+          look for a setting called "Webhook URL," "Callback URL," or an automation/notification trigger (Stripe,
+          GitHub, a form tool, cron-job.org, etc. all have one). Same address every time — copying it again later
+          won't break anything already configured with it.
         </div>
         {error && <div style={{ fontSize: fontSize.xxs, color: status.danger.color }}>{error}</div>}
         {!error && (
