@@ -256,43 +256,68 @@ function useClickOutside(onOutside: () => void) {
 // click creates the node (position decided by whichever menu is
 // showing it), drag places it exactly where dropped via the existing
 // onDrop handler on the canvas wrapper.
+// Category header — shared verbatim with AddNodeMenu's own section
+// labels (2026-09-07, JuanJo: "use the same section clarification of
+// the nodes when dragging an edge and dropping it") so a node's
+// category reads the same way regardless of which of the two menus
+// it's found through.
+function NodeKindCategoryHeader({ category }: { category: string }) {
+  return (
+    <div style={{
+      fontSize: fontSize.xxs, fontWeight: fontWeight.medium, color: neutral.textFaint,
+      letterSpacing: "0.04em", textTransform: "uppercase", padding: `${spacing.xxs}px ${spacing.xs}px 2px`,
+    }}>
+      {category}
+    </div>
+  );
+}
+
 function NodeKindItems({ onPick, onDragStart }: { onPick: (kind: NodeKindId) => void; onDragStart?: () => void }) {
   return (
     <>
-      {NODE_KIND_LIST.map(kind => {
-        const Icon = kind.icon;
-        const color = `oklch(65% 0.14 ${kind.hue})`;
+      {CATEGORY_ORDER.map(category => {
+        const kinds = NODE_KIND_LIST.filter(k => k.category === category);
+        if (kinds.length === 0) return null;
         return (
-          <div
-            key={kind.id}
-            draggable
-            onDragStart={e => {
-              e.dataTransfer.setData("application/agentwork-node-kind", kind.id);
-              e.dataTransfer.effectAllowed = "move";
-              // Deferred, not called inline (2026-09-07 fix): calling
-              // onDragStart synchronously here closes/unmounts the menu
-              // WHILE the browser is still processing dragstart (React
-              // 18 batches the resulting setState, but doesn't guarantee
-              // it lands after the browser finishes) — removing the
-              // drag source element mid-dragstart is a known real
-              // cross-browser flakiness source (Firefox in particular
-              // can silently abort a drag whose source node vanishes
-              // before the drag image is captured). setTimeout(...,0)
-              // guarantees the data is already set (that part MUST stay
-              // synchronous, done above) before the close runs on the
-              // next tick.
-              if (onDragStart) setTimeout(onDragStart, 0);
-            }}
-            onClick={() => onPick(kind.id)}
-            title={kind.description}
-            style={{
-              display: "flex", alignItems: "center", gap: spacing.xs, padding: `${spacing.xs}px ${spacing.sm}px`,
-              borderRadius: radius.sm, border: `1px solid ${color}40`, background: tintedGlow(kind.hue, 0.08),
-              cursor: "grab", fontFamily,
-            }}
-          >
-            <span style={{ display: "flex", flexShrink: 0, color }}><Icon size={13} /></span>
-            <span style={{ fontSize: fontSize.xxs, color: neutral.textPrimary, lineHeight: 1.3 }}>{kind.label}</span>
+          <div key={category} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            <NodeKindCategoryHeader category={category} />
+            {kinds.map(kind => {
+              const Icon = kind.icon;
+              const color = `oklch(65% 0.14 ${kind.hue})`;
+              return (
+                <div
+                  key={kind.id}
+                  draggable
+                  onDragStart={e => {
+                    e.dataTransfer.setData("application/agentwork-node-kind", kind.id);
+                    e.dataTransfer.effectAllowed = "move";
+                    // Deferred, not called inline (2026-09-07 fix): calling
+                    // onDragStart synchronously here closes/unmounts the menu
+                    // WHILE the browser is still processing dragstart (React
+                    // 18 batches the resulting setState, but doesn't guarantee
+                    // it lands after the browser finishes) — removing the
+                    // drag source element mid-dragstart is a known real
+                    // cross-browser flakiness source (Firefox in particular
+                    // can silently abort a drag whose source node vanishes
+                    // before the drag image is captured). setTimeout(...,0)
+                    // guarantees the data is already set (that part MUST stay
+                    // synchronous, done above) before the close runs on the
+                    // next tick.
+                    if (onDragStart) setTimeout(onDragStart, 0);
+                  }}
+                  onClick={() => onPick(kind.id)}
+                  title={kind.description}
+                  style={{
+                    display: "flex", alignItems: "center", gap: spacing.xs, padding: `${spacing.xs}px ${spacing.sm}px`,
+                    borderRadius: radius.sm, border: `1px solid ${color}40`, background: tintedGlow(kind.hue, 0.08),
+                    cursor: "grab", fontFamily,
+                  }}
+                >
+                  <span style={{ display: "flex", flexShrink: 0, color }}><Icon size={13} /></span>
+                  <span style={{ fontSize: fontSize.xxs, color: neutral.textPrimary, lineHeight: 1.3 }}>{kind.label}</span>
+                </div>
+              );
+            })}
           </div>
         );
       })}
@@ -403,12 +428,7 @@ function AddNodeMenu({ onPick, onClose }: { onPick: (kind: NodeKindId) => void; 
         )}
         {groups.map(g => (
           <div key={g.category} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-            <div style={{
-              fontSize: fontSize.xxs, fontWeight: fontWeight.medium, color: neutral.textFaint,
-              letterSpacing: "0.04em", textTransform: "uppercase", padding: `0 ${spacing.xs}px`,
-            }}>
-              {g.category}
-            </div>
+            <NodeKindCategoryHeader category={g.category} />
             {g.kinds.map(kind => (
               <NodeKindBrowserRow key={kind.id} kind={kind} onPick={onPick} onDragStart={onClose} />
             ))}
