@@ -1,13 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
-import { ChevronDownIcon, ChevronRightIcon, HistoryIcon, TrashIcon, AlertIcon } from "@primer/octicons-react";
+import { ChevronDownIcon, ChevronRightIcon, HistoryIcon, TrashIcon, AlertIcon, XCircleIcon } from "@primer/octicons-react";
 import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, status, surface } from "./tokens";
-import { deleteAllRuns, deleteRun, getRunSteps, listRuns, WORKFLOW_CREATED_EVENT, type AgentRun, type AgentRunStep } from "./agentWork";
+import { cancelRun, deleteAllRuns, deleteRun, getRunSteps, listRuns, listWorkflows, WORKFLOW_CREATED_EVENT, type AgentRun, type AgentRunStep } from "./agentWork";
 
 const accent = CANVAS_ACCENT.agentWork.color;
 
+// "cancelled" reads as neutral/muted, not danger red — it's a stop the
+// user asked for, not a failure (same distinction the backend's own
+// terminal-status split draws).
 const STATUS_COLOR: Record<string, string> = {
-  completed: status.success.color, running: status.warning.color, queued: status.warning.color, failed: status.danger.color,
+  completed: status.success.color, running: status.warning.color, queued: status.warning.color,
+  failed: status.danger.color, cancelled: neutral.textFaint,
 };
+
+const ACTIVE_STATUSES = new Set(["running", "queued"]);
 
 function formatWhen(epochSeconds: number): string {
   return new Date(epochSeconds * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -32,7 +38,14 @@ function StepRow({ step }: { step: AgentRunStep }) {
   );
 }
 
-function RunRow({ run, deleting, onDelete }: { run: AgentRun; deleting: boolean; onDelete: () => void }) {
+function RunRow({ run, deleting, onDelete, workflowUpdatedAt, canceling, onCancel }: {
+  run: AgentRun; deleting: boolean; onDelete: () => void;
+  // undefined = workflow lookup not loaded yet, or its workflow was
+  // since deleted — either way, nothing to warn about, so the check
+  // below only fires once this is a real number.
+  workflowUpdatedAt: number | undefined;
+  canceling: boolean; onCancel: () => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const [steps, setSteps] = useState<AgentRunStep[] | null>(null);
 
@@ -42,6 +55,15 @@ function RunRow({ run, deleting, onDelete }: { run: AgentRun; deleting: boolean;
       getRunSteps(run.id).then(setSteps).catch(() => setSteps([]));
     }
   };
+
+  const isActive = ACTIVE_STATUSES.has(run.status);
+  // The actual version-skew warning (2026-09-08) — this run's own graph
+  // snapshot is frozen at whatever the workflow looked like when it
+  // started (see storage/agent_work.py's graph_snapshot column), so an
+  // edit made after that point never corrupts what THIS run executes
+  // against — but it does mean the run is now quietly running against a
+  // stale definition, worth surfacing rather than hiding.
+  const editedWhileRunning = isActive && workflowUpdatedAt !== undefined && workflowUpdatedAt > run.started_at;
 
   return (
     <div style={{ marginBottom: 2 }}>
@@ -60,6 +82,20 @@ function RunRow({ run, deleting, onDelete }: { run: AgentRun; deleting: boolean;
             {run.status} · {run.trigger_source} · {formatWhen(run.started_at)}
           </span>
         </button>
+        {isActive && (
+          <button
+            onClick={e => { e.stopPropagation(); onCancel(); }}
+            disabled={canceling}
+            title="Cancel this run — takes effect once the current step finishes, not instantly"
+            style={{
+              display: "flex", alignItems: "center", padding: `2px ${spacing.xxs}px`, borderRadius: radius.xs,
+              border: `1px solid ${status.danger.border}`, background: "transparent",
+              color: status.danger.color, cursor: canceling ? "default" : "pointer", opacity: canceling ? 0.5 : 1, flexShrink: 0,
+            }}
+          >
+            <XCircleIcon size={10} />
+          </button>
+        )}
         <button
           onClick={e => { e.stopPropagation(); onDelete(); }}
           disabled={deleting}
@@ -73,6 +109,17 @@ function RunRow({ run, deleting, onDelete }: { run: AgentRun; deleting: boolean;
           <TrashIcon size={10} />
         </button>
       </div>
+      {editedWhileRunning && (
+        <div style={{
+          display: "flex", alignItems: "flex-start", gap: spacing.xs,
+          margin: `2px ${spacing.sm}px 2px ${spacing.xl}px`, padding: `${spacing.xxs}px ${spacing.xs}px`,
+          borderRadius: radius.xs, border: `1px solid ${status.warning.border}`, background: status.warning.bg,
+          fontSize: fontSize.xxs, color: status.warning.color, lineHeight: 1.4,
+        }}>
+          <AlertIcon size={11} />
+          <span>This workflow was edited while this run was already in progress — it's still running against the version it started with. Consider cancelling it if the edit matters.</span>
+        </div>
+      )}
       {expanded && (
         <div>
           {steps === null && <div style={{ padding: `${spacing.xxs}px ${spacing.xl}px`, fontSize: fontSize.xxs, color: neutral.textFaint }}>Loading…</div>}
@@ -160,12 +207,20 @@ function ClearAllConfirmDialog({ count, clearing, error, onCancel, onConfirm }: 
 export function AgentWorkRunHistory() {
   const [runs, setRuns] = useState<AgentRun[] | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [cancelingId, setCancelingId] = useState<string | null>(null);
   const [confirmingClearAll, setConfirmingClearAll] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [clearError, setClearError] = useState<string | null>(null);
+  // workflow_id -> updated_at, purely for the "edited while running"
+  // warning below — a plain lookup fetched once per refresh, not
+  // re-derived per row.
+  const [workflowUpdatedAt, setWorkflowUpdatedAt] = useState<Map<string, number>>(new Map());
 
   const refresh = useCallback(() => {
     listRuns().then(setRuns).catch(() => setRuns([]));
+    listWorkflows()
+      .then(wfs => setWorkflowUpdatedAt(new Map(wfs.map(w => [w.id, w.updated_at]))))
+      .catch(() => {});
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
@@ -177,6 +232,28 @@ export function AgentWorkRunHistory() {
     window.addEventListener(WORKFLOW_CREATED_EVENT, refresh);
     return () => window.removeEventListener(WORKFLOW_CREATED_EVENT, refresh);
   }, [refresh]);
+
+  // Cancellation (and completion in general) isn't instant, so without
+  // this a cancelled/finished run would keep showing "running" until the
+  // user happened to trigger a refresh some other way. Only polls while
+  // something's actually active — stops itself once every run is in a
+  // terminal state, so this isn't a standing timer for the common case
+  // of an already-quiet history.
+  useEffect(() => {
+    if (!runs?.some(r => ACTIVE_STATUSES.has(r.status))) return;
+    const id = setInterval(refresh, 3000);
+    return () => clearInterval(id);
+  }, [runs, refresh]);
+
+  const handleCancelRun = async (runId: string) => {
+    setCancelingId(runId);
+    try {
+      await cancelRun(runId);
+      refresh();
+    } finally {
+      setCancelingId(null);
+    }
+  };
 
   const handleDeleteRun = async (runId: string) => {
     setDeletingId(runId);
@@ -260,7 +337,11 @@ export function AgentWorkRunHistory() {
       {header}
       <div className="hide-scrollbar" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: spacing.xs }}>
         {runs.map(run => (
-          <RunRow key={run.id} run={run} deleting={deletingId === run.id} onDelete={() => handleDeleteRun(run.id)} />
+          <RunRow
+            key={run.id} run={run} deleting={deletingId === run.id} onDelete={() => handleDeleteRun(run.id)}
+            workflowUpdatedAt={run.workflow_id ? workflowUpdatedAt.get(run.workflow_id) : undefined}
+            canceling={cancelingId === run.id} onCancel={() => handleCancelRun(run.id)}
+          />
         ))}
       </div>
       {confirmingClearAll && (

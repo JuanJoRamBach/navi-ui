@@ -105,7 +105,12 @@ export interface WorkflowDefinition {
   updated_at: number;
 }
 
-export type RunStatus = "queued" | "running" | "completed" | "failed";
+// "cancelled" (2026-09-08) — a run stopped because a user asked it to,
+// distinct from "failed" (something broke). See server.py's
+// POST /agent/runs/{run_id}/cancel and dispatcher/agent_work.py's
+// request_run_cancellation for the actual mechanism — it's a safe,
+// between-nodes stop, not instant.
+export type RunStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
 
 export interface AgentRun {
   id: string;
@@ -241,6 +246,20 @@ export async function listRuns(workflowId?: string, status?: string): Promise<Ag
 export async function getRunSteps(runId: string): Promise<AgentRunStep[]> {
   const res = await fetch(`${NAVI_BACKEND_URL}/agent/runs/${encodeURIComponent(runId)}/steps`);
   return res.json();
+}
+
+// Safe cancellation (2026-09-08) — flips a flag the run's own background
+// thread checks between nodes, then returns immediately. Not instant: a
+// currently-executing node (or a Delay node's own wait) finishes first.
+// See dispatcher/agent_work.py's request_run_cancellation for why "between
+// nodes" is the only safe checkpoint, not mid-node.
+export async function cancelRun(runId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${NAVI_BACKEND_URL}/agent/runs/${encodeURIComponent(runId)}/cancel`, { method: "POST" });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 export async function deleteRun(runId: string): Promise<boolean> {
