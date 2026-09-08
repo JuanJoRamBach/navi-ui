@@ -62,9 +62,9 @@ function DeleteConfirmDialog({ name, scheduled, deleting, error, onCancel, onCon
           <span style={{ fontSize: fontSize.sm, fontWeight: fontWeight.medium }}>Delete this workflow?</span>
         </div>
         <div style={{ fontSize: fontSize.xs, color: neutral.textMuted, lineHeight: 1.5 }}>
-          <strong style={{ color: neutral.textPrimary }}>{name}</strong> will be permanently deleted.
+          <strong style={{ color: neutral.textPrimary }}>{name}</strong> disappears from this list right away.
           {scheduled && " Its schedule is cancelled immediately — it will not fire again."}
-          {" "}Past runs stay in Run History; this can't be undone.
+          {" "}Past runs and version history stay intact for audit purposes — this isn't a permanent erase.
         </div>
         {error && <div style={{ fontSize: fontSize.xxs, color: status.danger.color }}>{error}</div>}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: spacing.xs, marginTop: spacing.xxs }}>
@@ -87,7 +87,7 @@ function DeleteConfirmDialog({ name, scheduled, deleting, error, onCancel, onCon
               fontSize: fontSize.xs, fontWeight: fontWeight.medium, fontFamily, opacity: deleting ? 0.6 : 1,
             }}
           >
-            {deleting ? "Deleting…" : "Delete permanently"}
+            {deleting ? "Deleting…" : "Delete"}
           </button>
         </div>
       </div>

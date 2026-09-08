@@ -6,7 +6,7 @@ import {
   type Node, type Edge, type Connection, type OnConnectEnd, type FinalConnectionState, type EdgeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { XIcon, PlusIcon, SquareIcon, PencilIcon, ClockIcon, CopyIcon, CheckIcon, CodeIcon, ChevronRightIcon, SearchIcon } from "@primer/octicons-react";
+import { XIcon, PlusIcon, SquareIcon, PencilIcon, ClockIcon, CopyIcon, CheckIcon, CodeIcon, ChevronRightIcon, SearchIcon, AlertIcon } from "@primer/octicons-react";
 import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, tintedGlow, status, surface, controlSize, iconSize } from "./tokens";
 import { NODE_KIND_LIST, NODE_KINDS, CATEGORY_ORDER, type NodeKindId, type NodeKindDef } from "./agentWorkNodeKinds";
 import { AGENT_WORK_NODE_TYPES, type AgentWorkNodeData, type AgentWorkGroupData } from "./AgentWorkGraphNode";
@@ -931,6 +931,73 @@ function NodeInspectorAnchor({ node, otherNodes, workflowId, onChange, onDelete,
   );
 }
 
+// Confirm-before-overwrite (2026-09-08, JuanJo: "when a user is
+// overwriting a previous agent, it needs a confirmation, just in case if
+// they somehow press it") — same reasoning and same overlay-dialog shape
+// as AgentWorkWorkflows.tsx's DeleteConfirmDialog for the delete button:
+// a stray click shouldn't be able to overwrite a saved workflow's graph.
+// Only shown on an edit-save (currentWorkflowId set) — a first save has
+// nothing to overwrite yet. The overwritten content isn't actually lost
+// either way — storage/agent_work.py's update_workflow archives it into
+// workflow_definition_versions before applying the change — but nothing
+// on the canvas surfaces version history yet, so this dialog still says
+// "no version history yet" rather than promising a UI that doesn't exist.
+function SaveEditsConfirmDialog({ name, saving, onCancel, onConfirm }: {
+  name: string; saving: boolean; onCancel: () => void; onConfirm: () => void;
+}) {
+  return (
+    <div
+      onClick={onCancel}
+      style={{
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 300,
+        display: "flex", alignItems: "center", justifyContent: "center", fontFamily,
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          width: 320, background: surface.raised, border: "1px solid rgba(255,255,255,0.1)",
+          borderRadius: radius.sm, padding: spacing.md, display: "flex", flexDirection: "column", gap: spacing.sm,
+          boxShadow: "0 12px 40px rgba(0,0,0,0.5)",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, color: status.warning.color }}>
+          <AlertIcon size={16} />
+          <span style={{ fontSize: fontSize.sm, fontWeight: fontWeight.medium }}>Overwrite this workflow?</span>
+        </div>
+        <div style={{ fontSize: fontSize.xs, color: neutral.textMuted, lineHeight: 1.5 }}>
+          This replaces <strong style={{ color: neutral.textPrimary }}>{name}</strong>'s current graph with what's on
+          the canvas now. Its schedule/webhook stays attached. There's no version-history view yet, so treat this as
+          the live, current version once saved.
+        </div>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: spacing.xs, marginTop: spacing.xxs }}>
+          <button
+            onClick={onCancel}
+            disabled={saving}
+            style={{
+              padding: `${spacing.xxs}px ${spacing.sm}px`, borderRadius: radius.xs, border: "1px solid rgba(255,255,255,0.15)",
+              background: "transparent", color: neutral.textMuted, cursor: saving ? "default" : "pointer", fontSize: fontSize.xs, fontFamily,
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={saving}
+            style={{
+              padding: `${spacing.xxs}px ${spacing.sm}px`, borderRadius: radius.xs, border: `1px solid ${status.warning.border}`,
+              background: status.warning.bg, color: status.warning.color, cursor: saving ? "default" : "pointer",
+              fontSize: fontSize.xs, fontWeight: fontWeight.medium, fontFamily, opacity: saving ? 0.6 : 1,
+            }}
+          >
+            {saving ? "Saving…" : "Overwrite"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // A live "100%"-style readout — React Flow's own zoom controls have no
 // number on them at all (2026-09-02, JuanJo: "there is no numbers on
 // the zoom buttons"). useViewport() re-renders this on every zoom/pan,
@@ -1256,12 +1323,31 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
   // Node kinds without backend support yet (apiCall, sendMail,
   // choosePath, Discord) are caught by convertGraphToBackend and
   // reported here rather than silently accepted.
-  const handleSave = async () => {
+  // Only gates the actual overwrite for an edit-save — see
+  // SaveEditsConfirmDialog's own comment above for why. A first save
+  // (currentWorkflowId still null) has nothing to overwrite, so it skips
+  // straight to performSave.
+  const [pendingSaveConfirm, setPendingSaveConfirm] = useState(false);
+
+  const handleSave = () => {
     setSaveErrors([]);
     if (!workflowName.trim()) {
       setSaveErrors(["Name this workflow before saving."]);
       return;
     }
+    if (scheduleMode === "date" && !dateInput) {
+      setSaveErrors(["Pick a date and time for this workflow to run, or switch back to Manual/Repeating."]);
+      return;
+    }
+    if (currentWorkflowId !== null) {
+      setPendingSaveConfirm(true);
+      return;
+    }
+    performSave();
+  };
+
+  const performSave = async () => {
+    setSaveErrors([]);
     // A group only ships as real fan-out metadata if it actually has
     // items — one with none stays exactly what it's always been, pure
     // canvas organization convertGraphToBackend never sees at all.
@@ -1271,10 +1357,7 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
     const { graph, errors } = convertGraphToBackend(nodes.filter(isExecNode), edges, groupInputs);
     if (errors.length > 0 || !graph) {
       setSaveErrors(errors);
-      return;
-    }
-    if (scheduleMode === "date" && !dateInput) {
-      setSaveErrors(["Pick a date and time for this workflow to run, or switch back to Manual/Repeating."]);
+      setPendingSaveConfirm(false);
       return;
     }
     setSaving(true);
@@ -1353,10 +1436,12 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
       setSaveErrors(["Couldn't save — NAVI may be unreachable. Try again."]);
     } finally {
       setSaving(false);
+      setPendingSaveConfirm(false);
     }
   };
 
   return (
+    <>
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <div style={{
         display: "flex", flexDirection: "column", gap: spacing.xs,
@@ -1697,6 +1782,15 @@ function GraphCanvas({ rightSidebarOpen, seed, onSeedConsumed, loadWorkflowId, o
         </div>
       </div>
     </div>
+    {pendingSaveConfirm && (
+      <SaveEditsConfirmDialog
+        name={workflowName.trim()}
+        saving={saving}
+        onCancel={() => setPendingSaveConfirm(false)}
+        onConfirm={performSave}
+      />
+    )}
+    </>
   );
 }
 
