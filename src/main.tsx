@@ -4,16 +4,23 @@ import App from './App'
 import './index.css'
 import { installApiAuth } from './apiAuth'
 import { ApiKeyGate } from './ApiKeyGate'
+import { installSessionAuth } from './sessionAuth'
+import { LoginGate } from './LoginGate'
 
 // Installed before the app renders — every backend fetch from here on
 // (mcpConnections.ts, agentWork.ts, App.tsx, etc.) gets the access-key
 // header injected automatically. See apiAuth.ts's own docstring.
 installApiAuth()
+// Same patching approach, layered on top — see sessionAuth.ts's own
+// docstring for why this is a SECOND, additive header, not a replacement.
+installSessionAuth()
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ApiKeyGate>
-      <App />
+      <LoginGate>
+        <App />
+      </LoginGate>
     </ApiKeyGate>
   </React.StrictMode>,
 )

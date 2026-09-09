@@ -82,6 +82,7 @@ import { fetchModelCatalog, setPinnedModel, type ModelCatalog, type ModelCandida
 import { AgentWorkNewWorkflowForm } from "./AgentWorkNewWorkflowForm";
 import { ChoiceButtons } from "./ChoiceButtons";
 import { AgentWorkGraphEditor, type AgentWorkSeed } from "./AgentWorkGraphEditor";
+import { AccountSettings } from "./AccountSettings";
 import { BrowserPane } from "./BrowserPane";
 import { isTauriRuntime } from "./tauriRuntime";
 import { isImageLike } from "./fileFormats";
@@ -4769,16 +4770,7 @@ export default function App() {
                 </div>
               )}
 
-              {openPanel === "settings" && (
-                <div>
-                  <div style={{ fontSize: fontSize.xs, color: neutral.textMuted, marginBottom: spacing.sm }}>
-                    Settings
-                  </div>
-                  <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted }}>
-                    Coming soon.
-                  </div>
-                </div>
-              )}
+              {openPanel === "settings" && <AccountSettings />}
               </div>
             </div>
           </>
