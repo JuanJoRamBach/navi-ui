@@ -22,11 +22,16 @@ import { spacing, radius, fontSize, fontWeight, fontFamily, tintedGlow } from ".
 // just sends its exact label as the next message, same as typing it
 // would. `disabled` covers the moment right after a click, before the
 // next reply has arrived, so a double-click can't fire two sends.
-export function ChoiceButtons({ options, hue, onPick, disabled }: {
-  options: string[]; hue: number; onPick: (text: string) => void; disabled?: boolean;
+export function ChoiceButtons({ options, hue, chroma = 0.12, onPick, disabled }: {
+  options: string[]; hue: number; chroma?: number; onPick: (text: string) => void; disabled?: boolean;
 }) {
   if (options.length === 0) return null;
-  const color = `oklch(65% 0.12 ${hue})`;
+  // chroma (2026-09-10, AgentVaultChat) — optional, defaults to the
+  // original fixed 0.12 so every existing colored caller is unchanged.
+  // Same reasoning as tintedGlow's own chroma param: 0 makes `hue`
+  // irrelevant and yields a true neutral gray, for a caller that has no
+  // canvas hue to tint from.
+  const color = `oklch(65% ${chroma} ${hue})`;
   return (
     <div style={{
       display: "flex", flexDirection: "column", gap: spacing.xs, marginTop: spacing.xs,
@@ -40,7 +45,7 @@ export function ChoiceButtons({ options, hue, onPick, disabled }: {
           disabled={disabled}
           style={{
             padding: `${spacing.xs}px ${spacing.sm}px`, borderRadius: radius.sm,
-            border: `1px solid ${color}66`, background: tintedGlow(hue, 0.12),
+            border: `1px solid ${color}66`, background: tintedGlow(hue, 0.12, chroma),
             color, cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.5 : 1,
             fontSize: fontSize.xs, fontWeight: fontWeight.medium, fontFamily,
             textAlign: "left", width: "100%", boxSizing: "border-box",

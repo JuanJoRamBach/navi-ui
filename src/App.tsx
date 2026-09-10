@@ -69,6 +69,7 @@ import { getPushStatus, subscribeToPush, type PushStatus } from "./push";
 import { DevSlateDockview } from "./DevSlateDockview";
 import { useDevSlateState } from "./devslateStore";
 import { AgentWorkChat } from "./AgentWorkChat";
+import { AgentVaultChat } from "./AgentVaultChat";
 import { AgentWorkWorkflows } from "./AgentWorkWorkflows";
 import { StackedPanels } from "./StackedPanels";
 import { ConnectionsOverlay } from "./ConnectionsOverlay";
@@ -1043,6 +1044,15 @@ export default function App() {
   // doesn't interrupt the canvas work the way a fixed panel would.
   // Shell/mock content for now — this canvas has no real backend yet.
   const [agentWorkChatOpen, setAgentWorkChatOpen] = useState(false);
+  // Agent Vault's own chat (2026-09-10) — unrelated to Agent Work's chat
+  // above despite the near-identical UI (AgentVaultChat.tsx is a direct
+  // copy of AgentWorkChat.tsx, recolored neutral — see that file's own
+  // header comment for why these stay two separate components with no
+  // shared state). Rail-triggered, not canvas-scoped: this chat doesn't
+  // live inside any one canvas, so it needs to stay reachable from
+  // wherever the user currently is, not just while a specific canvas is
+  // active.
+  const [agentVaultChatOpen, setAgentVaultChatOpen] = useState(false);
   // Dev Slate's placeholder pane content — every zone in its shell (see
   // the devSlate canvas render below) uses this same shape so adding a
   // new pane later, or swapping a placeholder for real content, doesn't
@@ -2653,6 +2663,34 @@ export default function App() {
             >
               <PersonIcon size={iconSize.sm} />
               <span className="sidebar-menu-btn-label">Agents</span>
+            </button>
+            {/* Agent Vault's own chat (2026-09-10) — a permanent rail
+                button, not an appearing/disappearing one like the
+                pending-decisions badge below: there's no per-agent
+                "start a chat" trigger built yet (standalone agent
+                execution isn't built — see AgentVaultChat.tsx's own
+                header comment), so there's no real "session became
+                active" moment to gate visibility on yet. Toggles the
+                same floating panel open/closed regardless of which
+                canvas is active — see its mount point near the bottom
+                of this file for why it anchors to the rail itself
+                (bottom-left) rather than a canvas' own corner. */}
+            <button
+              className="sidebar-menu-btn"
+              title="Agent Vault chat"
+              onClick={() => setAgentVaultChatOpen(o => !o)}
+              style={{
+                display: "flex", alignItems: "center", gap: spacing.sm,
+                height: OUTER_RAIL_ROW_HEIGHT, boxSizing: "border-box",
+                padding: `0 ${spacing.sm}px`,
+                borderRadius: radius.sm, border: "none",
+                background: agentVaultChatOpen ? "rgba(255,255,255,0.06)" : "transparent",
+                color: neutral.textPrimary, cursor: "pointer", textAlign: "left",
+                fontSize: fontSize.xs, fontFamily, fontWeight: fontWeight.medium,
+              }}
+            >
+              <CommentDiscussionIcon size={iconSize.sm} />
+              <span className="sidebar-menu-btn-label">Agent Chat</span>
             </button>
             <button
               className="sidebar-menu-btn"
@@ -5059,6 +5097,31 @@ export default function App() {
           }}
           onClose={() => setShowAgentChat(false)}
         />
+      )}
+      {/* Agent Vault's own chat (2026-09-10) — mounted globally here,
+          not inside any one canvas' own JSX branch the way Agent Work's
+          chat is, since it needs to stay open across canvas switches.
+          Bottom-LEFT, sliding right of the rail's own width — the
+          mirror image of Agent Work's chat, which is bottom-right
+          inside its canvas. Collapsed state (a small pill, matching
+          Agent Work's own collapsed/expanded toggle) isn't built yet —
+          this is a straight open/closed toggle from the rail button for
+          now, real enough to use and test. */}
+      {agentVaultChatOpen && (
+        <div style={{
+          position: "fixed", bottom: spacing.xl, zIndex: 22,
+          // Real bug caught live in testing: --outer-rail-width alone
+          // only clears the narrow icon rail — with the wider sidebar
+          // panel open (--left-panel-width, real width when open, 0px
+          // when closed, same var App.tsx's own canvas positioning
+          // already reads), the chat rendered stacked underneath it
+          // instead of sliding out past it. Both together, same pattern
+          // the canvas' own left offset already uses.
+          left: `calc(var(--outer-rail-width, 0px) + var(--left-panel-width, 0px) + ${spacing.xl}px)`,
+          transition: "left 0.2s ease",
+        }}>
+          <AgentVaultChat onClose={() => setAgentVaultChatOpen(false)} />
+        </div>
       )}
     </div>
   );

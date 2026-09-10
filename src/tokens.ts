@@ -227,11 +227,19 @@ export const OKLCH_HUE: Record<ChatMode, number> = {
 // keep glow as a concept, dial it down rather than strip it, since it's
 // not the thing the blur/glass research flagged — a shadow doesn't
 // blur content or hurt contrast the way backdrop-filter did).
-export function tintedGlow(hue: number, alpha = 0.16): string {
+export function tintedGlow(hue: number, alpha = 0.16, chroma = 0.12): string {
   // Night: bright 65% accent; day: deeper 48% accent so buttons stay
   // legible on the light canvas.
   const l = isDayTheme() ? 48 : 65;
-  return `oklch(${l}% 0.12 ${hue} / ${alpha})`;
+  // chroma (2026-09-10, AgentVaultChat) — optional, defaults to the
+  // original fixed 0.12 so every existing caller is byte-identical.
+  // Passing 0 makes `hue` irrelevant and yields a true neutral gray at
+  // the same day/night-mirrored lightness — the one thing a hue alone
+  // can never do, since OKLCH's hue angle has no visible effect at zero
+  // chroma. Lets a genuinely colorless surface (a chat that "doesn't
+  // live in a canvas," so it shouldn't borrow one's brand hue) reuse
+  // this exact function instead of a parallel neutral-only one.
+  return `oklch(${l}% ${chroma} ${hue} / ${alpha})`;
 }
 
 export const MODE_THEME: Record<ChatMode, {
