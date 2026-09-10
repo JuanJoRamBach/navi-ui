@@ -76,7 +76,7 @@ import { AgentVault } from "./AgentVault";
 import { PromptVault } from "./PromptVault";
 import { TRUSTED_SOURCES_CHANGED_EVENT, addTrustedSite, listTrustedSites, removeTrustedSite } from "./trustedSources";
 import { deleteSourceDocument, getBatchStatus, getSourceDocument, listSourceDocuments, reviewSourceDocument, startBatchDispatch, type SourceDocument } from "./sources";
-import { AgentChat, type PendingAgentInput } from "./AgentChat";
+import { PendingDecisionPrompt, type PendingDecision } from "./AgentChat";
 import { AgentWorkRunHistory } from "./AgentWorkRunHistory";
 import { fetchModelCatalog, setPinnedModel, type ModelCatalog, type ModelCandidate } from "./devslate";
 import { AgentWorkNewWorkflowForm } from "./AgentWorkNewWorkflowForm";
@@ -1009,8 +1009,15 @@ export default function App() {
   // speculative infrastructure this codebase deliberately avoids — this
   // starts working the moment standalone agent execution exists, no
   // rewiring needed, just a real fetch replacing this array.
-  const [pendingAgentInputs, setPendingAgentInputs] = useState<PendingAgentInput[]>([]);
-  const [showAgentChat, setShowAgentChat] = useState(false);
+  const [pendingDecisions, setPendingDecisions] = useState<PendingDecision[]>([]);
+  const [showDecisionPrompt, setShowDecisionPrompt] = useState(false);
+  // Resets once the list drains to zero (every item resolved, either
+  // picked or dismissed) so a LATER pending decision shows the loud
+  // floating trigger again first, rather than snapping straight to the
+  // modal because this flag was left true from last time.
+  useEffect(() => {
+    if (pendingDecisions.length === 0) setShowDecisionPrompt(false);
+  }, [pendingDecisions.length]);
   // Dev Slate's right sidebar (Task State / Change History, built below)
   // reads straight off the same shared store its own panes already use
   // — real data, not placeholder content, so no separate fetch/state
@@ -2585,23 +2592,26 @@ export default function App() {
                 <span className="sidebar-menu-btn-label">{label}</span>
               </button>
             ))}
-            {/* Agent Chat — the "needs your input" surface (2026-09-03
-                design pass), only ever rendered at all when there's
-                something actually pending, same "don't show a usually-
-                empty control" rule the rest of this rail follows.
-                Currently always hidden: nothing populates
-                pendingAgentInputs yet because agents can only run today
-                via a forked Agent Work workflow (see AgentWorkGraphEditor's
-                seed effect) — standalone agent execution (the piece that
-                would actually finish a run and need to ask "chat, pdf, or
+            {/* The "needs your input" surface's calmer, permanent way
+                back in (2026-09-03 design pass, generalized + given a
+                loud floating twin 2026-09-10 — see PendingDecisionPrompt
+                just below the whole app tree for the actual redesign
+                reasoning). Only ever rendered at all when something's
+                actually pending, same "don't show a usually-empty
+                control" rule the rest of this rail follows. Currently
+                always hidden: nothing populates pendingDecisions yet
+                because agents can only run today via a forked Agent
+                Work workflow (see AgentWorkGraphEditor's seed effect) —
+                standalone agent execution (the piece that would
+                actually finish a run and need to ask "chat, pdf, or
                 markdown?") isn't built. Wired for real against a real
                 endpoint so it starts working the moment that exists,
                 not a placeholder that needs rewiring later. */}
-            {pendingAgentInputs.length > 0 && (
+            {pendingDecisions.length > 0 && (
               <button
                 className="sidebar-menu-btn"
-                title={`Agent Chat — ${pendingAgentInputs.length} waiting on you`}
-                onClick={() => setShowAgentChat(true)}
+                title={`${pendingDecisions.length} waiting on you`}
+                onClick={() => setShowDecisionPrompt(true)}
                 style={{
                   display: "flex", alignItems: "center", gap: spacing.sm,
                   height: OUTER_RAIL_ROW_HEIGHT, boxSizing: "border-box",
@@ -2613,13 +2623,13 @@ export default function App() {
                 }}
               >
                 <CommentDiscussionIcon size={iconSize.sm} />
-                <span className="sidebar-menu-btn-label" style={{ flex: 1 }}>Agent Chat</span>
+                <span className="sidebar-menu-btn-label" style={{ flex: 1 }}>Waiting on you</span>
                 <span style={{
                   fontSize: fontSize.xxs, minWidth: 16, height: 16, borderRadius: 8,
                   background: CANVAS_ACCENT.agentWork.color, color: "var(--ink)",
                   display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
                 }}>
-                  {pendingAgentInputs.length}
+                  {pendingDecisions.length}
                 </span>
               </button>
             )}
@@ -5057,9 +5067,9 @@ export default function App() {
           Reuses the same agent-chat-alert-pulse (index.css) as the
           modal itself opens into, so the signal is consistent start to
           finish rather than a different animation per surface. */}
-      {!showAgentChat && pendingAgentInputs.length > 0 && (
+      {!showDecisionPrompt && pendingDecisions.length > 0 && (
         <button
-          onClick={() => setShowAgentChat(true)}
+          onClick={() => setShowDecisionPrompt(true)}
           className="agent-chat-alert-pulse"
           style={{
             position: "fixed", top: spacing.md, left: "50%", transform: "translateX(-50%)", zIndex: 390,
@@ -5072,20 +5082,27 @@ export default function App() {
           }}
         >
           <AlertIcon size={iconSize.sm} />
-          {pendingAgentInputs.length === 1 ? "1 decision needed" : `${pendingAgentInputs.length} decisions needed`}
+          {pendingDecisions.length === 1 ? "1 decision needed" : `${pendingDecisions.length} decisions needed`}
         </button>
       )}
-      {showAgentChat && pendingAgentInputs.length > 0 && (
-        <AgentChat
-          pending={pendingAgentInputs}
+      {showDecisionPrompt && pendingDecisions.length > 0 && (
+        <PendingDecisionPrompt
+          pending={pendingDecisions}
           onAnswer={(id, _answer) => {
             // Answer handling (actually formatting/delivering the
             // completed run's output per the pick) plugs in here once
             // standalone agent execution exists — for now this only
             // removes the item locally, since nothing real produced it.
-            setPendingAgentInputs(items => items.filter(i => i.id !== id));
+            setPendingDecisions(items => items.filter(i => i.id !== id));
           }}
-          onClose={() => setShowAgentChat(false)}
+          onDismiss={id => {
+            // "Not now — keep chatting normally" (JuanJo, 2026-09-10) —
+            // a real, explicit resolution, not just hiding the panel:
+            // the item is answered as "no change," same as any other
+            // pick, not left silently pending to resurface later with
+            // no record of what was actually decided.
+            setPendingDecisions(items => items.filter(i => i.id !== id));
+          }}
         />
       )}
     </div>
