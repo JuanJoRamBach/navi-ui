@@ -712,6 +712,20 @@ body {
   animation: step-pulse 1.4s ease-in-out infinite;
 }
 
+/* A real decision waiting on the user (Agent Chat's needs-your-input
+   surface) — distinct from step-pulse's passive "still working" breathe
+   above: this pulses the accent's own glow outward in a real shadow, not
+   just opacity, so it reads as "something needs you" from a glance
+   across the room, not just up close. Same accent-agentwork tokens the
+   surface already owns, turned up rather than replaced. */
+@keyframes agent-chat-alert-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 var(--accent-agentwork-glow); }
+  50% { box-shadow: 0 0 0 10px transparent; }
+}
+.agent-chat-alert-pulse {
+  animation: agent-chat-alert-pulse 1.8s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
 /* Markdown prose in completed assistant/user messages — rendered via
    marked + DOMPurify and scoped to .md so it never affects raw text. */
 .md { font-size: var(--font-size-sm); line-height: 1.62; color: var(--text-primary); }

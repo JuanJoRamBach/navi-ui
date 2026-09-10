@@ -5047,6 +5047,34 @@ export default function App() {
           oauthResult={oauthResult} onDismissOauthResult={() => setOauthResult(null)}
         />
       )}
+      {/* Floating "needs attention" trigger (2026-09-10 redesign,
+          JuanJo: the old sidebar-only entry point was "just buttons...
+          nothing that makes you notice it") — visible from anywhere in
+          the app the moment something's pending, not just to someone
+          already scanning the sidebar's menu list. The sidebar row
+          above stays too (a permanent, calmer way back in once someone
+          already knows it's there); this is the loud first alert.
+          Reuses the same agent-chat-alert-pulse (index.css) as the
+          modal itself opens into, so the signal is consistent start to
+          finish rather than a different animation per surface. */}
+      {!showAgentChat && pendingAgentInputs.length > 0 && (
+        <button
+          onClick={() => setShowAgentChat(true)}
+          className="agent-chat-alert-pulse"
+          style={{
+            position: "fixed", top: spacing.md, left: "50%", transform: "translateX(-50%)", zIndex: 390,
+            display: "flex", alignItems: "center", gap: spacing.sm,
+            padding: `${spacing.sm}px ${spacing.md}px`, borderRadius: radius.lg,
+            border: `1.5px solid ${CANVAS_ACCENT.agentWork.color}aa`,
+            background: neutral.surfaceSolid, color: CANVAS_ACCENT.agentWork.color,
+            cursor: "pointer", fontFamily, fontSize: fontSize.xs, fontWeight: fontWeight.medium,
+            boxShadow: "0 8px 28px rgba(0,0,0,0.4)",
+          }}
+        >
+          <AlertIcon size={iconSize.sm} />
+          {pendingAgentInputs.length === 1 ? "1 decision needed" : `${pendingAgentInputs.length} decisions needed`}
+        </button>
+      )}
       {showAgentChat && pendingAgentInputs.length > 0 && (
         <AgentChat
           pending={pendingAgentInputs}
