@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { PlusIcon, TrashIcon, ChevronDownIcon, ChevronRightIcon, PersonIcon, SparkleFillIcon, ToolsIcon } from "@primer/octicons-react";
+import { PlusIcon, TrashIcon, ChevronDownIcon, ChevronRightIcon, PersonIcon, SparkleFillIcon, ToolsIcon, CommentDiscussionIcon } from "@primer/octicons-react";
 import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, tintedGlow, status } from "./tokens";
 import { AGENT_VAULT_CHANGED_EVENT, createAgent, deleteAgent, listAgents, type AgentOutputType, type SavedAgent } from "./agents";
 import { getWorkflow, type WorkflowGraph } from "./agentWork";
@@ -213,7 +213,7 @@ function ToolsNodesSection({ workflowId }: { workflowId: string }) {
   );
 }
 
-function AgentCard({ agent, onDelete, onOpenInCanvas }: { agent: SavedAgent; onDelete: () => void; onOpenInCanvas: () => void }) {
+function AgentCard({ agent, onDelete, onOpenInCanvas, onChat, canChat }: { agent: SavedAgent; onDelete: () => void; onOpenInCanvas: () => void; onChat: () => void; canChat: boolean }) {
   const [expanded, setExpanded] = useState(false);
   return (
     <div style={{ background: CARD_BG, border: CARD_BORDER, borderRadius: radius.sm, marginBottom: spacing.xs, overflow: "hidden" }}>
@@ -226,6 +226,24 @@ function AgentCard({ agent, onDelete, onOpenInCanvas }: { agent: SavedAgent; onD
         <span style={{ flex: 1, fontSize: fontSize.xs, fontWeight: fontWeight.medium, color: neutral.textPrimary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {agent.name}
         </span>
+        {/* Chat trigger (2026-09-11) — real, wired to a per-agent backend
+            endpoint (server.py's POST /agents/{id}/chat) rather than the
+            generic agent_work chat every OTHER trigger used to fall
+            through to. Always visible in the header row (not gated behind
+            expanding the card) since starting a chat is the primary thing
+            most users want to do with a saved agent, not a secondary
+            action. Owner-only (canChat, from App.tsx's showAgentVaultChat)
+            — hidden rather than shown disabled for Admin/Member, since
+            Agent Vault chat has no real per-agent access model yet. */}
+        {canChat && (
+          <span
+            onClick={e => { e.stopPropagation(); onChat(); }}
+            title={`Chat with ${agent.name}`}
+            style={{ display: "flex", color: neutral.textFaint, cursor: "pointer" }}
+          >
+            <CommentDiscussionIcon size={12} />
+          </span>
+        )}
         <span onClick={e => { e.stopPropagation(); onDelete(); }} style={{ display: "flex", color: neutral.textFaint, cursor: "pointer" }}>
           <TrashIcon size={11} />
         </span>
@@ -267,7 +285,7 @@ function AgentCard({ agent, onDelete, onOpenInCanvas }: { agent: SavedAgent; onD
   );
 }
 
-export function AgentVault({ onOpenInCanvas }: { onOpenInCanvas: (agent: SavedAgent) => void }) {
+export function AgentVault({ onOpenInCanvas, onChatWithAgent, canChat }: { onOpenInCanvas: (agent: SavedAgent) => void; onChatWithAgent: (agent: SavedAgent) => void; canChat: boolean }) {
   const [agents, setAgents] = useState<SavedAgent[] | null>(null);
   const [showNewForm, setShowNewForm] = useState(false);
 
@@ -322,7 +340,7 @@ export function AgentVault({ onOpenInCanvas }: { onOpenInCanvas: (agent: SavedAg
           </button>
         </div>
       ) : (
-        agents.map(a => <AgentCard key={a.id} agent={a} onDelete={() => handleDelete(a.id)} onOpenInCanvas={() => onOpenInCanvas(a)} />)
+        agents.map(a => <AgentCard key={a.id} agent={a} onDelete={() => handleDelete(a.id)} onOpenInCanvas={() => onOpenInCanvas(a)} onChat={() => onChatWithAgent(a)} canChat={canChat} />)
       )}
     </div>
   );

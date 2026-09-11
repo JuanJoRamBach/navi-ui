@@ -74,6 +74,7 @@ import { AgentWorkWorkflows } from "./AgentWorkWorkflows";
 import { StackedPanels } from "./StackedPanels";
 import { ConnectionsOverlay } from "./ConnectionsOverlay";
 import { AgentVault } from "./AgentVault";
+import { getCurrentUser } from "./auth";
 import { PromptVault } from "./PromptVault";
 import { TRUSTED_SOURCES_CHANGED_EVENT, addTrustedSite, listTrustedSites, removeTrustedSite } from "./trustedSources";
 import { deleteSourceDocument, getBatchStatus, getSourceDocument, listSourceDocuments, reviewSourceDocument, startBatchDispatch, type SourceDocument } from "./sources";
@@ -1053,6 +1054,27 @@ export default function App() {
   // wherever the user currently is, not just while a specific canvas is
   // active.
   const [agentVaultChatOpen, setAgentVaultChatOpen] = useState(false);
+  // Which saved agent the panel above is chatting with (2026-09-11) —
+  // set by AgentVault's own new per-card "Chat" trigger, read by
+  // AgentVaultChat.tsx to call the real POST /agents/{id}/chat endpoint.
+  // null until a first agent's ever been picked this session; the rail
+  // button can still open/close the panel in that state, it just shows
+  // an empty "pick an agent" prompt instead of a composer.
+  const [agentVaultAgent, setAgentVaultAgent] = useState<{ id: string; name: string } | null>(null);
+  // Owner-only (2026-09-11, JuanJo: "show_for_owner: true... so I can
+  // always see the agent vault chat for the owner") — Agent Vault chat
+  // has no real per-agent access model of its own yet (any saved agent
+  // is chattable by anyone who can open the app), so gating the feature
+  // itself to the Owner role is the simplest real control available
+  // today, reusing ACCOUNTS_AND_ROLES.md's existing Owner/Admin/Member
+  // system rather than inventing a new permission. "Fetch what you need
+  // where you need it" (LoginGate.tsx's own convention) — App.tsx has no
+  // other reason to know the current user, so this is its only /auth/me
+  // call, not state threaded in from elsewhere.
+  const [showAgentVaultChat, setShowAgentVaultChat] = useState(false);
+  useEffect(() => {
+    getCurrentUser().then(u => setShowAgentVaultChat(u?.role === "owner")).catch(() => setShowAgentVaultChat(false));
+  }, []);
   // Dev Slate's placeholder pane content — every zone in its shell (see
   // the devSlate canvas render below) uses this same shape so adding a
   // new pane later, or swapping a placeholder for real content, doesn't
@@ -2664,34 +2686,42 @@ export default function App() {
               <PersonIcon size={iconSize.sm} />
               <span className="sidebar-menu-btn-label">Agents</span>
             </button>
-            {/* Agent Vault's own chat (2026-09-10) — a permanent rail
-                button, not an appearing/disappearing one like the
-                pending-decisions badge below: there's no per-agent
-                "start a chat" trigger built yet (standalone agent
-                execution isn't built — see AgentVaultChat.tsx's own
-                header comment), so there's no real "session became
-                active" moment to gate visibility on yet. Toggles the
-                same floating panel open/closed regardless of which
-                canvas is active — see its mount point near the bottom
-                of this file for why it anchors to the rail itself
-                (bottom-left) rather than a canvas' own corner. */}
-            <button
-              className="sidebar-menu-btn"
-              title="Agent Vault chat"
-              onClick={() => setAgentVaultChatOpen(o => !o)}
-              style={{
-                display: "flex", alignItems: "center", gap: spacing.sm,
-                height: OUTER_RAIL_ROW_HEIGHT, boxSizing: "border-box",
-                padding: `0 ${spacing.sm}px`,
-                borderRadius: radius.sm, border: "none",
-                background: agentVaultChatOpen ? "rgba(255,255,255,0.06)" : "transparent",
-                color: neutral.textPrimary, cursor: "pointer", textAlign: "left",
-                fontSize: fontSize.xs, fontFamily, fontWeight: fontWeight.medium,
-              }}
-            >
-              <CommentDiscussionIcon size={iconSize.sm} />
-              <span className="sidebar-menu-btn-label">Agent Chat</span>
-            </button>
+            {/* Agent Vault's own chat (2026-09-10, real backend wired
+                2026-09-11) — a permanent rail button, not an appearing/
+                disappearing one like the pending-decisions badge below:
+                this reopens whichever agent was last picked via
+                AgentVault's own per-card "Chat" trigger (agentVaultAgent
+                state above), or shows an empty "pick an agent" prompt if
+                none has been picked yet this session — either way,
+                toggling it is always meaningful, so it stays permanent
+                rather than gated on a "session became active" moment.
+                Toggles the same floating panel open/closed regardless of
+                which canvas is active — see its mount point near the
+                bottom of this file for why it anchors to the rail itself
+                (bottom-left) rather than a canvas' own corner.
+                Owner-only (see showAgentVaultChat above) — hidden
+                entirely for Admin/Member rather than shown disabled, same
+                "don't render a dead control" reasoning as dropping
+                EditModeSelector from AgentVaultChat.tsx itself. */}
+            {showAgentVaultChat && (
+              <button
+                className="sidebar-menu-btn"
+                title="Agent Vault chat"
+                onClick={() => setAgentVaultChatOpen(o => !o)}
+                style={{
+                  display: "flex", alignItems: "center", gap: spacing.sm,
+                  height: OUTER_RAIL_ROW_HEIGHT, boxSizing: "border-box",
+                  padding: `0 ${spacing.sm}px`,
+                  borderRadius: radius.sm, border: "none",
+                  background: agentVaultChatOpen ? "rgba(255,255,255,0.06)" : "transparent",
+                  color: neutral.textPrimary, cursor: "pointer", textAlign: "left",
+                  fontSize: fontSize.xs, fontFamily, fontWeight: fontWeight.medium,
+                }}
+              >
+                <CommentDiscussionIcon size={iconSize.sm} />
+                <span className="sidebar-menu-btn-label">Agent Chat</span>
+              </button>
+            )}
             <button
               className="sidebar-menu-btn"
               title="Profile"
@@ -2938,10 +2968,17 @@ export default function App() {
           </button>
         </div>
         {leftPanelTab === "agents" ? (
-          <AgentVault onOpenInCanvas={agent => {
-            setAgentSeed({ agentName: agent.name, instructions: agent.instructions, tools: agent.tools });
-            setActiveCanvas("agentWork");
-          }} />
+          <AgentVault
+            onOpenInCanvas={agent => {
+              setAgentSeed({ agentName: agent.name, instructions: agent.instructions, tools: agent.tools });
+              setActiveCanvas("agentWork");
+            }}
+            onChatWithAgent={agent => {
+              setAgentVaultAgent({ id: agent.id, name: agent.name });
+              setAgentVaultChatOpen(true);
+            }}
+            canChat={showAgentVaultChat}
+          />
         ) : leftPanelTab === "prompts" ? (
           <PromptVault />
         ) : leftPanelTab === "library" ? (
@@ -5106,8 +5143,12 @@ export default function App() {
           inside its canvas. Collapsed state (a small pill, matching
           Agent Work's own collapsed/expanded toggle) isn't built yet —
           this is a straight open/closed toggle from the rail button for
-          now, real enough to use and test. */}
-      {agentVaultChatOpen && (
+          now, real enough to use and test.
+          Owner-gated (showAgentVaultChat) alongside agentVaultChatOpen —
+          belt-and-suspenders with the rail button/AgentVault icon both
+          already being hidden for non-owners, in case agentVaultChatOpen
+          is ever true through some other path later. */}
+      {showAgentVaultChat && agentVaultChatOpen && (
         <div style={{
           position: "fixed", bottom: spacing.xl, zIndex: 22,
           // Real bug caught live in testing: --outer-rail-width alone
@@ -5120,7 +5161,11 @@ export default function App() {
           left: `calc(var(--outer-rail-width, 0px) + var(--left-panel-width, 0px) + ${spacing.xl}px)`,
           transition: "left 0.2s ease",
         }}>
-          <AgentVaultChat onClose={() => setAgentVaultChatOpen(false)} />
+          <AgentVaultChat
+            onClose={() => setAgentVaultChatOpen(false)}
+            agentId={agentVaultAgent?.id ?? null}
+            agentName={agentVaultAgent?.name}
+          />
         </div>
       )}
     </div>

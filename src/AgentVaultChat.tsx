@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronDownIcon, CheckIcon, PencilIcon, ZapIcon, PaperAirplaneIcon } from "@primer/octicons-react";
+import { ChevronDownIcon, CheckIcon, PaperAirplaneIcon } from "@primer/octicons-react";
 import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, tintedSurface, tintedGlow, surface } from "./tokens";
 import { DevSlateDotGrid } from "./DevSlateDotGrid";
 import { fetchModelCatalog, setPinnedModel, type ModelCatalog } from "./devslate";
@@ -25,18 +25,26 @@ import { ChoiceButtons } from "./ChoiceButtons";
 // color path. neutral.userBubbleGlow/textMuted are used directly where
 // a plain (non-hue) neutral token already existed.
 //
-// Known, temporary gap, not hidden: standalone agent execution isn't
-// built yet (same gap IDEAS.md and this session have flagged
-// repeatedly) — there's no real "chat with saved agent X" backend
-// endpoint yet. This still posts to /chat/send with mode: "agent_work"
-// as a working placeholder so the UI is real and testable now; swapping
-// in a real per-agent endpoint once one exists needs no UI rework, just
-// this one fetch call changed. ModelBadge/EditModeSelector are kept for
-// visual fidelity (explicitly asked for: "just copy the UI") even
-// though what they actually configure (agent_work's task routing,
-// workflow auto-accept) doesn't cleanly map to "chat with one already-
-// configured saved agent" — worth a real second look once that backend
-// piece exists, not decided here.
+// Real per-agent backend now wired (2026-09-11): posts to
+// POST /agents/{agentId}/chat (server.py), which runs
+// dispatcher/chat.py's run_agent_vault_chat against THAT agent's own
+// instructions/tools/model — not agent_work's generic brief, which is
+// what this used to fall through to (see server.py's own docstring on
+// that route for the full before/after). conversation_id is no longer
+// client-minted/sessionStorage'd — the backend uses the agent's own id
+// as its one stable conversation, so switching agents or reopening this
+// panel later naturally picks the right thread back up.
+//
+// EditModeSelector (Review changes / Auto-accept) was dropped here, not
+// carried over from AgentWorkChat's copy — auto_accept only ever
+// configured agent_work's own "review the created workflow before it
+// runs" behavior, which has no equivalent for a plain saved-agent chat;
+// keeping a control that no longer does anything would be worse than
+// not having it. ModelBadge stays: agent.model is null for every agent
+// today (no UI sets it — see AgentVault.tsx), so run_agent_vault_chat
+// always falls back to the shared agent_work role's own current model,
+// meaning ModelBadge's "model used for this chat" label is still
+// accurate, if shared/global rather than truly per-agent.
 
 const accent = neutral.textMuted;
 const FLOAT_CLUSTER_RESERVE = 104; // input pill + the edit-mode/model row below it
@@ -129,62 +137,6 @@ function ModelBadge() {
   );
 }
 
-function EditModeSelector({ autoAccept, onChange }: { autoAccept: boolean; onChange: (value: boolean) => void }) {
-  const [open, setOpen] = useState(false);
-  const OPTIONS: { value: boolean; label: string; icon: typeof PencilIcon }[] = [
-    { value: false, label: "Review changes", icon: PencilIcon },
-    { value: true, label: "Auto-accept", icon: ZapIcon },
-  ];
-  const current = OPTIONS.find(o => o.value === autoAccept)!;
-
-  return (
-    <div style={{ position: "relative", minWidth: 0 }}>
-      <button
-        onClick={() => setOpen(o => !o)}
-        title="How proposed workflows are created/run"
-        style={{
-          display: "flex", alignItems: "center", gap: 4, minWidth: 0,
-          padding: `${spacing.xxs}px ${spacing.xs}px`, borderRadius: radius.sm,
-          border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.03)",
-          color: neutral.textMuted, cursor: "pointer", fontSize: fontSize.xxs, fontFamily,
-        }}
-      >
-        <current.icon size={11} />
-        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{current.label}</span>
-        <ChevronDownIcon size={11} />
-      </button>
-      {open && (
-        <div style={{
-          position: "absolute", bottom: "100%", left: 0, marginBottom: spacing.xxs, zIndex: 50,
-          width: 180, background: surface.raised, border: "1px solid rgba(255,255,255,0.12)",
-          borderRadius: radius.sm, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", padding: spacing.xs,
-        }}>
-          {OPTIONS.map(({ value, label, icon: Icon }) => {
-            const active = autoAccept === value;
-            return (
-              <button
-                key={label}
-                onClick={() => { onChange(value); setOpen(false); }}
-                style={{
-                  display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.xs,
-                  width: "100%", textAlign: "left", padding: `${spacing.xxs}px ${spacing.xs}px`,
-                  borderRadius: radius.xs, border: "none",
-                  background: active ? "rgba(255,255,255,0.06)" : "transparent",
-                  color: active ? neutral.textPrimary : neutral.textMuted,
-                  cursor: active ? "default" : "pointer", fontSize: fontSize.xxs, fontFamily,
-                }}
-              >
-                <span style={{ display: "flex", alignItems: "center", gap: 4 }}><Icon size={12} /> {label}</span>
-                {active && <CheckIcon size={12} />}
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
 const WAKE_POLL_INTERVAL_MS = 5000;
 const WAKE_MAX_WAIT_MS = 90000;
 
@@ -215,28 +167,23 @@ function formatMessageTime(epochMs: number): string {
   return new Date(epochMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-// Real server-side conversation memory, same /chat/send + conversation_id
-// mechanism every chat surface uses. sessionStorage, not IndexedDB — this
-// popup has no conversation-list/branch model of its own, just one
-// ongoing conversation for the tab's session; a fresh session starts
-// clean.
-const AGENT_VAULT_CONVERSATION_ID_KEY = "navi-agent-vault-conversation-id";
-
-export function AgentVaultChat({ onClose, agentName }: { onClose: () => void; agentName?: string }) {
+export function AgentVaultChat({ onClose, agentId, agentName }: { onClose: () => void; agentId: string | null; agentName?: string }) {
   const [messages, setMessages] = useState<AgentVaultMessage[]>([]);
   const [streamingText, setStreamingText] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState<string | null>(null);
-  const [autoAccept, setAutoAccept] = useState(false);
   const sendingRef = useRef(false);
-  const conversationIdRef = useRef<string | null>(sessionStorage.getItem(AGENT_VAULT_CONVERSATION_ID_KEY));
 
-  // Hydrate from the server on mount — the id survives a page refresh via
-  // sessionStorage above, but the displayed messages don't by default.
+  // Hydrate from the server whenever the selected agent changes — the
+  // agent's own id IS its conversation id (server.py's POST
+  // /agents/{id}/chat), so no client-minted/sessionStorage'd id is
+  // needed here at all. Clears the displayed messages first so switching
+  // from one agent's chat to another's doesn't briefly show the wrong
+  // agent's history while the new fetch is in flight.
   useEffect(() => {
-    const id = conversationIdRef.current;
-    if (!id) return;
-    fetch(`${NAVI_BACKEND_URL}/devslate/conversations/${encodeURIComponent(id)}/messages`)
+    setMessages([]);
+    if (!agentId) return;
+    fetch(`${NAVI_BACKEND_URL}/devslate/conversations/${encodeURIComponent(agentId)}/messages`)
       .then(res => res.json())
       .then((data: { messages?: { role: string; content: string; created_at?: number }[] }) => {
         const restored = (data.messages ?? [])
@@ -248,7 +195,7 @@ export function AgentVaultChat({ onClose, agentName }: { onClose: () => void; ag
         if (restored.length) setMessages(restored);
       })
       .catch(() => {});
-  }, []);
+  }, [agentId]);
 
   // Resizable, not native CSS `resize` — see AgentWorkChat.tsx's own
   // comment on why (the native handle sits exactly where this panel is
@@ -301,26 +248,24 @@ export function AgentVaultChat({ onClose, agentName }: { onClose: () => void; ag
   // bypassing whatever's currently (or not) typed in the input box.
   const send = useCallback(async (overrideText?: string) => {
     const text = overrideText ?? input.trim();
-    if (!text || sendingRef.current) return;
+    if (!text || sendingRef.current || !agentId) return;
     sendingRef.current = true;
     setInput("");
     setMessages(m => [...m, { role: "user", text, at: Date.now() }]);
     setPending("Thinking…");
 
-    // mode: "agent_work" is a temporary placeholder (see this file's own
-    // header comment) — no real "chat with saved agent X" endpoint
-    // exists yet (standalone agent execution isn't built).
-    const post = () => fetch(`${NAVI_BACKEND_URL}/chat/send`, {
+    // Real per-agent endpoint (server.py's POST /agents/{id}/chat) — no
+    // mode/auto_accept/conversation_id in the body; the URL already
+    // identifies which agent, and the backend derives the conversation
+    // id from that same agent id.
+    const post = () => fetch(`${NAVI_BACKEND_URL}/agents/${encodeURIComponent(agentId)}/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        text, mode: "agent_work", auto_accept: autoAccept,
-        ...(conversationIdRef.current ? { conversation_id: conversationIdRef.current } : {}),
-      }),
+      body: JSON.stringify({ text }),
     }).then(res => res.json());
 
     try {
-      let data: { reply?: string; error?: string; conversation_id?: string; usage_note?: string; choices?: string[] };
+      let data: { text?: string; error?: string; conversation_id?: string; usage_note?: string; choices?: string[] };
       try {
         data = await post();
       } catch {
@@ -332,18 +277,14 @@ export function AgentVaultChat({ onClose, agentName }: { onClose: () => void; ag
         }
         data = await post();
       }
-      if (data.conversation_id && data.conversation_id !== conversationIdRef.current) {
-        conversationIdRef.current = data.conversation_id;
-        sessionStorage.setItem(AGENT_VAULT_CONVERSATION_ID_KEY, data.conversation_id);
-      }
-      await revealText(data.reply ?? data.error ?? "(empty reply)", data.usage_note, data.choices);
+      await revealText(data.text ?? data.error ?? "(empty reply)", data.usage_note, data.choices);
     } catch {
       setMessages(m => [...m, { role: "navi", text: "That message failed to send — try again.", at: Date.now() }]);
     } finally {
       setPending(null);
       sendingRef.current = false;
     }
-  }, [input, autoAccept, revealText]);
+  }, [input, agentId, revealText]);
 
   const reversedMessages = [...messages].reverse();
 
@@ -420,7 +361,9 @@ export function AgentVaultChat({ onClose, agentName }: { onClose: () => void; ag
         }}>
           {messages.length === 0 && !pending && (
             <div style={{ alignSelf: "center", margin: "auto", textAlign: "center", color: neutral.textFaint, fontSize: fontSize.xxs, maxWidth: 260 }}>
-              Chat with this saved agent — it uses whatever instructions and tools it was given in Agent Vault.
+              {agentId
+                ? "Chat with this saved agent — it uses whatever instructions and tools it was given in Agent Vault."
+                : "Pick an agent from Agent Vault (the chat icon on its card) to start a conversation."}
             </div>
           )}
           {pending && streamingText === null && (
@@ -494,28 +437,30 @@ export function AgentVaultChat({ onClose, agentName }: { onClose: () => void; ag
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }}
-              placeholder="Message this agent…"
+              disabled={!agentId}
+              placeholder={agentId ? "Message this agent…" : "Pick an agent to start chatting"}
               style={{
                 flex: 1, minWidth: 0, background: "transparent", border: "none", outline: "none",
                 color: neutral.textPrimary, fontSize: fontSize.sm, fontFamily,
                 padding: `${spacing.xs}px ${spacing.xs}px`,
               }}
             />
-            <button onClick={() => void send()} disabled={!input.trim() || !!pending} aria-label="Send" title="Send" style={{
+            <button onClick={() => void send()} disabled={!input.trim() || !!pending || !agentId} aria-label="Send" title="Send" style={{
               flexShrink: 0, width: 30, height: 30,
               display: "flex", alignItems: "center", justifyContent: "center",
               borderRadius: radius.md, border: `1px solid ${tintedGlow(0, 0.4, 0)}`,
               background: tintedGlow(0, 0.15, 0), color: accent,
-              cursor: input.trim() && !pending ? "pointer" : "default", opacity: input.trim() && !pending ? 1 : 0.5,
+              cursor: input.trim() && !pending && agentId ? "pointer" : "default", opacity: input.trim() && !pending && agentId ? 1 : 0.5,
             }}>
               <PaperAirplaneIcon size={14} />
             </button>
           </div>
 
-          {/* Edit mode at bottom-left, model picker at bottom-right —
-              same layout as Agent Work's own chat. */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.xs, marginTop: spacing.xs, flexWrap: "wrap", minWidth: 0 }}>
-            <EditModeSelector autoAccept={autoAccept} onChange={setAutoAccept} />
+          {/* Model picker only now — EditModeSelector (Review changes /
+              Auto-accept) was dropped along with the agent_work
+              placeholder call it configured (see this file's own header
+              comment). */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: spacing.xs, marginTop: spacing.xs, flexWrap: "wrap", minWidth: 0 }}>
             <ModelBadge />
           </div>
         </div>
