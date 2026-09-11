@@ -85,6 +85,7 @@ import { AgentWorkNewWorkflowForm } from "./AgentWorkNewWorkflowForm";
 import { ChoiceButtons } from "./ChoiceButtons";
 import { AgentWorkGraphEditor, type AgentWorkSeed } from "./AgentWorkGraphEditor";
 import { AccountSettings } from "./AccountSettings";
+import { UsageSavings } from "./UsageSavings";
 import { BrowserPane } from "./BrowserPane";
 import { isTauriRuntime } from "./tauriRuntime";
 import { isImageLike } from "./fileFormats";
@@ -181,35 +182,6 @@ const REAL_COMMANDS: { name: string; description: string }[] = [
   { name: "note", description: "Saves a note to your Filen-backed storage." },
   { name: "remind", description: "Schedules a reminder." },
 ];
-
-// Real, server-side usage data — GET /usage/counters (server.py), backed
-// by storage/usage.py. Each provider's shape genuinely differs (Groq is
-// per-model, Cloudflare is one Neuron pool, OpenRouter is a live fetch
-// against the key itself, LLM7 is two token pools, GMI/Ollama Cloud have
-// no real cap to bar against) — this mirrors that instead of forcing one
-// generic {used, quota} shape the old mock used.
-interface UsageCounters {
-  groq: { models: { model: string; used: number | null; limit: number | null; reset_seconds: number | null }[] };
-  cloudflare: { neurons_used: number; neurons_cap: number };
-  // requests_used is NAVI's own local count against a confirmed-by-JuanJo
-  // 50/day cap — OpenRouter's API doesn't expose the real per-key daily
-  // free-model count anywhere (confirmed 2026-09-05: no rate-limit
-  // headers on success, and /api/v1/key's limit fields are an unrelated
-  // optional spend cap). `spend` is real, live data OpenRouter DOES
-  // report accurately, shown as context alongside the estimate.
-  openrouter: { requests_used: number; requests_cap: number; spend: Record<string, unknown> | null };
-  llm7: { tokens_used: number; keyed_cap: number; anonymous_cap: number };
-  gmi: { requests_today: number; status: string };
-  ollama_cloud: { requests_today: number; tokens_today: number; cap: null };
-}
-// Mistral is fetched separately, lazily, only once its row is clicked open
-// — GET /usage/mistral is a monthly billing figure (Mistral's own real
-// admin endpoint), not a per-request counter, so there's no reason to
-// fetch it on every panel open the way the other six providers are.
-interface MistralUsage {
-  usage: Record<string, unknown> | null;
-  credit_usd: number;
-}
 
 // Chat Canvas's ambient fairy — a single head position plus a short
 // trail of recent positions (for the tapering body), moving in real
@@ -854,31 +826,13 @@ export default function App() {
       .catch(() => {}); // panels just show their loading/empty state
   }, []);
 
-  // Six of the seven providers' real usage is cheap to fetch (server-side
-  // request/token/Neuron counts, no external call on NAVI's side) so this
-  // prefetches on mount same as routingConfig above. Mistral is the
-  // exception — see expandedUsageProvider/mistralUsage below.
-  const [usageCounters, setUsageCounters] = useState<UsageCounters | null>(null);
-  useEffect(() => {
-    fetch(`${NAVI_BACKEND_URL}/usage/counters`)
-      .then(res => res.json())
-      .then(setUsageCounters)
-      .catch(() => {});
-  }, []);
-  const [expandedUsageProvider, setExpandedUsageProvider] = useState<string | null>(null);
-  const [mistralUsage, setMistralUsage] = useState<MistralUsage | null>(null);
-  const [mistralUsageLoading, setMistralUsageLoading] = useState(false);
-  const toggleUsageProvider = (key: string) => {
-    setExpandedUsageProvider(prev => (prev === key ? null : key));
-    if (key === "mistral" && mistralUsage === null && !mistralUsageLoading) {
-      setMistralUsageLoading(true);
-      fetch(`${NAVI_BACKEND_URL}/usage/mistral`)
-        .then(res => res.json())
-        .then(setMistralUsage)
-        .catch(() => {})
-        .finally(() => setMistralUsageLoading(false));
-    }
-  };
+  // Usage & Savings (2026-09-11) — real full-screen overlay
+  // (UsageSavings.tsx), same shell as ConnectionsOverlay. Replaces the old
+  // docked "Usage counters" popover this state used to back directly; that
+  // component now fetches its own data (usageCounters/mistralUsage/etc. —
+  // "fetch what you need where you need it," same convention LoginGate.tsx
+  // established for auth) rather than lifting it up here.
+  const [showUsageSavings, setShowUsageSavings] = useState(false);
 
   // "Today's models" picker itself now reads the real ranked-candidate
   // catalog (chatModelCatalog, see below) instead of this — kept this
@@ -2602,7 +2556,7 @@ export default function App() {
                 key={key}
                 className="sidebar-menu-btn"
                 title={label}
-                onClick={e => togglePanel(key, e.currentTarget)}
+                onClick={e => (key === "usage" ? setShowUsageSavings(true) : togglePanel(key, e.currentTarget))}
                 style={{
                   display: "flex", alignItems: "center", gap: spacing.sm,
                   height: OUTER_RAIL_ROW_HEIGHT, boxSizing: "border-box",
@@ -4570,6 +4524,18 @@ export default function App() {
                   >
                     <LinkIcon size={iconSize.sm} /> Connections
                   </button>
+                  <button
+                    onClick={() => { setOpenPanel(null); setShowUsageSavings(true); }}
+                    style={{
+                      display: "flex", alignItems: "center", gap: spacing.sm,
+                      height: OUTER_RAIL_ROW_HEIGHT, boxSizing: "border-box", padding: `0 ${spacing.sm}px`,
+                      borderRadius: radius.sm, border: "none", background: "transparent",
+                      color: neutral.textPrimary, cursor: "pointer", textAlign: "left",
+                      fontSize: fontSize.xs, fontFamily, fontWeight: fontWeight.medium, width: "100%",
+                    }}
+                  >
+                    <GraphIcon size={iconSize.sm} /> Usage &amp; Savings
+                  </button>
                 </div>
               )}
 
@@ -4734,114 +4700,6 @@ export default function App() {
                       </div>
                     ))}
                   </div>
-                </div>
-              )}
-
-              {openPanel === "usage" && (
-                <div>
-                  <div style={{ fontSize: fontSize.xs, color: neutral.textMuted, marginBottom: spacing.md }}>
-                    Usage counters — click a provider for its real numbers
-                  </div>
-                  {!usageCounters ? (
-                    <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted }}>Loading…</div>
-                  ) : (
-                    <div style={{ display: "flex", flexDirection: "column", gap: spacing.xs }}>
-                      {([
-                        { key: "groq", label: "Groq" },
-                        { key: "cloudflare", label: "Cloudflare" },
-                        { key: "openrouter", label: "OpenRouter" },
-                        { key: "llm7", label: "LLM7" },
-                        { key: "gmi", label: "GMI" },
-                        { key: "ollama_cloud", label: "Ollama Cloud" },
-                        { key: "mistral", label: "Mistral" },
-                      ] as const).map(({ key, label }) => {
-                        const isOpen = expandedUsageProvider === key;
-                        return (
-                          <div key={key} style={{ borderBottom: "1px solid var(--border-subtle)", paddingBottom: spacing.xs }}>
-                            <button
-                              onClick={() => toggleUsageProvider(key)}
-                              style={{
-                                width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center",
-                                background: "transparent", border: "none", color: "inherit", cursor: "pointer",
-                                padding: `${spacing.xs}px 0`, fontSize: fontSize.sm, fontFamily,
-                              }}
-                            >
-                              <span>{label}</span>
-                              <span style={{ color: neutral.textMuted, fontSize: fontSize.xxs }}>{isOpen ? "▲" : "▼"}</span>
-                            </button>
-                            {isOpen && (
-                              <div style={{ padding: `0 0 ${spacing.xs}px`, fontSize: fontSize.xxs, color: neutral.textMuted }}>
-                                {key === "groq" && (
-                                  usageCounters.groq.models.length === 0 ? (
-                                    <div>No Groq calls observed yet this run — quota is per-model, shown once a model's been used.</div>
-                                  ) : (
-                                    <div style={{ display: "flex", flexDirection: "column", gap: spacing.sm }}>
-                                      {usageCounters.groq.models.map(m => (
-                                        <div key={m.model}>
-                                          <div style={{ color: neutral.textPrimary }}>{m.model}</div>
-                                          <div>
-                                            {m.used !== null && m.limit !== null
-                                              ? `${m.used.toLocaleString()} / ${m.limit.toLocaleString()} requests today`
-                                              : "used/limit unknown"}
-                                            {m.reset_seconds !== null && ` · resets in ${Math.round(m.reset_seconds)}s`}
-                                          </div>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  )
-                                )}
-                                {key === "cloudflare" && (
-                                  <div>
-                                    {usageCounters.cloudflare.neurons_used.toFixed(2)} / {usageCounters.cloudflare.neurons_cap.toLocaleString()} Neurons today (resets 00:00 UTC)
-                                  </div>
-                                )}
-                                {key === "openrouter" && (
-                                  <div>
-                                    {usageCounters.openrouter.requests_used.toLocaleString()} / {usageCounters.openrouter.requests_cap.toLocaleString()} free-model requests today (NAVI's own count — OpenRouter's API doesn't report this number directly)
-                                    {usageCounters.openrouter.spend && (
-                                      <div style={{ marginTop: spacing.xs }}>
-                                        ${String(usageCounters.openrouter.spend.usage_daily ?? "?")} spent today · ${String(usageCounters.openrouter.spend.usage_monthly ?? "?")} this month (real, from OpenRouter)
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-                                {key === "llm7" && (
-                                  <div>
-                                    {usageCounters.llm7.tokens_used.toLocaleString()} / {usageCounters.llm7.keyed_cap.toLocaleString()} tokens today (keyed pool)
-                                    <br />
-                                    A separate {usageCounters.llm7.anonymous_cap.toLocaleString()}-token/24h anonymous pool exists but isn't used by NAVI yet.
-                                  </div>
-                                )}
-                                {key === "gmi" && (
-                                  <div>
-                                    {usageCounters.gmi.requests_today.toLocaleString()} requests today
-                                    <br />
-                                    {usageCounters.gmi.status}
-                                  </div>
-                                )}
-                                {key === "ollama_cloud" && (
-                                  <div>
-                                    {usageCounters.ollama_cloud.requests_today.toLocaleString()} requests / {usageCounters.ollama_cloud.tokens_today.toLocaleString()} tokens today — not calculable against a real cap (GPU-time metered, no published number)
-                                  </div>
-                                )}
-                                {key === "mistral" && (
-                                  mistralUsageLoading ? (
-                                    <div>Loading…</div>
-                                  ) : mistralUsage?.usage ? (
-                                    <pre style={{ margin: 0, whiteSpace: "pre-wrap", fontFamily: "inherit" }}>
-                                      {JSON.stringify(mistralUsage.usage, null, 2)}
-                                    </pre>
-                                  ) : (
-                                    <div>No Mistral key configured, or the admin usage fetch failed. Free credit: ${mistralUsage?.credit_usd ?? 10}/month.</div>
-                                  )
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
                 </div>
               )}
 
@@ -5045,7 +4903,11 @@ export default function App() {
               ] as const).map(({ key, icon, label }) => (
                 <button
                   key={key}
-                  onClick={e => { togglePanel(key, e.currentTarget); setMobileAccountMenuOpen(false); }}
+                  onClick={e => {
+                    if (key === "usage") setShowUsageSavings(true);
+                    else togglePanel(key, e.currentTarget);
+                    setMobileAccountMenuOpen(false);
+                  }}
                   style={mobileSheetRowStyle}
                 >
                   {icon}
@@ -5122,6 +4984,7 @@ export default function App() {
           oauthResult={oauthResult} onDismissOauthResult={() => setOauthResult(null)}
         />
       )}
+      {showUsageSavings && <UsageSavings onClose={() => setShowUsageSavings(false)} />}
       {showAgentChat && pendingAgentInputs.length > 0 && (
         <AgentChat
           pending={pendingAgentInputs}
