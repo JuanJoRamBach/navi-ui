@@ -59,6 +59,13 @@ export interface StoredMessage {
   command?: string; // set on the user message that triggered a command
   attachments?: MessageAttachment[]; // set on the navi reply that produced file(s)
   choices?: string[]; // from ask_user_choice — set on the navi message that asked
+  // Set only when Normal Chat's model called propose_research_mode
+  // (Stage 3, 2026-09-12, IDEAS.md's "fast-path intent layer") — the
+  // choice buttons for THIS message switch chatMode client-side before
+  // sending, instead of just posting the click text back like every
+  // other choices-bearing message. Doesn't survive a page refresh, same
+  // known limit as `choices` itself.
+  suggestedMode?: ChatMode;
   // Which attempt in normal_chat's fallback chain actually answered —
   // /chat/send never sent these back before (2026-09-06, JuanJo: "I
   // don't see which model was used... can't see how many tokens").

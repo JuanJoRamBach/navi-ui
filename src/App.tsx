@@ -2000,7 +2000,7 @@ export default function App() {
     const controller = new AbortController();
     chatAbortControllerRef.current = controller;
 
-    const handleResponse = (data: { reply?: string; error?: string; async?: boolean; conversation_id?: string; choices?: string[]; provider?: string; model?: string; usage_note?: string }) => {
+    const handleResponse = (data: { reply?: string; error?: string; async?: boolean; conversation_id?: string; choices?: string[]; provider?: string; model?: string; usage_note?: string; suggested_mode?: ChatMode }) => {
       // Server issues the conversation id on a plain-chat turn (real
       // multi-turn memory, 2026-09-01 — see how_to_handle_context.md);
       // typed /commands and the async /research ack never send one, so
@@ -2015,6 +2015,7 @@ export default function App() {
         timestamp: Date.now(),
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(data.choices && data.choices.length > 0 ? { choices: data.choices } : {}),
+        ...(data.suggested_mode ? { suggestedMode: data.suggested_mode } : {}),
         ...(data.provider ? { provider: data.provider } : {}),
         ...(data.model ? { model: data.model } : {}),
         ...(data.usage_note ? { usageNote: data.usage_note } : {}),
@@ -4267,7 +4268,19 @@ export default function App() {
                     <ChoiceButtons
                       options={m.choices} hue={OKLCH_HUE[chatMode]}
                       disabled={!!pendingStep}
-                      onPick={(text) => sendMessage(text)}
+                      onPick={(text) => {
+                        // Stage 3's mode-switch offer (2026-09-12,
+                        // propose_research_mode) — the first option is
+                        // always the affirmative one (dispatcher/chat.py's
+                        // own convention). Normal/Research/Brainstorm
+                        // already share one conversation_id (mode is a
+                        // per-request field, never stored) — switching is
+                        // just flipping chatMode before this same click's
+                        // message goes out under the new mode, no new
+                        // conversation or seed message needed.
+                        if (m.suggestedMode && text === m.choices?.[0]) selectChatMode(m.suggestedMode);
+                        sendMessage(text);
+                      }}
                     />
                   )}
                 </div>
