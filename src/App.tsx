@@ -4831,32 +4831,37 @@ export default function App() {
               );
             }
             return (
-              <div style={{
-                display: "flex", alignItems: "center", gap: 1,
-                border: "1px solid rgba(255,255,255,0.1)", borderRadius: radius.sm,
-                background: "rgba(255,255,255,0.04)", padding: 1,
-              }}>
-                {(["low", "medium", "high"] as const).map(level => {
-                  const active = reasoningEffort === level;
-                  return (
-                    <button
-                      key={level}
-                      onClick={() => setReasoningEffort(level)}
-                      title={`Reasoning effort: ${level}`}
-                      style={{
-                        padding: `1px ${spacing.xxs}px`, borderRadius: radius.sm,
-                        border: "none", cursor: "pointer",
-                        fontSize: fontSize.xxs, fontFamily,
-                        fontWeight: active ? fontWeight.medium : undefined,
-                        color: active ? neutral.textPrimary : neutral.textMuted,
-                        background: active ? "rgba(255,255,255,0.12)" : "transparent",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {level === "low" ? "Low" : level === "medium" ? "Med" : "High"}
-                    </button>
-                  );
-                })}
+              <div style={{ display: "flex", alignItems: "center", gap: spacing.xxs }}>
+                <span style={{ fontSize: fontSize.xxs, color: neutral.textFaint, fontFamily, whiteSpace: "nowrap" }}>
+                  Reasoning:
+                </span>
+                <div style={{
+                  display: "flex", alignItems: "center", gap: 2,
+                  border: "1px solid rgba(255,255,255,0.1)", borderRadius: radius.sm,
+                  background: "rgba(255,255,255,0.04)", padding: 2,
+                }}>
+                  {(["low", "medium", "high"] as const).map(level => {
+                    const active = reasoningEffort === level;
+                    return (
+                      <button
+                        key={level}
+                        onClick={() => setReasoningEffort(level)}
+                        title={`Reasoning effort: ${level}`}
+                        style={{
+                          padding: `${spacing.xxs}px ${spacing.sm}px`, borderRadius: radius.sm,
+                          border: "none", cursor: "pointer",
+                          fontSize: fontSize.xxs, fontFamily,
+                          fontWeight: active ? fontWeight.medium : undefined,
+                          color: active ? neutral.textPrimary : neutral.textMuted,
+                          background: active ? "rgba(255,255,255,0.12)" : "transparent",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {level === "low" ? "Low" : level === "medium" ? "Med" : "High"}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             );
           })()}
