@@ -1859,6 +1859,29 @@ export default function App() {
   // there's only one real thing to pick.)
   const [chatModelCatalog, setChatModelCatalog] = useState<ModelCatalog | null>(null);
   const [savingChatModel, setSavingChatModel] = useState(false);
+  // Manual reasoning-effort override (2026-09-12, IDEAS.md's "Per-model
+  // reasoning_effort control") — only meaningful when normal_chat's
+  // current primary is a non-Groq gpt-oss model (see isReasoningEffort*
+  // below, computed further down once chatModelCatalog is known); sent
+  // on every turn regardless, since dispatcher/prompt_family.py's
+  // adapt_request_params only actually applies it for that one case and
+  // ignores it harmlessly otherwise. Sticky across the session (not
+  // per-message) — the frontend/backend contract this closes was never
+  // decided as anything more specific than "some default," and a sticky
+  // slider next to the model picker matches how this dev environment's
+  // own reasoning-effort control behaves (the reference JuanJo pointed
+  // at when asking for this).
+  const [reasoningEffort, setReasoningEffort] = useState<"low" | "medium" | "high">(() => {
+    try {
+      const stored = localStorage.getItem("navi-reasoning-effort");
+      return stored === "low" || stored === "medium" || stored === "high" ? stored : "medium";
+    } catch { return "medium"; }
+  });
+  const reasoningEffortRef = useRef(reasoningEffort);
+  useEffect(() => {
+    reasoningEffortRef.current = reasoningEffort;
+    try { localStorage.setItem("navi-reasoning-effort", reasoningEffort); } catch { /* private mode etc — non-fatal, just not sticky */ }
+  }, [reasoningEffort]);
   const refreshChatModelCatalog = useCallback(() => {
     fetchModelCatalog("normal_chat").then(setChatModelCatalog).catch(() => setChatModelCatalog(null));
   }, []);
@@ -2027,6 +2050,10 @@ export default function App() {
       body: JSON.stringify({
         text, mode: chatModeRef.current,
         ...(activeServerConversationIdRef.current ? { conversation_id: activeServerConversationIdRef.current } : {}),
+        // Harmless when the current primary isn't a non-Groq gpt-oss
+        // model — dispatcher/prompt_family.py's adapt_request_params
+        // only ever reads this for that one case.
+        reasoning_effort: reasoningEffortRef.current,
       }),
     }).then(res => res.json());
 
@@ -4769,8 +4796,70 @@ export default function App() {
         {/* Model picker — moved here from a floating position near the
             mode tabs (2026-09-01), restyled small to match Dev Slate's
             own ModelBadge shape/size/position (below the input) rather
-            than the app's separate earlier treatment for this control. */}
-        <div style={{ marginTop: spacing.xs, display: "flex", justifyContent: "flex-end" }}>
+            than the app's separate earlier treatment for this control.
+            justifyContent switched to space-between (was flex-end) so
+            the reasoning-effort control below can sit to its left
+            without disturbing the badge's own right-aligned position
+            when the control isn't shown at all (plain empty <span/>
+            keeps the same flex slot occupied either way). */}
+        <div style={{ marginTop: spacing.xs, display: "flex", justifyContent: "space-between", alignItems: "center", gap: spacing.xs }}>
+          {/* Reasoning-effort control (2026-09-12, IDEAS.md's "Per-model
+              reasoning_effort control") — only rendered when
+              normal_chat's current PRIMARY (never a fallback — a
+              fallback here would mean the primary is already down, not
+              a moment to hand the user a knob) is a gpt-oss model.
+              Groq's gpt-oss is hard-capped to Low (its per-minute token
+              budget can't absorb a longer reasoning trace, see
+              dispatcher/prompt_family.py's adapt_request_params) — real
+              gpt-oss values are only low/medium/high, there's no true
+              "off" state to toggle, so Groq gets a plain static label
+              instead of a fake interactive control with nothing to
+              actually change. Any other gpt-oss host gets the real
+              3-stop control. */}
+          {(() => {
+            const current = chatModelCatalog?.current;
+            const isGptOss = !!current?.model.toLowerCase().includes("gpt-oss");
+            if (!isGptOss) return <span />;
+            if (current!.provider === "groq") {
+              return (
+                <span
+                  title="Groq's gpt-oss is capped at Low reasoning effort — its per-minute token limit can't absorb a longer internal reasoning trace."
+                  style={{ fontSize: fontSize.xxs, color: neutral.textFaint, fontFamily, whiteSpace: "nowrap" }}
+                >
+                  Reasoning: Low (Groq limit)
+                </span>
+              );
+            }
+            return (
+              <div style={{
+                display: "flex", alignItems: "center", gap: 1,
+                border: "1px solid rgba(255,255,255,0.1)", borderRadius: radius.sm,
+                background: "rgba(255,255,255,0.04)", padding: 1,
+              }}>
+                {(["low", "medium", "high"] as const).map(level => {
+                  const active = reasoningEffort === level;
+                  return (
+                    <button
+                      key={level}
+                      onClick={() => setReasoningEffort(level)}
+                      title={`Reasoning effort: ${level}`}
+                      style={{
+                        padding: `1px ${spacing.xxs}px`, borderRadius: radius.sm,
+                        border: "none", cursor: "pointer",
+                        fontSize: fontSize.xxs, fontFamily,
+                        fontWeight: active ? fontWeight.medium : undefined,
+                        color: active ? neutral.textPrimary : neutral.textMuted,
+                        background: active ? "rgba(255,255,255,0.12)" : "transparent",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {level === "low" ? "Low" : level === "medium" ? "Med" : "High"}
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })()}
           <button
             onClick={e => togglePanel("models", e.currentTarget)}
             style={{
