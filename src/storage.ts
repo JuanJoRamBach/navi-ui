@@ -66,6 +66,13 @@ export interface StoredMessage {
   // other choices-bearing message. Doesn't survive a page refresh, same
   // known limit as `choices` itself.
   suggestedMode?: ChatMode;
+  // Set on the notice NAVI posts when a conversation stops being
+  // compactable — renders a "start a focused chat" action under it.
+  // Not persisted deliberately: on reload the notice itself is still
+  // there as a normal message, which is the part that matters; the
+  // button is a convenience for the moment it appears, and New Branch
+  // Chat in the rail does the same thing at any time.
+  offerBranch?: boolean;
   // Which attempt in normal_chat's fallback chain actually answered —
   // /chat/send never sent these back before (2026-09-06, JuanJo: "I
   // don't see which model was used... can't see how many tokens").

@@ -2079,7 +2079,7 @@ export default function App() {
     const controller = new AbortController();
     chatAbortControllerRef.current = controller;
 
-    const handleResponse = (data: { reply?: string; error?: string; async?: boolean; conversation_id?: string; choices?: string[]; provider?: string; model?: string; usage_note?: string; suggested_mode?: ChatMode; context_fill?: number | null }) => {
+    const handleResponse = (data: { reply?: string; error?: string; async?: boolean; conversation_id?: string; choices?: string[]; provider?: string; model?: string; usage_note?: string; suggested_mode?: ChatMode; context_fill?: number | null; branch_suggestion?: string | null }) => {
       // Server issues the conversation id on a plain-chat turn (real
       // multi-turn memory, 2026-09-01 — see how_to_handle_context.md);
       // typed /commands and the async /research ack never send one, so
@@ -2105,6 +2105,15 @@ export default function App() {
         ...(data.model ? { model: data.model } : {}),
         ...(data.usage_note ? { usageNote: data.usage_note } : {}),
       }]);
+
+      // The escape valve. Its own message, because that is how the server
+      // persisted it — appending it to the reply would make the live view
+      // and a reloaded view disagree about what was said.
+      if (data.branch_suggestion) {
+        setMessages(m => [...m, {
+          role: "navi", text: data.branch_suggestion!, timestamp: Date.now(), offerBranch: true,
+        }]);
+      }
 
       if (data.async) {
         // Keep pendingStep alive — the real result hasn't arrived yet,
@@ -4348,6 +4357,21 @@ export default function App() {
                         )
                       ))}
                     </div>
+                  )}
+                  {m.offerBranch && item.index === messages.length - 1 && (
+                    <button
+                      onClick={() => branchConversation()}
+                      style={{
+                        marginTop: spacing.sm,
+                        padding: `${spacing.xs}px ${spacing.md}px`, borderRadius: radius.sm,
+                        border: `1px solid oklch(75% 0.14 ${OKLCH_HUE[chatMode]} / 0.5)`,
+                        background: `oklch(75% 0.14 ${OKLCH_HUE[chatMode]} / 0.14)`,
+                        color: `oklch(75% 0.14 ${OKLCH_HUE[chatMode]})`,
+                        cursor: "pointer", fontSize: fontSize.xs, fontFamily, whiteSpace: "nowrap",
+                      }}
+                    >
+                      Start a focused chat
+                    </button>
                   )}
                   {m.choices && m.choices.length > 0 && item.index === messages.length - 1 && (
                     <ChoiceButtons
