@@ -73,6 +73,7 @@ import { AgentVaultChat } from "./AgentVaultChat";
 import { AgentWorkWorkflows } from "./AgentWorkWorkflows";
 import { StackedPanels } from "./StackedPanels";
 import { ConnectionsOverlay } from "./ConnectionsOverlay";
+import { BranchSpecReview } from "./BranchSpecReview";
 import { AgentVault } from "./AgentVault";
 import { getCurrentUser } from "./auth";
 import { PromptVault } from "./PromptVault";
@@ -687,6 +688,12 @@ export default function App() {
   // is per-conversation, and carrying a stale reading across a switch
   // would describe the wrong chat until the next reply lands.
   const [contextFill, setContextFill] = useState<number | null>(null);
+  // A branch that has been drafted but not yet accepted. Nothing exists
+  // anywhere while this is set — not a local conversation, not a server
+  // one — so cancelling genuinely leaves no trace.
+  const [branchDraft, setBranchDraft] = useState<
+    { scope: string; markdown: string | null; spec: unknown; loading: boolean; error: string | null } | null
+  >(null);
   // Guards the save effect below from firing before the load effect has
   // had a chance to run — without this, mounting would immediately
   // persist an empty array over whatever was actually stored, since both
@@ -1769,24 +1776,85 @@ export default function App() {
   // prompts for a meaningful name up front rather than defaulting to
   // "New conversation," per the naming convention research (name the
   // choice being tested, not "sub-chat 1").
-  const branchConversation = useCallback(async () => {
+  const branchConversation = useCallback(async (scopeOverride?: string) => {
     const parentId = activeConversationIdRef.current;
     if (!parentId) return;
-    const name = window.prompt("Name this branch (what are you exploring?)");
+    const name = scopeOverride ?? window.prompt("What is this new chat for?");
     if (!name || !name.trim()) return;
+    const scope = name.trim();
+    // Show the checkpoint immediately, in its loading state — drafting is
+    // a real model call over the whole conversation and takes a few
+    // seconds. Opening the panel first makes the wait legible instead of
+    // leaving the button looking dead.
+    setBranchDraft({ scope, markdown: null, spec: null, loading: true, error: null });
+    setOpenPanel(null);
+    try {
+      const res = await fetch(`${NAVI_BACKEND_URL}/chat/branch/draft`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ parent_conversation_id: activeServerConversationIdRef.current, scope }),
+      });
+      const data = await res.json();
+      setBranchDraft({ scope, markdown: data.markdown ?? null, spec: data.spec ?? null, loading: false, error: null });
+    } catch {
+      // A failed draft must not block the branch — the user still gets a
+      // clean chat scoped by the name they typed, which is the part they
+      // asked for. Degrading is the right failure here, not refusing.
+      setBranchDraft({
+        scope, markdown: null, spec: null, loading: false,
+        error: "Couldn't reach NAVI to write the brief. You can still start the chat — it'll begin with just its name.",
+      });
+    }
+  }, []);
+
+  // Accepting the spec is what actually creates anything. Until this
+  // runs, no branch exists on either side — see BranchSpecReview.tsx on
+  // why the checkpoint has to be able to end in nothing.
+  const acceptBranchDraft = useCallback(async () => {
+    const draft = branchDraft;
+    if (!draft || draft.loading) return;
+    const parentId = activeConversationIdRef.current;
+    if (!parentId) return;
+    setBranchDraft(null);
+
+    let serverConversationId: string | null = null;
+    let fill: number | null = null;
+    try {
+      const res = await fetch(`${NAVI_BACKEND_URL}/chat/branch/create`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          parent_conversation_id: activeServerConversationIdRef.current,
+          scope: draft.scope, spec: draft.spec, mode: chatModeRef.current,
+        }),
+      });
+      const data = await res.json();
+      serverConversationId = data.conversation_id ?? null;
+      fill = data.context_fill ?? null;
+    } catch {
+      // Same degradation as above: the local chat still opens, and it
+      // gets its server conversation on its first message the old way.
+      serverConversationId = null;
+    }
+
     const branch = await createConversation(chatModeRef.current, parentId);
-    await saveConversation({ ...branch, title: name.trim(), messages });
+    // Opens EMPTY, deliberately. The old behaviour copied the parent's
+    // messages into the scrollback, which showed the user a history the
+    // model provably did not have — and a clean room is the entire point
+    // of branching. What carries over is the spec, which the model does
+    // have, on every single turn.
+    await saveConversation({
+      ...branch, title: draft.scope, messages: [],
+      ...(serverConversationId ? { serverConversationId } : {}),
+    });
     activeConversationIdRef.current = branch.id;
     activeConversationParentIdRef.current = parentId;
-    // A branch gets its own server-side conversation on its own first
-    // message — it does NOT inherit the parent's (see storage.ts's
-    // Conversation.serverConversationId doc comment). Reset the ref
-    // explicitly, since it otherwise still holds the parent's id from
-    // whatever conversation was active a moment ago.
-    activeServerConversationIdRef.current = null;
+    activeServerConversationIdRef.current = serverConversationId;
+    setMessages([]);
+    hydratedCountRef.current = 0;
+    setContextFill(fill);
     setCurrentParentChat({ id: parentId, title: deriveTitle(messages) });
-    setOpenPanel(null);
-  }, [messages]);
+  }, [branchDraft, messages]);
 
   useEffect(() => {
     getMainConversationId().then(setMainChatId);
@@ -2344,7 +2412,7 @@ export default function App() {
                 <button
                   className="sidebar-menu-btn"
                   title="New Branch Chat"
-                  onClick={branchConversation}
+                  onClick={() => branchConversation()}
                   style={{
                     display: "flex", alignItems: "center", gap: spacing.sm,
                     height: OUTER_RAIL_ROW_HEIGHT, boxSizing: "border-box",
@@ -5151,6 +5219,21 @@ export default function App() {
         <ConnectionsOverlay
           onClose={() => setShowConnectionsOverlay(false)}
           oauthResult={oauthResult} onDismissOauthResult={() => setOauthResult(null)}
+        />
+      )}
+      {branchDraft && (
+        <BranchSpecReview
+          scope={branchDraft.scope}
+          markdown={branchDraft.markdown}
+          loading={branchDraft.loading}
+          error={branchDraft.error}
+          onAccept={acceptBranchDraft}
+          onCancel={() => setBranchDraft(null)}
+          onRedraft={() => {
+            const next = window.prompt("What is this new chat for?", branchDraft.scope);
+            if (next && next.trim()) branchConversation(next.trim());
+            else setBranchDraft(null);
+          }}
         />
       )}
       {showUsageSavings && <UsageSavings onClose={() => setShowUsageSavings(false)} />}
