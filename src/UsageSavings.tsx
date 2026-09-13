@@ -27,6 +27,7 @@ interface UsageCounters {
   llm7: { tokens_used: number; keyed_cap: number; anonymous_cap: number };
   gmi: { requests_today: number; status: string };
   ollama_cloud: { requests_today: number; tokens_today: number; cap: null };
+  gemini: { models: { model: string; requests: number; tokens: number; cap: number | null }[] };
 }
 interface MistralUsage {
   usage: Record<string, unknown> | null;
@@ -162,6 +163,7 @@ function UsageCountersSection() {
             { key: "gmi", label: "GMI" },
             { key: "ollama_cloud", label: "Ollama Cloud" },
             { key: "mistral", label: "Mistral" },
+            { key: "gemini", label: "Google AI Studio" },
           ] as const).map(({ key, label }) => {
             const isOpen = expandedUsageProvider === key;
             return (
@@ -170,7 +172,12 @@ function UsageCountersSection() {
                   onClick={() => toggleUsageProvider(key)}
                   style={{
                     width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center",
-                    background: "transparent", border: "none", color: "inherit", cursor: "pointer",
+                    background: "transparent", border: "none", cursor: "pointer",
+                    // Explicit, not "inherit" (2026-09-13): nothing up this
+                    // overlay's chain sets a text colour, so inherit resolved
+                    // to the browser default — fine on the light theme,
+                    // invisible black-on-dark at night.
+                    color: neutral.textPrimary,
                     padding: `${spacing.xs}px 0`, fontSize: fontSize.sm, fontFamily,
                   }}
                 >
@@ -179,6 +186,32 @@ function UsageCountersSection() {
                 </button>
                 {isOpen && (
                   <div style={{ padding: `0 0 ${spacing.xs}px`, fontSize: fontSize.xxs, color: neutral.textMuted }}>
+                    {key === "gemini" && (
+                      usageCounters.gemini.models.length === 0 ? (
+                        <div>No Google AI calls yet today — quota is per-model, shown once a model's been used.</div>
+                      ) : (
+                        <div style={{ display: "flex", flexDirection: "column", gap: spacing.sm }}>
+                          {usageCounters.gemini.models.map(m => (
+                            <div key={m.model}>
+                              <div style={{ color: neutral.textPrimary }}>{m.model}</div>
+                              <div>
+                                {m.cap
+                                  ? `${m.requests.toLocaleString()} / ${m.cap.toLocaleString()} requests today`
+                                  : `${m.requests.toLocaleString()} requests today`}
+                                {" · "}{m.tokens.toLocaleString()} tokens
+                              </div>
+                            </div>
+                          ))}
+                          {/* The thing that is easy to get wrong about this
+                              provider, said once where it is relevant: the
+                              limit is per MODEL, so two Flash-Lite models are
+                              two independent pools. That is exactly why the
+                              idle and exploratory tiers sit on different
+                              ones rather than sharing a counter. */}
+                          <div>Each model has its own daily allowance — they don't share one pool.</div>
+                        </div>
+                      )
+                    )}
                     {key === "groq" && (
                       usageCounters.groq.models.length === 0 ? (
                         <div>No Groq calls observed yet this run — quota is per-model, shown once a model's been used.</div>
