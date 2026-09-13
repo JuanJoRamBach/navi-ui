@@ -78,7 +78,9 @@ import { AgentVault } from "./AgentVault";
 import { getCurrentUser } from "./auth";
 import { PromptVault } from "./PromptVault";
 import { TRUSTED_SOURCES_CHANGED_EVENT, addTrustedSite, listTrustedSites, removeTrustedSite } from "./trustedSources";
-import { deleteSourceDocument, getBatchStatus, getSourceDocument, listSourceDocuments, reviewSourceDocument, startBatchDispatch, type SourceDocument } from "./sources";
+import { deleteSourceDocument, getBatchStatus, getSourceDocument, listSourceDocuments, reviewSourceDocument,
+  startSourceIngest, listInspectedSources, parseStructuredSource,
+  type SourceDocument, type InspectedSource } from "./sources";
 import { AgentChat, type PendingAgentInput } from "./AgentChat";
 import { AgentWorkRunHistory } from "./AgentWorkRunHistory";
 import { fetchModelCatalog, setPinnedModel, type ModelCatalog, type ModelCandidate } from "./devslate";
@@ -1455,6 +1457,14 @@ export default function App() {
   const [sourceDraft, setSourceDraft] = useState("");
   // Trusted Sites registry — the Sources tab's second window.
   const [trustedSites, setTrustedSites] = useState<string[]>([]);
+  // Server-held, unlike the trustedSites list above which lives in this
+  // browser only. It has to be: the dispatcher checks the same record
+  // before fetching, so a link already read is recognised rather than
+  // paid for twice.
+  const [inspectedSources, setInspectedSources] = useState<InspectedSource[]>([]);
+  const refreshInspectedSources = useCallback(() => {
+    listInspectedSources().then(setInspectedSources).catch(() => { /* panel just stays empty */ });
+  }, []);
   const [trustedSiteDraft, setTrustedSiteDraft] = useState("");
   useEffect(() => {
     const refresh = () => listTrustedSites().then(setTrustedSites);
@@ -1481,6 +1491,7 @@ export default function App() {
     listSourceDocuments().then(setSourceDocuments).catch(() => {});
   }, []);
   useEffect(refreshSourceDocuments, [refreshSourceDocuments]);
+  useEffect(refreshInspectedSources, [refreshInspectedSources]);
   useEffect(() => {
     if (!dispatchRunning) return;
     const poll = setInterval(() => {
@@ -1489,19 +1500,24 @@ export default function App() {
           setDispatchRunning(false);
           setDispatchError(batch.status === "error" ? batch.error : null);
           refreshSourceDocuments();
+          // A finished run has, by definition, inspected new pages.
+          refreshInspectedSources();
         }
       }).catch(() => {});
     }, 2000);
     return () => clearInterval(poll);
-  }, [dispatchRunning, refreshSourceDocuments]);
+  }, [dispatchRunning, refreshSourceDocuments, refreshInspectedSources]);
+  // URL-driven now (2026-09-13). No trusted-site gate: there is no search
+  // to restrict — the user is naming exactly which pages to read.
   const handleBatchDispatch = () => {
     setDispatchError(null);
-    if (!trustedSites.length) {
-      setDispatchError("Add at least one trusted site below before dispatching.");
+    const bad = sourceChips.find(u => !/^https?:\/\//i.test(u));
+    if (bad) {
+      setDispatchError(`That doesn't look like a web address: ${bad}`);
       return;
     }
     setDispatchRunning(true);
-    startBatchDispatch(sourceChips, trustedSites).then(result => {
+    startSourceIngest(sourceChips).then(result => {
       if (result.error) {
         setDispatchError(result.error);
         setDispatchRunning(false);
@@ -3770,7 +3786,7 @@ export default function App() {
                     </div>
                   ))}
                   <input
-                    placeholder={sourceChips.length ? "Add another term…" : "e.g. offline-first sync"}
+                    placeholder={sourceChips.length ? "Add another link…" : "Paste a link to read"}
                     value={sourceDraft}
                     onChange={e => setSourceDraft(e.target.value)}
                     onKeyDown={e => {
@@ -3802,7 +3818,7 @@ export default function App() {
                     opacity: dispatchRunning ? 0.7 : 1,
                   }}
                 >
-                  {dispatchRunning ? "Dispatching…" : "Batch Dispatch"}
+                  {dispatchRunning ? "Reading…" : `Read ${sourceChips.length || ""} ${sourceChips.length === 1 ? "source" : "sources"}`.trim()}
                 </button>
                 {dispatchError && (
                   <div style={{ fontSize: fontSize.xxs, color: status.danger.color, marginTop: spacing.xs }}>{dispatchError}</div>
@@ -3825,22 +3841,16 @@ export default function App() {
                     nothing left to iterate over. sourceDocuments already
                     comes back newest-first from the backend, so this
                     naturally orders by most-recently-active term first. */}
-                {documentTerms.length === 0 ? (
+                {sourceDocuments.length === 0 ? (
                   <div style={{ fontSize: fontSize.xs, color: neutral.textFaint, padding: `${spacing.md}px 0` }}>
-                    Add a search term above, then Batch Dispatch. Nothing's been searched yet this session.
+                    Paste the links you want NAVI to read, then Read sources. It fetches each page, distils it, and checks every quote against the original.
                   </div>
                 ) : (
-                  documentTerms.map(term => {
-                    const docs = sourceDocuments.filter(d => d.term === term);
-                    return (
-                      <div key={term}>
-                        <div style={{ display: "flex", alignItems: "center", gap: spacing.sm, padding: "6px 0" }}>
-                          <ChevronRightIcon size={12} />
-                          <span style={{ flex: 1, fontSize: 13, color: neutral.textPrimary }}>{term}</span>
-                          <span style={{ fontSize: 11, color: neutral.textFaint }}>
-                            {docs.length} document{docs.length === 1 ? "" : "s"}
-                          </span>
-                        </div>
+                  /* Flat, not grouped by search term — there are no search
+                     terms any more. The user named these pages directly,
+                     so the list is simply the pages, newest first. */
+                  [{ docs: sourceDocuments }].map(({ docs }) => (
+                      <div key="all">
                         <div style={{ display: "flex", flexDirection: "column", gap: 5, marginTop: 4 }}>
                             {docs.map(doc => (
                               <div key={doc.id} style={{
@@ -3863,8 +3873,36 @@ export default function App() {
                                       color: doc.status === "accepted" ? status.success.color : doc.status === "rejected" ? status.danger.color : status.warning.color,
                                       background: doc.status === "accepted" ? status.success.bg : doc.status === "rejected" ? status.danger.bg : status.warning.bg,
                                     }}>
-                                      {doc.status === "accepted" ? "Accepted" : doc.status === "rejected" ? "Rejected" : "Needs review"}
+                                      {doc.status === "accepted" ? "Accepted" : doc.status === "rejected" ? "Rejected" : doc.status === "failed" ? "Couldn't read" : doc.status === "duplicate" ? "Already read" : "Needs review"}
                                     </span>
+                                    {/* How much of this document is actually
+                                        backed by the page it came from. Shown
+                                        on the row, not buried in the reader,
+                                        because it is the whole reason to open
+                                        one document before another. */}
+                                    {(() => {
+                                      const g = parseStructuredSource(doc)?.grounding_summary;
+                                      if (!g || !g.points) return null;
+                                      const shaky = (g.points - g.verified) + (g.disputed ?? 0);
+                                      const tone = g.disputed ? status.danger : shaky ? status.warning : status.success;
+                                      return (
+                                        <span
+                                          title={
+                                            g.disputed
+                                              ? `${g.disputed} claim(s) the source does not support. Read before trusting.`
+                                              : shaky
+                                                ? `${g.verified} of ${g.points} quotes matched the page word-for-word; the rest need a look.`
+                                                : `All ${g.points} quotes matched the page word-for-word.`
+                                          }
+                                          style={{
+                                            fontSize: fontSize.xxs, padding: "1px 6px", borderRadius: 100,
+                                            color: tone.color, background: tone.bg,
+                                          }}
+                                        >
+                                          {g.verified}/{g.points} grounded
+                                        </span>
+                                      );
+                                    })()}
                                   </div>
                                   {/* Only ever set for a document the dispatcher
                                       auto-rejected before a human saw it (2026-09-06,
@@ -3909,58 +3947,51 @@ export default function App() {
                             ))}
                         </div>
                       </div>
-                    );
-                  })
+                  ))
                 )}
               </div>
 
-              {/* Trusted Sites — the registry search/fetch is actually
-                  scoped to (2026-09-06, JuanJo). Second, lower window in
-                  this tab, same "tool on top / supporting list below"
-                  split Agent Work's Workflows/Run History and Dev
-                  Slate's Task State/Change History already use. Real,
-                  persisted (trustedSources.ts), not mock — but the
-                  ACTUAL scoping (making search/fetch only pull from
-                  these) is separate backend work, not done yet: this is
-                  the registry a future dispatcher change reads from. */}
+              {/* Inspected Sources (2026-09-13) — was Trusted Sites, a
+                  registry that existed to restrict a SEARCH. There is no
+                  search any more: the user names the pages directly, so a
+                  list of allowed domains has nothing left to do.
+
+                  What replaces it is a record of what has genuinely been
+                  read, served from the backend rather than kept in this
+                  browser's localStorage. That matters for more than
+                  tidiness: it is the same list the dispatcher checks
+                  before fetching, so a link already read is recognised
+                  instead of costing another fetch, another distillation
+                  call and another verification pass. */}
               <div style={{ borderTop: "1px solid var(--border-subtle)", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
-                <div style={{ padding: `${spacing.sm}px ${spacing.lg}px 0`, fontSize: fontSize.xxs, fontWeight: fontWeight.medium, color: neutral.textFaint, letterSpacing: "0.04em", flexShrink: 0 }}>
-                  TRUSTED SITES
-                </div>
-                <div style={{ padding: `${spacing.xs}px ${spacing.lg}px 0`, flexShrink: 0 }}>
-                  <div style={{
-                    display: "flex", gap: 5, alignItems: "center", padding: 6,
-                    borderRadius: radius.lg, background: neutral.surface, border: "1px solid var(--border-default)",
-                  }}>
-                    <input
-                      placeholder="e.g. inkandswitch.com"
-                      value={trustedSiteDraft}
-                      onChange={e => setTrustedSiteDraft(e.target.value)}
-                      onKeyDown={e => {
-                        if (e.key === "Enter" && trustedSiteDraft.trim()) {
-                          addTrustedSite(trustedSiteDraft.trim()).then(() => setTrustedSiteDraft(""));
-                        }
-                      }}
-                      style={{ flex: 1, minWidth: 60, background: "transparent", border: "none", outline: "none", color: neutral.textPrimary, fontSize: 12, padding: "4px 3px", fontFamily }}
-                    />
-                  </div>
+                <div style={{ padding: `${spacing.sm}px ${spacing.lg}px 0`, display: "flex", alignItems: "center", gap: spacing.sm, flexShrink: 0 }}>
+                  <span style={{ fontSize: fontSize.xxs, fontWeight: fontWeight.medium, color: neutral.textFaint, letterSpacing: "0.04em" }}>
+                    INSPECTED SOURCES
+                  </span>
+                  {inspectedSources.length > 0 && (
+                    <span style={{ fontSize: fontSize.xxs, color: neutral.textFaint }}>{inspectedSources.length}</span>
+                  )}
                 </div>
                 <div className="hide-scrollbar" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: `${spacing.xs}px ${spacing.lg}px ${spacing.sm}px`, display: "flex", flexDirection: "column", gap: 4 }}>
-                  {trustedSites.length === 0 ? (
+                  {inspectedSources.length === 0 ? (
                     <div style={{ fontSize: fontSize.xxs, color: neutral.textFaint }}>
-                      No trusted sites yet — add one above. Search/fetch will only pull from sites listed here.
+                      Nothing read yet. Pages you have NAVI read appear here, and pasting one of them again reuses what it already learned instead of reading it twice.
                     </div>
                   ) : (
-                    trustedSites.map(site => (
-                      <div key={site} style={{
+                    inspectedSources.map(site => (
+                      <div key={site.url} style={{
                         display: "flex", alignItems: "center", gap: spacing.sm,
                         padding: "5px 8px", borderRadius: radius.xs + 1, background: "rgba(255,255,255,0.06)",
                       }}>
                         <GlobeIcon size={11} />
-                        <span style={{ flex: 1, fontSize: fontSize.xs, color: neutral.textPrimary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{site}</span>
-                        <span onClick={() => removeTrustedSite(site)} style={{ cursor: "pointer", display: "flex", color: neutral.textFaint }}>
-                          <XIcon size={12} />
-                        </span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: fontSize.xs, color: neutral.textPrimary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {site.title || site.url}
+                          </div>
+                          <div style={{ fontSize: fontSize.xxs, color: neutral.textFaint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {site.domain}{site.times > 1 ? ` · re-read ${site.times - 1}×` : ""}
+                          </div>
+                        </div>
                       </div>
                     ))
                   )}
