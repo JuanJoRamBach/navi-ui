@@ -679,6 +679,14 @@ export default function App() {
   // title so clicking it can jump straight to the parent without a
   // second lookup.
   const [currentParentChat, setCurrentParentChat] = useState<{ id: string; title: string } | null>(null);
+  // How full this conversation's own memory is, 0..1 against the ceiling
+  // NAVI compacts at (server-computed — see server.py's _context_fill for
+  // why the denominator is NAVI's own budget and not the answering model's
+  // context window). null = nothing stored yet, so a fresh chat shows no
+  // bar rather than an empty one. Reset on every conversation switch: this
+  // is per-conversation, and carrying a stale reading across a switch
+  // would describe the wrong chat until the next reply lands.
+  const [contextFill, setContextFill] = useState<number | null>(null);
   // Guards the save effect below from firing before the load effect has
   // had a chance to run — without this, mounting would immediately
   // persist an empty array over whatever was actually stored, since both
@@ -709,6 +717,7 @@ export default function App() {
       activeConversationParentIdRef.current = conversation.parentId;
       activeConversationProjectIdRef.current = conversation.projectId;
       activeServerConversationIdRef.current = conversation.serverConversationId ?? null;
+      setContextFill(null); // per-conversation — a stale reading would describe the wrong chat
       setMessages(conversation.messages);
       hydratedCountRef.current = conversation.messages.length;
       selectChatMode(conversation.mode);
@@ -1738,6 +1747,7 @@ export default function App() {
     activeConversationParentIdRef.current = conversation.parentId;
     activeConversationProjectIdRef.current = conversation.projectId;
     activeServerConversationIdRef.current = conversation.serverConversationId ?? null;
+    setContextFill(null); // per-conversation — a stale reading would describe the wrong chat
     setMessages(conversation.messages);
     hydratedCountRef.current = conversation.messages.length;
     selectChatMode(conversation.mode);
@@ -1807,6 +1817,7 @@ export default function App() {
     activeConversationParentIdRef.current = conversation.parentId;
     activeConversationProjectIdRef.current = conversation.projectId;
     activeServerConversationIdRef.current = conversation.serverConversationId ?? null;
+    setContextFill(null); // per-conversation — a stale reading would describe the wrong chat
     setMessages(conversation.messages);
     hydratedCountRef.current = conversation.messages.length;
     selectChatMode(conversation.mode);
@@ -2000,12 +2011,18 @@ export default function App() {
     const controller = new AbortController();
     chatAbortControllerRef.current = controller;
 
-    const handleResponse = (data: { reply?: string; error?: string; async?: boolean; conversation_id?: string; choices?: string[]; provider?: string; model?: string; usage_note?: string; suggested_mode?: ChatMode }) => {
+    const handleResponse = (data: { reply?: string; error?: string; async?: boolean; conversation_id?: string; choices?: string[]; provider?: string; model?: string; usage_note?: string; suggested_mode?: ChatMode; context_fill?: number | null }) => {
       // Server issues the conversation id on a plain-chat turn (real
       // multi-turn memory, 2026-09-01 — see how_to_handle_context.md);
       // typed /commands and the async /research ack never send one, so
       // this only ever updates on the turns that actually have one.
       if (data.conversation_id) activeServerConversationIdRef.current = data.conversation_id;
+      // Memory fullness for the bar under the composer. Only ever
+      // overwritten when the server actually sent a reading — a turn
+      // that doesn't carry one (a typed /command, an error) leaves the
+      // last real value standing rather than blanking the bar, since
+      // the conversation's memory didn't change either way.
+      if (data.context_fill !== undefined && data.context_fill !== null) setContextFill(data.context_fill);
 
       const replyText = data.reply ?? data.error ?? "(empty reply)";
       const attachments = parseAttachments(replyText);
@@ -4816,6 +4833,7 @@ export default function App() {
             when the control isn't shown at all (plain empty <span/>
             keeps the same flex slot occupied either way). */}
         <div style={{ marginTop: spacing.xs, display: "flex", justifyContent: "space-between", alignItems: "center", gap: spacing.xs }}>
+          <div style={{ display: "flex", alignItems: "center", gap: spacing.sm, minWidth: 0 }}>
           {/* Reasoning-effort control (2026-09-12, IDEAS.md's "Per-model
               reasoning_effort control") — only rendered when
               normal_chat's current PRIMARY (never a fallback — a
@@ -4878,6 +4896,50 @@ export default function App() {
               </div>
             );
           })()}
+          {/* Memory fullness (2026-09-13) — how much of this
+              conversation NAVI is carrying, as a share of the budget it
+              consolidates at. Deliberately a proportion and not a token
+              count: the number itself isn't actionable, the trend is.
+              Hidden entirely until there's something stored, so a fresh
+              chat isn't decorated with an empty gauge.
+
+              Reads as a sawtooth over a conversation's life — fills,
+              consolidates, drops to roughly half, fills again. Full is
+              NOT a warning state: it means consolidation happens on the
+              next turn and nothing is discarded (storage/context_store.py
+              keeps every flagged entry, and anything the compacted text
+              doesn't cover is re-appended verbatim). The copy says so,
+              because a bar at 100% otherwise reads as data loss. */}
+          {contextFill !== null && (
+            <div
+              title={
+                contextFill >= 1
+                  ? "Memory full — NAVI will consolidate this conversation on the next message. Nothing is lost: consolidating rewrites what it remembers more compactly."
+                  : "How much of this conversation NAVI is carrying. At full it consolidates — nothing is lost, it just gets written more compactly."
+              }
+              style={{ display: "flex", alignItems: "center", gap: spacing.xxs, minWidth: 0 }}
+            >
+              <span style={{ fontSize: fontSize.xxs, color: neutral.textFaint, fontFamily, whiteSpace: "nowrap" }}>
+                Memory
+              </span>
+              <div style={{
+                width: 48, height: 4, borderRadius: 2, overflow: "hidden",
+                background: "var(--border-default)",
+              }}>
+                <div style={{
+                  // Clamped for display only — the server reports >1 when
+                  // a consolidation pass couldn't reach its target, and
+                  // that's a real state worth not hiding from the logs
+                  // even though the bar can't draw past its own width.
+                  width: `${Math.min(1, Math.max(0, contextFill)) * 100}%`,
+                  height: "100%",
+                  background: `oklch(75% 0.14 ${OKLCH_HUE[chatMode]})`,
+                  transition: "width 0.4s cubic-bezier(0.22, 1, 0.36, 1)",
+                }} />
+              </div>
+            </div>
+          )}
+          </div>
           <button
             onClick={e => togglePanel("models", e.currentTarget)}
             style={{
