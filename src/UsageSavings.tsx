@@ -120,6 +120,126 @@ function SavingsReportSection() {
   );
 }
 
+// Matches storage/context_store.py's get_friction_summary() joined with
+// the per-call denominator in server.py's /usage/friction.
+interface FrictionKind {
+  kind: string;
+  events: number;
+  severity: number;
+  wasted_tokens: number;
+  unmeasured: number;
+  conversations: number;
+  last_seen: number;
+  per_1k_calls: number | null;
+}
+interface FrictionSummary {
+  days: number;
+  total_calls: number;
+  total_events: number;
+  total_wasted_tokens: number;
+  kinds: FrictionKind[];
+}
+
+// Plain-language names for the backend's kind slugs. Same "backend is the
+// data, frontend is the copy" split as REFERENCE_MODEL_LABELS above.
+// Written from the reader's side, not the code's: someone opening this
+// panel wants to know what happened, not which function recorded it.
+const FRICTION_LABELS: Record<string, string> = {
+  provider_timeout: "Model took too long and gave up",
+  provider_error: "Model call failed",
+  empty_response: "Model answered with nothing",
+  tool_loop_exhausted: "Ran out of steps before answering",
+  tool_loop_near_limit: "Nearly ran out of steps",
+  tool_result_empty: "A tool came back empty",
+  repetition_loop: "Model repeated itself",
+  fallback_used: "Answered by a backup model",
+  tier_escalation: "Needed a stronger model",
+  escalation_at_ceiling: "Strongest model said it wasn't enough",
+  compaction_failed: "Couldn't tidy up memory",
+  compaction_above_target: "Memory wouldn't shrink enough",
+  context_floor_reached: "Chat stopped being compactable",
+  checkpoint_revised: "You sent a plan back for changes",
+  checkpoint_rejected: "You cancelled a plan",
+  completion_rejected: "A branch said done, you disagreed",
+};
+
+function FrictionSection() {
+  const [friction, setFriction] = useState<FrictionSummary | null>(null);
+  useEffect(() => {
+    fetch(`${NAVI_BACKEND_URL}/usage/friction?days=30`)
+      .then(res => res.json())
+      .then(setFriction)
+      .catch(() => {});
+  }, []);
+
+  return (
+    <div>
+      <div style={{ fontSize: fontSize.sm, fontWeight: fontWeight.medium, color: neutral.textPrimary, marginBottom: spacing.xs }}>
+        What got in the way
+      </div>
+      {!friction ? (
+        <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted }}>Loading…</div>
+      ) : friction.total_events === 0 ? (
+        // An empty state that says what empty MEANS. "Nothing here" on its
+        // own reads as broken instrumentation — which, for most of this
+        // log's life, is exactly what it was. Naming the denominator is
+        // what turns zero into a real result.
+        <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted, lineHeight: 1.5 }}>
+          {friction.total_calls > 0
+            ? `Nothing recorded across ${friction.total_calls.toLocaleString()} model calls in the last ${friction.days} days — no timeouts, no empty replies, no rejected plans.`
+            : `No model calls yet in the last ${friction.days} days, so there is nothing to report on.`}
+        </div>
+      ) : (
+        <>
+          <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted, marginBottom: spacing.sm, lineHeight: 1.5 }}>
+            {friction.total_events.toLocaleString()} across{" "}
+            {friction.total_calls.toLocaleString()} model calls
+            {friction.total_wasted_tokens > 0 && (
+              <>
+                {" — "}
+                <span style={{ color: status.warning.color }}>
+                  {friction.total_wasted_tokens.toLocaleString()} tokens spent for nothing
+                </span>
+              </>
+            )}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+            {friction.kinds.map(k => (
+              <div
+                key={k.kind}
+                style={{
+                  display: "flex", alignItems: "baseline", gap: spacing.sm,
+                  background: "var(--surface-panel)", padding: `${spacing.xs} ${spacing.sm}`,
+                  borderLeft: `2px solid ${k.severity >= 3 ? status.danger.color : k.severity === 2 ? status.warning.color : "var(--border-strong)"}`,
+                }}
+              >
+                <span style={{ flex: 1, fontSize: fontSize.xxs, color: neutral.textPrimary }}>
+                  {FRICTION_LABELS[k.kind] ?? k.kind}
+                </span>
+                {k.wasted_tokens > 0 && (
+                  <span style={{ fontSize: fontSize.xxs, color: status.warning.color, whiteSpace: "nowrap" }}>
+                    {k.wasted_tokens.toLocaleString()} tok
+                  </span>
+                )}
+                <span style={{ fontSize: fontSize.xxs, color: neutral.textMuted, whiteSpace: "nowrap", minWidth: 96, textAlign: "right" }}>
+                  {k.events}×
+                  {k.per_1k_calls !== null && ` · ${k.per_1k_calls}/1k calls`}
+                </span>
+              </div>
+            ))}
+          </div>
+          <div style={{ fontSize: fontSize.xxs, color: neutral.textFaint, lineHeight: 1.5, marginTop: spacing.xs }}>
+            Rates are per thousand model calls, so they stay comparable as usage grows. Token figures are
+            measured where the provider reported them and estimated from the sent payload where a call failed
+            before reporting anything — rate limits are excluded here on purpose: a backup model picks those
+            up and the answer still arrives.
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function UsageCountersSection() {
   const [usageCounters, setUsageCounters] = useState<UsageCounters | null>(null);
   useEffect(() => {
@@ -321,6 +441,14 @@ export function UsageSavings({ onClose }: { onClose: () => void }) {
 
         <div style={{ overflowY: "auto", padding: spacing.md, display: "flex", flexDirection: "column", gap: spacing.lg }}>
           <SavingsReportSection />
+          {/* Between the savings headline and the quota detail, following
+              the same progressive-disclosure order this file's header
+              comment already argues for: the summary stat first, then
+              what it cost to get, then the operational per-provider
+              detail. Friction belongs next to savings because it is the
+              other half of the same story — what the routing avoided
+              spending, and what it spent without getting anything. */}
+          <FrictionSection />
           <UsageCountersSection />
         </div>
       </div>
