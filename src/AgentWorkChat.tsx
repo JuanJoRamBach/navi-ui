@@ -310,11 +310,13 @@ export function AgentWorkChat({ onClose, onWorkflowCreated }: { onClose: () => v
     setMessages(m => [...m, { role: "user", text, at: Date.now() }]);
     setPending("Thinking…");
 
+    const clientMessageId = crypto.randomUUID();
     const post = () => fetch(`${NAVI_BACKEND_URL}/chat/send`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        text, mode: "agent_work", auto_accept: autoAccept,
+        // Same turn-idempotency contract as Main Chat — see App.tsx.
+        text, mode: "agent_work", auto_accept: autoAccept, client_message_id: clientMessageId,
         ...(conversationIdRef.current ? { conversation_id: conversationIdRef.current } : {}),
       }),
     }).then(res => res.json());

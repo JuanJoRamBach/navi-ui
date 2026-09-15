@@ -762,6 +762,10 @@ export default function App() {
   // effect can't be declared further down in the same component body,
   // even though the effect itself only actually runs later.
   const [pendingStep, setPendingStep] = useState<string | null>(null);
+  // The reply as it streams in. Provisional — replaced by the real
+  // message once the turn reports `done`; see the preview's own note
+  // where it renders.
+  const [streamingText, setStreamingText] = useState("");
   // Holds the setInterval id while polling /research/status for an
   // in-flight async job — a plain ref since it doesn't drive rendering.
   const researchPollRef = useRef<number | null>(null);
@@ -782,6 +786,10 @@ export default function App() {
     chatAbortControllerRef.current = null;
     stopResearchPoll();
     setPendingStep(null);
+    // Drop the partial answer too. Stopping means the user no longer
+    // wants this reply — leaving half of it on screen, attached to
+    // nothing and never completing, is worse than clearing it.
+    setStreamingText("");
   }, [stopResearchPoll]);
 
   // The service worker's push handler (src/sw.ts) writes an incoming
@@ -2092,6 +2100,17 @@ export default function App() {
       : "Thinking…";
     if (!asyncJobActive()) setPendingStep(firstStep);
 
+    // Names this turn so the server can recognise a retry of it.
+    //
+    // Generated ONCE per user message and shared by both the streaming
+    // and the plain path below, which is what makes falling back from one
+    // to the other safe: if the stream half-connected and the server
+    // already started the turn, /chat/send sees the same id and replays
+    // that turn's result instead of running a second one. Client-side on
+    // purpose — the whole point is to survive never hearing the server's
+    // answer, so the server cannot be the one to name it.
+    const clientMessageId = crypto.randomUUID();
+
     const controller = new AbortController();
     chatAbortControllerRef.current = controller;
 
@@ -2107,6 +2126,11 @@ export default function App() {
       // last real value standing rather than blanking the bar, since
       // the conversation's memory didn't change either way.
       if (data.context_fill !== undefined && data.context_fill !== null) setContextFill(data.context_fill);
+
+      // The preview has served its purpose — the authoritative reply is
+      // about to be appended just below, and leaving the provisional copy
+      // up would show the answer twice for a frame.
+      setStreamingText("");
 
       const replyText = data.reply ?? data.error ?? "(empty reply)";
       const attachments = parseAttachments(replyText);
@@ -2172,7 +2196,7 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         signal: controller.signal,
         body: JSON.stringify({
-          text, mode: chatModeRef.current,
+          text, mode: chatModeRef.current, client_message_id: clientMessageId,
           ...(activeServerConversationIdRef.current ? { conversation_id: activeServerConversationIdRef.current } : {}),
           reasoning_effort: reasoningEffortRef.current,
         }),
@@ -2204,7 +2228,17 @@ export default function App() {
             const raw = lines.find(l => l.startsWith("data: "))?.slice(6);
             if (!type || !raw) continue;
             const data = JSON.parse(raw);
-            if (type === "status") {
+            if (type === "token") {
+              // Clear the "Asking…" line the moment real text starts —
+              // the text itself is now the progress indicator, and
+              // showing both says the same thing twice.
+              if (!asyncJobActive()) setPendingStep(null);
+              setStreamingText(prev => prev + String(data.text ?? ""));
+            } else if (type === "reset") {
+              // A stronger model is taking over; what was shown is no
+              // longer the answer.
+              setStreamingText("");
+            } else if (type === "status") {
               // The conversation id rides on the opening frame so a brand
               // new conversation is identified even if the turn then fails.
               if (data.conversation_id && !activeServerConversationIdRef.current) {
@@ -2231,7 +2265,7 @@ export default function App() {
       headers: { "Content-Type": "application/json" },
       signal: controller.signal,
       body: JSON.stringify({
-        text, mode: chatModeRef.current,
+        text, mode: chatModeRef.current, client_message_id: clientMessageId,
         ...(activeServerConversationIdRef.current ? { conversation_id: activeServerConversationIdRef.current } : {}),
         // Harmless when the current primary isn't a non-Groq gpt-oss
         // model — dispatcher/prompt_family.py's adapt_request_params
@@ -4358,6 +4392,25 @@ export default function App() {
             }}>
               <span style={{ width: 6, height: 6, borderRadius: 9999, background: neutral.textMuted }} />
               {pendingStep}
+            </div>
+          )}
+          {/* The answer as it arrives. A PREVIEW, deliberately, not the
+              message itself: the server post-processes a reply after
+              generating it — reasoning tags stripped, a repetition loop
+              collapsed, a "primary was unavailable" notice appended — so
+              the raw tokens are not always what the turn finally says.
+              This is cleared and replaced by the authoritative reply the
+              moment `done` lands, which also makes a `reset` (a tier
+              escalation replacing the answer outright) just another
+              clear. Same DOM-first placement as the indicator above, so
+              column-reverse puts it where the real reply will appear. */}
+          {streamingText && (
+            <div style={{
+              alignSelf: "flex-start", maxWidth: "min(760px, 92%)",
+              fontSize: fontSize.sm, color: neutral.textPrimary, fontFamily,
+              whiteSpace: "pre-wrap", lineHeight: 1.6, opacity: 0.85,
+            }}>
+              {streamingText}
             </div>
           )}
           {renderItems.map(item => {

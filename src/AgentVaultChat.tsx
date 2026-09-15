@@ -258,10 +258,12 @@ export function AgentVaultChat({ onClose, agentId, agentName }: { onClose: () =>
     // mode/auto_accept/conversation_id in the body; the URL already
     // identifies which agent, and the backend derives the conversation
     // id from that same agent id.
+    // Same turn-idempotency contract as Main Chat — see App.tsx.
+    const clientMessageId = crypto.randomUUID();
     const post = () => fetch(`${NAVI_BACKEND_URL}/agents/${encodeURIComponent(agentId)}/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text, client_message_id: clientMessageId }),
     }).then(res => res.json());
 
     try {
