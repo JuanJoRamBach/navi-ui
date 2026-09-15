@@ -2154,6 +2154,78 @@ export default function App() {
       // own equivalent state to celebrate against.
     };
 
+    // Marks a stream that FAILED AFTER THE SERVER ACCEPTED IT. The
+    // distinction is load-bearing: /chat/stream appends the user's
+    // message and runs the whole turn server-side, so retrying over
+    // /chat/send after a mid-turn break would append the same message
+    // twice and pay for a second answer. A stream that never connected
+    // (404, offline, server asleep) ran nothing and IS safe to retry.
+    const STREAM_STARTED = "stream-already-running";
+
+    // Server-Sent Events over fetch, not EventSource. EventSource is
+    // GET-only and cannot set headers, so it could carry neither the POST
+    // body nor the X-Navi-Api-Key header that apiAuth.ts patches onto
+    // fetch — it was never an option here.
+    const sendStreaming = async () => {
+      const res = await fetch(`${NAVI_BACKEND_URL}/chat/stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify({
+          text, mode: chatModeRef.current,
+          ...(activeServerConversationIdRef.current ? { conversation_id: activeServerConversationIdRef.current } : {}),
+          reasoning_effort: reasoningEffortRef.current,
+        }),
+      });
+      // Not ok means the turn never started — an older backend with no
+      // such route, or a payload this route declines (a typed /command,
+      // Research mode). Falling back is safe and expected.
+      if (!res.ok || !res.body) throw new Error("stream unavailable");
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let final: Record<string, unknown> | null = null;
+
+      try {
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          // Frames are separated by a blank line. A partial frame stays
+          // in the buffer until the rest of it arrives — a chunk
+          // boundary can land anywhere, including mid-JSON.
+          let split: number;
+          while ((split = buffer.indexOf("\n\n")) !== -1) {
+            const frame = buffer.slice(0, split);
+            buffer = buffer.slice(split + 2);
+            const lines = frame.split("\n");
+            const type = lines.find(l => l.startsWith("event: "))?.slice(7).trim();
+            const raw = lines.find(l => l.startsWith("data: "))?.slice(6);
+            if (!type || !raw) continue;
+            const data = JSON.parse(raw);
+            if (type === "status") {
+              // The conversation id rides on the opening frame so a brand
+              // new conversation is identified even if the turn then fails.
+              if (data.conversation_id && !activeServerConversationIdRef.current) {
+                activeServerConversationIdRef.current = data.conversation_id;
+              }
+              if (data.text && !asyncJobActive()) setPendingStep(data.text);
+            } else if (type === "done") {
+              final = data;
+            } else if (type === "error") {
+              throw new Error(String(data.text || "stream error"));
+            }
+          }
+        }
+      } catch (e) {
+        if (e instanceof DOMException && e.name === "AbortError") throw e;
+        throw new Error(STREAM_STARTED);
+      }
+      if (!final) throw new Error(STREAM_STARTED);
+      return final;
+    };
+
     const send = () => fetch(`${NAVI_BACKEND_URL}/chat/send`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -2168,7 +2240,20 @@ export default function App() {
       }),
     }).then(res => res.json());
 
-    send()
+    // Stream when we can, fall back to the plain route when we can't.
+    // Research keeps the REST path: its own state machine
+    // (dispatcher/research.py) owns checkpoints the stream route
+    // deliberately doesn't cover yet.
+    const sendTurn = () =>
+      chatModeRef.current === "research"
+        ? send()
+        : sendStreaming().catch((e) => {
+            if (e instanceof DOMException && e.name === "AbortError") throw e;
+            if (e instanceof Error && e.message === STREAM_STARTED) throw e;
+            return send();  // never connected, so nothing ran — safe
+          });
+
+    sendTurn()
       .then(handleResponse)
       .catch(async (err) => {
         // Deliberate stopMessage() — already cleared pendingStep and
@@ -2177,6 +2262,18 @@ export default function App() {
         // must be asleep" retry path below and silently resent the
         // exact message the user just tried to cancel.
         if (err instanceof DOMException && err.name === "AbortError") return;
+        // The turn WAS running server-side and the connection broke.
+        // Retrying would duplicate the message and pay twice; the reply
+        // is already persisted, so say so and let a reload show it.
+        if (err instanceof Error && err.message === STREAM_STARTED) {
+          if (!asyncJobActive()) setPendingStep(null);
+          setMessages(m => [...m, {
+            role: "navi",
+            text: "Lost the connection while NAVI was answering. The reply may still have been saved — reload to check.",
+            timestamp: Date.now(),
+          }]);
+          return;
+        }
         // First attempt failing usually means the server was asleep and
         // the cold-start request just errored out instead of waiting —
         // poll the health check until it answers, then retry the real
