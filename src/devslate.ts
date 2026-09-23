@@ -36,6 +36,9 @@ export interface ModelCandidate {
   // Reached through a key someone saved in Settings (DeepSeek, Claude) —
   // billed to that account, and never ranked against the free models.
   byok?: boolean;
+  // Display name for a provider whose id isn't readable on its own, e.g.
+  // an "Other" provider stored as "custom-together-ai".
+  label?: string;
 }
 
 export interface ModelCatalog {

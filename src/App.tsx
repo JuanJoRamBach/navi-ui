@@ -87,8 +87,7 @@ import { fetchModelCatalog, resetRoleToDefault, setPinnedModel, type ModelCatalo
 import { AgentWorkNewWorkflowForm } from "./AgentWorkNewWorkflowForm";
 import { ChoiceButtons } from "./ChoiceButtons";
 import { AgentWorkGraphEditor, type AgentWorkSeed } from "./AgentWorkGraphEditor";
-import { AccountSettings } from "./AccountSettings";
-import { ProviderKeys } from "./ProviderKeys";
+import { SettingsOverlay } from "./SettingsOverlay";
 import { UsageSavings } from "./UsageSavings";
 import { BrowserPane } from "./BrowserPane";
 import { isTauriRuntime } from "./tauriRuntime";
@@ -860,6 +859,9 @@ export default function App() {
   // "fetch what you need where you need it," same convention LoginGate.tsx
   // established for auth) rather than lifting it up here.
   const [showUsageSavings, setShowUsageSavings] = useState(false);
+  // Settings is a window over the app too (2026-09-23), with its own
+  // section menu — it outgrew the small popover once API keys joined it.
+  const [showSettings, setShowSettings] = useState(false);
 
   // "Today's models" picker itself now reads the real ranked-candidate
   // catalog (chatModelCatalog, see below) instead of this — kept this
@@ -4838,7 +4840,7 @@ export default function App() {
               {openPanel === "profile" && (
                 <div style={{ display: "flex", flexDirection: "column", gap: spacing.xxs }}>
                   <button
-                    onClick={e => togglePanel("settings", e.currentTarget)}
+                    onClick={() => { setOpenPanel(null); setShowSettings(true); }}
                     style={{
                       display: "flex", alignItems: "center", gap: spacing.sm,
                       height: OUTER_RAIL_ROW_HEIGHT, boxSizing: "border-box", padding: `0 ${spacing.sm}px`,
@@ -4991,7 +4993,7 @@ export default function App() {
                       return groups.map(group => (
                         <div key={group.provider}>
                           <div style={{ fontSize: fontSize.xxs, fontWeight: fontWeight.medium, color: neutral.textFaint, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: spacing.xs }}>
-                            {group.provider}
+                            {group.candidates[0]?.label ?? group.provider}
                             {group.candidates.some(c => c.byok) && (
                               <span style={{ textTransform: "none", letterSpacing: 0, fontWeight: fontWeight.regular }}> · your key, billed to you</span>
                             )}
@@ -5057,12 +5059,6 @@ export default function App() {
                 </div>
               )}
 
-              {openPanel === "settings" && (
-                <div style={{ display: "flex", flexDirection: "column", gap: spacing.lg }}>
-                  <AccountSettings />
-                  <ProviderKeys />
-                </div>
-              )}
               </div>
             </div>
           </>
@@ -5381,6 +5377,7 @@ export default function App() {
                   key={key}
                   onClick={e => {
                     if (key === "usage") setShowUsageSavings(true);
+                    else if (key === "settings") setShowSettings(true);
                     else togglePanel(key, e.currentTarget);
                     setMobileAccountMenuOpen(false);
                   }}
@@ -5476,6 +5473,7 @@ export default function App() {
         />
       )}
       {showUsageSavings && <UsageSavings onClose={() => setShowUsageSavings(false)} />}
+      {showSettings && <SettingsOverlay onClose={() => setShowSettings(false)} />}
       {showAgentChat && pendingAgentInputs.length > 0 && (
         <AgentChat
           pending={pendingAgentInputs}
