@@ -83,11 +83,12 @@ import { deleteSourceDocument, getBatchStatus, getSourceDocument, listSourceDocu
   type SourceDocument, type InspectedSource } from "./sources";
 import { AgentChat, type PendingAgentInput } from "./AgentChat";
 import { AgentWorkRunHistory } from "./AgentWorkRunHistory";
-import { fetchModelCatalog, setPinnedModel, type ModelCatalog, type ModelCandidate } from "./devslate";
+import { fetchModelCatalog, resetRoleToDefault, setPinnedModel, type ModelCatalog, type ModelCandidate } from "./devslate";
 import { AgentWorkNewWorkflowForm } from "./AgentWorkNewWorkflowForm";
 import { ChoiceButtons } from "./ChoiceButtons";
 import { AgentWorkGraphEditor, type AgentWorkSeed } from "./AgentWorkGraphEditor";
 import { AccountSettings } from "./AccountSettings";
+import { ProviderKeys } from "./ProviderKeys";
 import { UsageSavings } from "./UsageSavings";
 import { BrowserPane } from "./BrowserPane";
 import { isTauriRuntime } from "./tauriRuntime";
@@ -1991,6 +1992,12 @@ export default function App() {
   const pickChatModel = useCallback(async (provider: string, model: string) => {
     setSavingChatModel(true);
     const ok = await setPinnedModel("normal_chat", provider, model);
+    setSavingChatModel(false);
+    if (ok) refreshChatModelCatalog();
+  }, [refreshChatModelCatalog]);
+  const resetChatModel = useCallback(async () => {
+    setSavingChatModel(true);
+    const ok = await resetRoleToDefault("normal_chat");
     setSavingChatModel(false);
     if (ok) refreshChatModelCatalog();
   }, [refreshChatModelCatalog]);
@@ -4950,6 +4957,20 @@ export default function App() {
                   {chatModelCatalog && !chatModelCatalog.candidates.length && (
                     <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted }}>No ranked candidates cached yet.</div>
                   )}
+                  {chatModelCatalog && chatModelCatalog.is_default === false && (
+                    <button
+                      onClick={() => void resetChatModel()}
+                      disabled={savingChatModel}
+                      style={{
+                        width: "100%", marginBottom: spacing.sm, padding: `${spacing.xs}px`,
+                        borderRadius: radius.xs, border: "1px solid var(--border-default)", background: "transparent",
+                        color: neutral.textMuted, cursor: savingChatModel ? "default" : "pointer",
+                        fontSize: fontSize.xxs, fontFamily, textAlign: "left",
+                      }}
+                    >
+                      Picked by hand, no fallbacks. Back to NAVI's default routing
+                    </button>
+                  )}
                   {/* Grouped by provider (2026-09-06) — was one flat list,
                       undifferentiated regardless of how many candidates
                       qualified. Providers are ordered by wherever their
@@ -4971,6 +4992,9 @@ export default function App() {
                         <div key={group.provider}>
                           <div style={{ fontSize: fontSize.xxs, fontWeight: fontWeight.medium, color: neutral.textFaint, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: spacing.xs }}>
                             {group.provider}
+                            {group.candidates.some(c => c.byok) && (
+                              <span style={{ textTransform: "none", letterSpacing: 0, fontWeight: fontWeight.regular }}> · your key, billed to you</span>
+                            )}
                           </div>
                           <div style={{ display: "flex", flexDirection: "column", gap: spacing.xs }}>
                             {group.candidates.map(c => {
@@ -5033,7 +5057,12 @@ export default function App() {
                 </div>
               )}
 
-              {openPanel === "settings" && <AccountSettings />}
+              {openPanel === "settings" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: spacing.lg }}>
+                  <AccountSettings />
+                  <ProviderKeys />
+                </div>
+              )}
               </div>
             </div>
           </>
@@ -5214,7 +5243,12 @@ export default function App() {
           )}
           </div>
           <button
-            onClick={e => togglePanel("models", e.currentTarget)}
+            onClick={e => {
+              // Re-fetched on every open, not just at mount: a key saved in
+              // Settings a moment ago should show its models here straight away.
+              if (openPanel !== "models") refreshChatModelCatalog();
+              togglePanel("models", e.currentTarget);
+            }}
             style={{
               display: "flex", alignItems: "center", gap: 3,
               // Shrunk further (JuanJo, 2026-09-01: "the buttons over

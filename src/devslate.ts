@@ -33,11 +33,17 @@ export interface ModelCandidate {
   // not "worst score," since an unranked model isn't necessarily bad.
   quality?: number;
   speed?: number;
+  // Reached through a key someone saved in Settings (DeepSeek, Claude) —
+  // billed to that account, and never ranked against the free models.
+  byok?: boolean;
 }
 
 export interface ModelCatalog {
   task: string;
   current: { provider: string; model: string } | null;
+  // False once someone has picked a model by hand — the picker then
+  // offers a way back to NAVI's own routing (and its fallbacks).
+  is_default?: boolean;
   candidates: ModelCandidate[];
 }
 
@@ -86,6 +92,17 @@ export async function setPinnedModel(role: string, provider: string, model: stri
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ role, provider, model }),
+  });
+  return res.ok;
+}
+
+// Undoes a manual pick: the role goes back to NAVI's shipped model AND
+// its fallback chain, which picking the old model again would not restore.
+export async function resetRoleToDefault(role: string): Promise<boolean> {
+  const res = await fetch(`${NAVI_BACKEND_URL}/config/role/reset`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ role }),
   });
   return res.ok;
 }
