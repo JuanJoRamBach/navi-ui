@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDownIcon, CheckIcon, PaperAirplaneIcon } from "@primer/octicons-react";
 import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, tintedSurface, tintedGlow, surface } from "./tokens";
 import { DevSlateDotGrid } from "./DevSlateDotGrid";
-import { fetchModelCatalog, setPinnedModel, type ModelCatalog } from "./devslate";
+import { setPinnedModel } from "./devslate";
+import { ClientDataWarningFor, NotForClientDataTag, RiskyPickConfirm, useModelCatalog, useRiskyPick } from "./modelSafety";
 import { NAVI_BACKEND_URL } from "./config";
 import { ChoiceButtons } from "./ChoiceButtons";
 
@@ -48,6 +49,7 @@ import { ChoiceButtons } from "./ChoiceButtons";
 
 const accent = neutral.textMuted;
 const FLOAT_CLUSTER_RESERVE = 104; // input pill + the edit-mode/model row below it
+const WARNING_RESERVE = 44; // the client-data warning above the pill, which can wrap to two lines
 
 // Simulated streaming (2026-09-02, JuanJo: "be a bit dramatic, add micro
 // delays every period... it gives a suspenseful and time to read"). This
@@ -60,23 +62,22 @@ const STREAM_PERIOD_PAUSE_MS = 200;
 const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 
 function ModelBadge() {
-  const [catalog, setCatalog] = useState<ModelCatalog | null>(null);
+  // The one piece of state this chat does share with AgentWorkChat
+  // (2026-09-23): both pin the same server-side agent_work role, so they
+  // read the same catalog copy (modelSafety.tsx) and a pick in either
+  // shows in both, along with the client-data warning.
+  const [catalog, refresh] = useModelCatalog("agent_work");
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-
-  const refresh = useCallback(() => {
-    fetchModelCatalog("agent_work").then(setCatalog).catch(() => setCatalog(null));
-  }, []);
-
-  useEffect(() => { refresh(); }, [refresh]);
 
   const pick = async (provider: string, model: string) => {
     setSaving(true);
     const ok = await setPinnedModel("agent_work", provider, model);
     setSaving(false);
     setOpen(false);
-    if (ok) refresh();
+    if (ok) void refresh();
   };
+  const risky = useRiskyPick((provider, model) => void pick(provider, model));
 
   const currentLabel = catalog?.current ? `${catalog.current.provider}/${catalog.current.model}` : "loading…";
 
@@ -113,22 +114,27 @@ function ModelBadge() {
           {catalog?.candidates.map(c => {
             const isCurrent = catalog.current?.provider === c.provider && catalog.current?.model === c.model;
             return (
-              <button
-                key={`${c.provider}/${c.model}`}
-                disabled={saving || isCurrent}
-                onClick={() => pick(c.provider, c.model)}
-                style={{
-                  display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.xs,
-                  width: "100%", textAlign: "left", padding: `${spacing.xxs}px ${spacing.xs}px`,
-                  borderRadius: radius.xs, border: "none",
-                  background: isCurrent ? "rgba(255,255,255,0.06)" : "transparent",
-                  color: isCurrent ? neutral.textPrimary : neutral.textMuted,
-                  cursor: isCurrent ? "default" : "pointer", fontSize: fontSize.xxs, fontFamily,
-                }}
-              >
-                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.provider}/{c.model}</span>
-                {isCurrent && <CheckIcon size={12} />}
-              </button>
+              <div key={`${c.provider}/${c.model}`}>
+                <button
+                  disabled={saving || isCurrent}
+                  onClick={() => risky.request(c)}
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.xs,
+                    width: "100%", textAlign: "left", padding: `${spacing.xxs}px ${spacing.xs}px`,
+                    borderRadius: radius.xs, border: "none",
+                    background: isCurrent ? "rgba(255,255,255,0.06)" : "transparent",
+                    color: isCurrent ? neutral.textPrimary : neutral.textMuted,
+                    cursor: isCurrent ? "default" : "pointer", fontSize: fontSize.xxs, fontFamily,
+                  }}
+                >
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.provider}/{c.model}</span>
+                  {c.client_data_warning && <NotForClientDataTag reason={c.client_data_warning} />}
+                  {isCurrent && <CheckIcon size={12} />}
+                </button>
+                {risky.isConfirming(c) && (
+                  <RiskyPickConfirm candidate={c} onConfirm={() => risky.confirm(c)} onCancel={risky.cancel} />
+                )}
+              </div>
             );
           })}
         </div>
@@ -173,6 +179,7 @@ export function AgentVaultChat({ onClose, agentId, agentName }: { onClose: () =>
   const [input, setInput] = useState("");
   const [pending, setPending] = useState<string | null>(null);
   const sendingRef = useRef(false);
+  const [modelCatalog] = useModelCatalog("agent_work");
 
   // Hydrate from the server whenever the selected agent changes — the
   // agent's own id IS its conversation id (server.py's POST
@@ -358,7 +365,7 @@ export function AgentVaultChat({ onClose, agentId, agentName }: { onClose: () =>
 
         <div className="hide-scrollbar message-fade-top" style={{
           position: "relative", zIndex: 1, height: "100%", overflowY: "auto", padding: spacing.sm,
-          paddingBottom: FLOAT_CLUSTER_RESERVE,
+          paddingBottom: FLOAT_CLUSTER_RESERVE + (modelCatalog?.current?.client_data_warning ? WARNING_RESERVE : 0),
           display: "flex", flexDirection: "column-reverse", gap: spacing.sm,
         }}>
           {messages.length === 0 && !pending && (
@@ -430,6 +437,7 @@ export function AgentVaultChat({ onClose, agentId, agentName }: { onClose: () =>
           position: "absolute", left: 0, right: 0, bottom: 0, zIndex: 2,
           padding: spacing.sm,
         }}>
+          <ClientDataWarningFor catalog={modelCatalog} style={{ marginBottom: spacing.xs }} />
           <div style={{
             display: "flex", alignItems: "flex-end", gap: spacing.xs,
             padding: spacing.xs, borderRadius: radius.xl,

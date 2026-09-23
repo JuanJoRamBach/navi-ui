@@ -2,9 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDownIcon, CheckIcon, PaperclipIcon, XIcon, FileIcon, PencilIcon, ZapIcon, PaperAirplaneIcon } from "@primer/octicons-react";
 import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, CANVAS_ACCENT, tintedSurface, tintedGlow, surface, status as statusColors } from "./tokens";
 import {
-  connectDevSlate, createSlate, fetchModelCatalog, loadSlateHistory, setPinnedModel,
-  type DevSlateConnection, type DevSlateMessage, type ModelCatalog,
+  connectDevSlate, createSlate, loadSlateHistory, setPinnedModel,
+  type DevSlateConnection, type DevSlateMessage,
 } from "./devslate";
+import { ClientDataWarningFor, NotForClientDataTag, RiskyPickConfirm, useModelCatalog, useRiskyPick } from "./modelSafety";
 import { connectFolder, getConnectedFolderName, hasLocalFsSupport, listAllFiles, readLocalFile } from "./devslateFs";
 import { requestWriteReview, setTaskState, useDevSlateState } from "./devslateStore";
 import { DevSlateDotGrid } from "./DevSlateDotGrid";
@@ -19,6 +20,7 @@ const accent = CANVAS_ACCENT.devSlate.color;
 // height varies with wrapped rows / attached-file chips), just generous
 // enough to clear it in the common case.
 const FLOAT_CLUSTER_RESERVE = 132;
+const WARNING_RESERVE = 44; // the client-data warning above the input, which can wrap to two lines
 
 // Reads/writes the current Slate id from sessionStorage — a Root Slate
 // per browser session for now (sub-Slates / a real Slate switcher aren't
@@ -49,23 +51,21 @@ function useDevSlateConversation() {
 }
 
 function ModelBadge({ conversationId }: { conversationId: string }) {
-  const [catalog, setCatalog] = useState<ModelCatalog | null>(null);
+  // Shared with the warning over this chat's input (modelSafety.tsx).
+  const [catalog, refresh] = useModelCatalog("devslate");
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const refresh = useCallback(() => {
-    fetchModelCatalog("devslate").then(setCatalog).catch(() => setCatalog(null));
-  }, []);
-
-  useEffect(() => { refresh(); }, [refresh, conversationId]);
+  useEffect(() => { void refresh(); }, [refresh, conversationId]);
 
   const pick = async (provider: string, model: string) => {
     setSaving(true);
     const ok = await setPinnedModel("dev_slate_chat", provider, model);
     setSaving(false);
     setOpen(false);
-    if (ok) refresh();
+    if (ok) void refresh();
   };
+  const risky = useRiskyPick((provider, model) => void pick(provider, model));
 
   const currentLabel = catalog?.current ? `${catalog.current.provider}/${catalog.current.model}` : "loading…";
 
@@ -105,22 +105,27 @@ function ModelBadge({ conversationId }: { conversationId: string }) {
           {catalog?.candidates.map(c => {
             const isCurrent = catalog.current?.provider === c.provider && catalog.current?.model === c.model;
             return (
-              <button
-                key={`${c.provider}/${c.model}`}
-                disabled={saving || isCurrent}
-                onClick={() => pick(c.provider, c.model)}
-                style={{
-                  display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.xs,
-                  width: "100%", textAlign: "left", padding: `${spacing.xxs}px ${spacing.xs}px`,
-                  borderRadius: radius.xs, border: "none",
-                  background: isCurrent ? "rgba(255,255,255,0.06)" : "transparent",
-                  color: isCurrent ? neutral.textPrimary : neutral.textMuted,
-                  cursor: isCurrent ? "default" : "pointer", fontSize: fontSize.xxs, fontFamily,
-                }}
-              >
-                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.provider}/{c.model}</span>
-                {isCurrent && <CheckIcon size={12} />}
-              </button>
+              <div key={`${c.provider}/${c.model}`}>
+                <button
+                  disabled={saving || isCurrent}
+                  onClick={() => risky.request(c)}
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.xs,
+                    width: "100%", textAlign: "left", padding: `${spacing.xxs}px ${spacing.xs}px`,
+                    borderRadius: radius.xs, border: "none",
+                    background: isCurrent ? "rgba(255,255,255,0.06)" : "transparent",
+                    color: isCurrent ? neutral.textPrimary : neutral.textMuted,
+                    cursor: isCurrent ? "default" : "pointer", fontSize: fontSize.xxs, fontFamily,
+                  }}
+                >
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.provider}/{c.model}</span>
+                  {c.client_data_warning && <NotForClientDataTag reason={c.client_data_warning} />}
+                  {isCurrent && <CheckIcon size={12} />}
+                </button>
+                {risky.isConfirming(c) && (
+                  <RiskyPickConfirm candidate={c} onConfirm={() => risky.confirm(c)} onCancel={risky.cancel} />
+                )}
+              </div>
             );
           })}
         </div>
@@ -269,6 +274,7 @@ function AttachFilePicker({ attached, onAttach }: { attached: string[]; onAttach
 
 export function DevSlateChat() {
   const conversationId = useDevSlateConversation();
+  const [modelCatalog] = useModelCatalog("devslate");
   const [messages, setMessages] = useState<DevSlateMessage[]>([]);
   const [input, setInput] = useState("");
   const [status, setStatus] = useState<"connecting" | "open" | "closed">("connecting");
@@ -374,7 +380,7 @@ export function DevSlateChat() {
           // paddingBottom clears the floating input cluster below (it's
           // an overlay now, not a layout sibling — see FLOAT_CLUSTER_
           // RESERVE) so the last message never sits underneath it.
-          paddingBottom: FLOAT_CLUSTER_RESERVE,
+          paddingBottom: FLOAT_CLUSTER_RESERVE + (modelCatalog?.current?.client_data_warning ? WARNING_RESERVE : 0),
           display: "flex", flexDirection: "column-reverse", gap: spacing.sm,
         }}>
           {activity && (
@@ -493,6 +499,8 @@ export function DevSlateChat() {
               ))}
             </div>
           )}
+
+          <ClientDataWarningFor catalog={modelCatalog} />
 
           {/* One pill container (input + buttons inside it), same shape
               as the main Chat canvas's own input bar. */}

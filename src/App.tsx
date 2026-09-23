@@ -88,6 +88,7 @@ import { AgentWorkNewWorkflowForm } from "./AgentWorkNewWorkflowForm";
 import { ChoiceButtons } from "./ChoiceButtons";
 import { AgentWorkGraphEditor, type AgentWorkSeed } from "./AgentWorkGraphEditor";
 import { SettingsOverlay } from "./SettingsOverlay";
+import { ClientDataWarningFor, NotForClientDataTag, RiskyPickConfirm, useRiskyPick } from "./modelSafety";
 import { UsageSavings } from "./UsageSavings";
 import { BrowserPane } from "./BrowserPane";
 import { isTauriRuntime } from "./tauriRuntime";
@@ -1997,6 +1998,9 @@ export default function App() {
     setSavingChatModel(false);
     if (ok) refreshChatModelCatalog();
   }, [refreshChatModelCatalog]);
+  // A model that must not see client data takes a second, explicit click
+  // (modelSafety.tsx); every other model still picks in one.
+  const riskyChatPick = useRiskyPick((provider, model) => void pickChatModel(provider, model));
   const resetChatModel = useCallback(async () => {
     setSavingChatModel(true);
     const ok = await resetRoleToDefault("normal_chat");
@@ -5002,26 +5006,35 @@ export default function App() {
                             {group.candidates.map(c => {
                               const isCurrent = chatModelCatalog!.current?.provider === c.provider && chatModelCatalog!.current?.model === c.model;
                               return (
-                                <button
-                                  key={`${c.provider}/${c.model}`}
-                                  disabled={savingChatModel || isCurrent}
-                                  onClick={() => void pickChatModel(c.provider, c.model)}
-                                  style={{
-                                    display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: spacing.xs,
-                                    width: "100%", border: "none", background: isCurrent ? "rgba(255,255,255,0.06)" : "transparent",
-                                    borderRadius: radius.xs, padding: `${spacing.xs}px`, cursor: isCurrent ? "default" : "pointer",
-                                    textAlign: "left", fontFamily,
-                                  }}
-                                >
-                                  <span>
-                                    <div style={{ fontSize: fontSize.xs, color: neutral.textPrimary }}>{c.model}</div>
-                                    <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted, marginTop: 2 }}>
-                                      {c.context_length ? `${c.context_length.toLocaleString()} ctx` : ""}
-                                      {!!c.quality && ` · quality ${c.quality.toFixed(1)}`}
-                                    </div>
-                                  </span>
-                                  {isCurrent && <CheckIcon size={12} />}
-                                </button>
+                                <div key={`${c.provider}/${c.model}`}>
+                                  <button
+                                    disabled={savingChatModel || isCurrent}
+                                    onClick={() => riskyChatPick.request(c)}
+                                    style={{
+                                      display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: spacing.xs,
+                                      width: "100%", border: "none", background: isCurrent ? "rgba(255,255,255,0.06)" : "transparent",
+                                      borderRadius: radius.xs, padding: `${spacing.xs}px`, cursor: isCurrent ? "default" : "pointer",
+                                      textAlign: "left", fontFamily,
+                                    }}
+                                  >
+                                    <span>
+                                      <div style={{ fontSize: fontSize.xs, color: neutral.textPrimary }}>{c.model}</div>
+                                      <div style={{ display: "flex", alignItems: "center", gap: spacing.xxs, flexWrap: "wrap", fontSize: fontSize.xxs, color: neutral.textMuted, marginTop: 2 }}>
+                                        {c.context_length ? `${c.context_length.toLocaleString()} ctx` : ""}
+                                        {!!c.quality && ` · quality ${c.quality.toFixed(1)}`}
+                                        {c.client_data_warning && <NotForClientDataTag reason={c.client_data_warning} />}
+                                      </div>
+                                    </span>
+                                    {isCurrent && <CheckIcon size={12} />}
+                                  </button>
+                                  {riskyChatPick.isConfirming(c) && (
+                                    <RiskyPickConfirm
+                                      candidate={c}
+                                      onConfirm={() => riskyChatPick.confirm(c)}
+                                      onCancel={riskyChatPick.cancel}
+                                    />
+                                  )}
+                                </div>
                               );
                             })}
                           </div>
@@ -5064,11 +5077,15 @@ export default function App() {
           </>
         )}
 
+        {/* Red counterpart of the status line above: stays for as long as
+            the selected model is one that must not see client data. */}
+        <ClientDataWarningFor catalog={chatModelCatalog} style={{ marginTop: spacing.md }} />
         <div style={{
           // Neutral now (2026-08-31) — the input bar is a tool, not
           // content; it shouldn't repeat the mode-identity the tabs
           // above it already carry.
-          display: "flex", alignItems: "flex-end", gap: spacing.sm, marginTop: spacing.lg,
+          display: "flex", alignItems: "flex-end", gap: spacing.sm,
+          marginTop: chatModelCatalog?.current?.client_data_warning ? spacing.xs : spacing.lg,
           padding: spacing.sm, borderRadius: radius.xl,
           background: neutral.surface,
           border: "1px solid var(--border-default)",

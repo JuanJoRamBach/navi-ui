@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, status } from "./tokens";
 import { fetchKeys, removeKey, saveKey, type CatalogEntry, type KeyRow, type KeysOverview } from "./providerKeysApi";
 import { SectionTitle, ghostButton, inputStyle } from "./AccountSettings";
+import { CLIENT_DATA_WARNING_TEXT, NotForClientDataTag } from "./modelSafety";
 
 const OTHER = "other";
 
@@ -162,6 +163,17 @@ export function ApiKeysSettings() {
           </Field>
         )}
 
+        {entry?.client_data_warning && (
+          <div style={{
+            display: "flex", gap: spacing.xxs, fontSize: fontSize.xxs, lineHeight: 1.5,
+            color: status.danger.color, padding: `${spacing.xs}px ${spacing.sm}px`, borderRadius: radius.xs,
+            background: status.danger.bg, border: `1px solid ${status.danger.border}`,
+          }}>
+            {CLIENT_DATA_WARNING_TEXT} {entry.client_data_warning} NAVI never routes to it on its own; it's used
+            only when someone picks one of its models.
+          </div>
+        )}
+
         {provider && (
           <Field
             label="Your key"
@@ -221,6 +233,7 @@ export function ApiKeysSettings() {
                 <div style={{ minWidth: 0, display: "flex", alignItems: "center", gap: spacing.xs, flexWrap: "wrap" }}>
                   <span style={{ fontSize: fontSize.xs, color: neutral.textPrimary }}>{row.label}</span>
                   {row.kind === "free" && <Badge tone="free">Free tier</Badge>}
+                  {row.client_data_warning && <NotForClientDataTag reason={row.client_data_warning} />}
                   {row.kind === "paid" && <Badge tone="paid">Paid</Badge>}
                   {row.kind === "custom" && <Badge tone="paid">Other</Badge>}
                 </div>

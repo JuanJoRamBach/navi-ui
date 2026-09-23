@@ -39,11 +39,17 @@ export interface ModelCandidate {
   // Display name for a provider whose id isn't readable on its own, e.g.
   // an "Other" provider stored as "custom-together-ai".
   label?: string;
+  // Set on a provider whose terms don't protect what's sent to it (LLM7,
+  // GMI, OpenRouter's free models); the reason, in one sentence. The picker
+  // asks before selecting it. See modelSafety.tsx.
+  client_data_warning?: string | null;
 }
 
 export interface ModelCatalog {
   task: string;
-  current: { provider: string; model: string } | null;
+  // client_data_warning: present while the selected model is one of the
+  // flagged ones; the chat shows the red warning over its input.
+  current: { provider: string; model: string; client_data_warning?: string } | null;
   // False once someone has picked a model by hand — the picker then
   // offers a way back to NAVI's own routing (and its fallbacks).
   is_default?: boolean;

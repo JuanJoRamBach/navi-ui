@@ -15,6 +15,8 @@ export interface CatalogEntry {
   needs_account_id?: boolean;
   // False for a provider with no way to check a key before using it (LLM7).
   checkable?: boolean;
+  // Why this provider must not see client data, if it mustn't.
+  client_data_warning?: string | null;
 }
 
 export interface KeyRow {
@@ -31,6 +33,7 @@ export interface KeyRow {
   // Who pasted this key and when (epoch seconds). Only on "yours" rows.
   added_by: string | null;
   added_at: number | null;
+  client_data_warning: string | null;
 }
 
 export interface EncryptionStatus {
