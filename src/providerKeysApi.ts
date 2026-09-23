@@ -28,9 +28,21 @@ export interface KeyRow {
   hint: string | null;
   models: number | null;
   checkable: boolean;
+  // Who pasted this key and when (epoch seconds). Only on "yours" rows.
+  added_by: string | null;
+  added_at: number | null;
+}
+
+export interface EncryptionStatus {
+  // "env": encrypted with NAVI_SECRET_KEY from the server's settings, the
+  // right setup. "local_file": with a key stored next to the keys.
+  source: "env" | "local_file";
+  env_name: string | null;
+  legacy_file_present: boolean;
 }
 
 export interface KeysOverview {
+  encryption: EncryptionStatus;
   catalog: CatalogEntry[];
   connected: KeyRow[];
 }

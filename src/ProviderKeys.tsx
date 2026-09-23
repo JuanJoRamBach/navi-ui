@@ -102,7 +102,23 @@ export function ApiKeysSettings() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: spacing.lg }}>
-      <SectionTitle>Your API keys</SectionTitle>
+      <div style={{ display: "flex", flexDirection: "column", gap: spacing.xs }}>
+        <SectionTitle>Your API keys</SectionTitle>
+        <div style={{ fontSize: fontSize.xxs, color: neutral.textMuted, lineHeight: 1.5 }}>
+          Keys are checked with the provider before they're saved, stored encrypted, and never shown again, only
+          their last four characters. Only Owners and Admins can see this page.
+        </div>
+        {overview.encryption.source === "local_file" && (
+          <div style={{
+            fontSize: fontSize.xxs, lineHeight: 1.5, color: status.warning.color,
+            padding: `${spacing.xs}px ${spacing.sm}px`, borderRadius: radius.xs,
+            background: status.warning.bg, border: `1px solid ${status.warning.border}`,
+          }}>
+            The server has no NAVI_SECRET_KEY yet, so the key that encrypts these is stored right next to them.
+            Add NAVI_SECRET_KEY to the server's .env and restart to protect them properly.
+          </div>
+        )}
+      </div>
 
       {/* ---- Bring your key ---- */}
       <div style={{ display: "flex", flexDirection: "column", gap: spacing.sm }}>
@@ -110,7 +126,9 @@ export function ApiKeysSettings() {
         <Field label="Provider">
           <select
             value={provider}
-            onChange={e => { setProvider(e.target.value); setSaveError(null); setSaved(null); }}
+            // Switching provider clears the key: a key pasted for one
+            // provider must never be sent to another by accident.
+            onChange={e => { setProvider(e.target.value); resetForm(); setSaveError(null); setSaved(null); }}
             style={{ ...inputStyle, cursor: "pointer" }}
           >
             <option value="" disabled>Choose a provider…</option>
@@ -154,7 +172,12 @@ export function ApiKeysSettings() {
             }
           >
             <input
-              type="password" autoComplete="off" spellCheck={false}
+              // "new-password" rather than "off": browsers ignore "off" on
+              // password fields and offer to save the key as a site
+              // password. The data-* attributes ask 1Password, LastPass
+              // and Bitwarden to leave it alone too.
+              type="password" autoComplete="new-password" spellCheck={false} autoCapitalize="off" autoCorrect="off"
+              data-1p-ignore="true" data-lpignore="true" data-bwignore="true" name="navi-provider-key"
               value={apiKey} onChange={e => setApiKey(e.target.value)}
               onKeyDown={e => { if (e.key === "Enter") void submit(); }}
               placeholder="Paste your key here" style={inputStyle}
@@ -225,7 +248,10 @@ function describe(row: KeyRow): string {
   if (!row.connected) return "Not connected";
   const whose = row.source === "yours" ? "Your key" : row.source === "navi" ? "NAVI's key" : "Server key";
   const models = row.models != null ? ` · ${row.models} model${row.models === 1 ? "" : "s"}` : "";
-  return `${whose} ending …${row.hint}${models}`;
+  const added = row.added_by
+    ? ` · added by ${row.added_by}${row.added_at ? ` on ${new Date(row.added_at * 1000).toLocaleDateString()}` : ""}`
+    : "";
+  return `${whose} ending …${row.hint}${models}${added}`;
 }
 
 function SubTitle({ children }: { children: React.ReactNode }) {
