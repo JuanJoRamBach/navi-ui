@@ -54,8 +54,9 @@ import {
   getActiveConversationId, loadConversation, saveConversation,
   createConversation, listBranches, getMainConversationId, switchActiveConversation, deriveTitle,
   parseAttachments, parseCommand,
-  listProjects, createProject, switchActiveProject, getActiveProjectId,
+  listProjects, ensureProject, switchActiveProject, getActiveProjectId,
 } from "./storage";
+import { createServerProject, fetchOverview, isError, type ServerProject } from "./knowledgeApi";
 import { Group, Panel, Separator, type LayoutChangedMeta } from "react-resizable-panels";
 import { sidebarTab, sidebarBreadcrumb, sidebarRow } from "./sidebar-tokens";
 import { marked } from "marked";
@@ -87,7 +88,7 @@ import { fetchModelCatalog, resetRoleToDefault, setPinnedModel, type ModelCatalo
 import { AgentWorkNewWorkflowForm } from "./AgentWorkNewWorkflowForm";
 import { ChoiceButtons } from "./ChoiceButtons";
 import { AgentWorkGraphEditor, type AgentWorkSeed } from "./AgentWorkGraphEditor";
-import { SettingsOverlay } from "./SettingsOverlay";
+import { SettingsOverlay, type SettingsSection } from "./SettingsOverlay";
 import { ClientDataWarningFor, NotForClientDataTag, RiskyPickConfirm, useRiskyPick } from "./modelSafety";
 import { UsageSavings } from "./UsageSavings";
 import { BrowserPane } from "./BrowserPane";
@@ -863,6 +864,9 @@ export default function App() {
   // Settings is a window over the app too (2026-09-23), with its own
   // section menu — it outgrew the small popover once API keys joined it.
   const [showSettings, setShowSettings] = useState(false);
+  // Where Settings opens when something links straight into it, e.g. the
+  // Projects panel's "Manage" opening the current project's screen.
+  const [settingsTarget, setSettingsTarget] = useState<{ section?: SettingsSection; projectId?: string | null }>({});
 
   // "Today's models" picker itself now reads the real ranked-candidate
   // catalog (chatModelCatalog, see below) instead of this — kept this
@@ -1894,13 +1898,46 @@ export default function App() {
   // activeProject is loaded once on mount, alongside the chat itself.
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProjectId, setActiveProjectIdState] = useState<string | null>(null);
+  // Projects shared on the server (2026-09-24), by id, with this person's
+  // access. A chat filed under one of these sends its id, so the server
+  // reads that project's brief and searches its library. "Personal" and
+  // any device-only project send none and get the company brief alone.
+  // null until the first load, so shared projects aren't hidden while it
+  // is still in flight.
+  const [serverProjects, setServerProjects] = useState<Record<string, ServerProject> | null>(null);
+  const serverProjectsRef = useRef<Record<string, ServerProject>>({});
+  const refreshServerProjects = useCallback(async () => {
+    const r = await fetchOverview();
+    if (isError(r)) return; // not logged in or offline: local projects keep working as before
+    const byId = Object.fromEntries(r.projects.map(p => [p.id, p]));
+    for (const p of r.projects) await ensureProject(p.id, p.name);
+    serverProjectsRef.current = byId;
+    setServerProjects(byId);
+    setProjects(await listProjects());
+  }, []);
   useEffect(() => {
     getActiveProjectId().then(id => {
       setActiveProjectIdState(id);
       listProjects().then(setProjects);
+      void refreshServerProjects();
     });
-  }, []);
+  }, [refreshServerProjects]);
+  // Re-checked whenever the Projects panel opens, so a project someone
+  // just shared shows up (and one you were removed from goes) without a
+  // reload.
+  useEffect(() => {
+    if (openPanel === "projects") void refreshServerProjects();
+  }, [openPanel, refreshServerProjects]);
+  // A shared project someone lost access to (removed, or archived) stays
+  // in this browser's storage with its chats, but isn't offered any more.
+  const visibleProjects = projects.filter(p => !p.shared || !serverProjects || serverProjects[p.id]);
   const activeProject = projects.find(p => p.id === activeProjectId) ?? null;
+  // The project id to send with a chat turn: only when the chat's project
+  // is a shared one this person can still use. The server checks again.
+  const serverProjectIdForChat = () => {
+    const id = activeConversationProjectIdRef.current;
+    return id && serverProjectsRef.current[id] ? id : null;
+  };
 
   // Reloads the whole chat surface for a newly-current project — same
   // steps as the initial mount effect above (resolve/create that
@@ -1938,12 +1975,18 @@ export default function App() {
   const createProjectAndSwitch = useCallback(async () => {
     const name = window.prompt("Name this project");
     if (!name || !name.trim()) return;
-    const project = await createProject(name.trim());
-    setProjects(await listProjects());
-    setActiveProjectIdState(project.id);
+    // Created on the server (2026-09-24), so it has a brief and a library
+    // and teammates can be added to it in Settings → Projects. The creator
+    // can edit it.
+    const created = await createServerProject(name.trim());
+    if (isError(created)) { window.alert(`Couldn't create the project: ${created.error}`); return; }
+    await ensureProject(created.id, created.name);
+    await refreshServerProjects();
+    await switchActiveProject(created.id);
+    setActiveProjectIdState(created.id);
     setOpenPanel(null);
     await loadChatForActiveProject();
-  }, [loadChatForActiveProject]);
+  }, [loadChatForActiveProject, refreshServerProjects]);
 
   // Jumps straight to the project's one Main Chat from anywhere — the
   // in-chat "Branched from X" pill only ever shows the immediate
@@ -2212,6 +2255,7 @@ export default function App() {
           text, mode: chatModeRef.current, client_message_id: clientMessageId,
           ...(activeServerConversationIdRef.current ? { conversation_id: activeServerConversationIdRef.current } : {}),
           reasoning_effort: reasoningEffortRef.current,
+          project_id: serverProjectIdForChat(),
         }),
       });
       // Not ok means the turn never started — an older backend with no
@@ -2284,6 +2328,9 @@ export default function App() {
         // model — dispatcher/prompt_family.py's adapt_request_params
         // only ever reads this for that one case.
         reasoning_effort: reasoningEffortRef.current,
+        // The chat's shared project, or null for a device-only one: the
+        // server files the conversation under it and reads its brief.
+        project_id: serverProjectIdForChat(),
       }),
     }).then(res => res.json());
 
@@ -4755,26 +4802,53 @@ export default function App() {
                     Projects
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: spacing.xs, marginBottom: spacing.md }}>
-                    {projects.map(p => (
-                      <button
-                        key={p.id}
-                        onClick={() => switchProject(p.id)}
-                        style={{
-                          display: "flex", alignItems: "center", gap: spacing.xs,
-                          padding: spacing.xs, borderRadius: radius.sm, border: "none",
-                          background: p.id === activeProjectId ? "rgba(255,255,255,0.06)" : "transparent",
-                          cursor: "pointer", textAlign: "left",
-                          width: "100%",
-                        }}
-                      >
-                        <FileDirectoryIcon size={iconSize.sm} />
-                        <span style={{ flex: 1, minWidth: 0, fontSize: fontSize.sm, color: neutral.textPrimary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {p.name}
-                        </span>
-                        {p.id === activeProjectId && <CheckIcon size={iconSize.sm} />}
-                      </button>
-                    ))}
+                    {visibleProjects.map(p => {
+                      const shared = serverProjects?.[p.id];
+                      return (
+                        <button
+                          key={p.id}
+                          onClick={() => switchProject(p.id)}
+                          style={{
+                            display: "flex", alignItems: "center", gap: spacing.xs,
+                            padding: spacing.xs, borderRadius: radius.sm, border: "none",
+                            background: p.id === activeProjectId ? "rgba(255,255,255,0.06)" : "transparent",
+                            cursor: "pointer", textAlign: "left",
+                            width: "100%",
+                          }}
+                        >
+                          <FileDirectoryIcon size={iconSize.sm} />
+                          <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+                            <span style={{ fontSize: fontSize.sm, color: neutral.textPrimary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {p.name}
+                            </span>
+                            {/* Shared projects give their chats a brief and
+                                a library; device-only ones don't. */}
+                            <span style={{ fontSize: fontSize.xxs, color: neutral.textFaint }}>
+                              {shared ? `Shared · ${shared.access === "edit" ? "you can edit" : "you can chat"}` : "Only on this device"}
+                            </span>
+                          </span>
+                          {p.id === activeProjectId && <CheckIcon size={iconSize.sm} />}
+                        </button>
+                      );
+                    })}
                   </div>
+                  <button
+                    onClick={() => {
+                      setSettingsTarget({ section: "projects", projectId: activeProjectId && serverProjects?.[activeProjectId] ? activeProjectId : null });
+                      setOpenPanel(null);
+                      setShowSettings(true);
+                    }}
+                    style={{
+                      display: "flex", alignItems: "center", gap: spacing.sm, width: "100%", marginBottom: spacing.xs,
+                      height: OUTER_RAIL_ROW_HEIGHT, boxSizing: "border-box", padding: `0 ${spacing.sm}px`,
+                      borderRadius: radius.sm, border: "none", background: "transparent",
+                      color: neutral.textMuted, cursor: "pointer", textAlign: "left",
+                      fontSize: fontSize.xs, fontFamily, fontWeight: fontWeight.medium,
+                    }}
+                  >
+                    <GearIcon size={iconSize.sm} />
+                    Manage projects: members, brief, library
+                  </button>
                   <button
                     onClick={createProjectAndSwitch}
                     style={{
@@ -5490,7 +5564,14 @@ export default function App() {
         />
       )}
       {showUsageSavings && <UsageSavings onClose={() => setShowUsageSavings(false)} />}
-      {showSettings && <SettingsOverlay onClose={() => setShowSettings(false)} />}
+      {showSettings && (
+        <SettingsOverlay
+          onClose={() => { setShowSettings(false); setSettingsTarget({}); }}
+          initialSection={settingsTarget.section}
+          initialProjectId={settingsTarget.projectId}
+          onKnowledgeChanged={() => void refreshServerProjects()}
+        />
+      )}
       {showAgentChat && pendingAgentInputs.length > 0 && (
         <AgentChat
           pending={pendingAgentInputs}

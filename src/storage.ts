@@ -119,6 +119,10 @@ export interface Project {
   name: string;
   createdAt: number;
   updatedAt: number;
+  // True for a project that lives on the server and is shared with the
+  // team (2026-09-24, see ensureProject). Its id IS the server's id.
+  // Absent on "Personal" and any project made on this device only.
+  shared?: boolean;
 }
 
 interface NaviDB extends DBSchema {
@@ -283,6 +287,20 @@ export async function createProject(name: string): Promise<Project> {
   await db.put("projects", project);
   await db.put("meta", project.id, "activeProjectId");
   return project;
+}
+
+// Keeps a local record for a project that lives on the server (shared
+// with the team, 2026-09-24), under the server's own id, so this device's
+// chats for it are filed under it like any other project. Creates it the
+// first time, keeps the name in step afterwards, and never touches which
+// project is active. Local-only projects ("Personal" and anything made
+// before shared projects existed) are left exactly as they are.
+export async function ensureProject(id: string, name: string): Promise<void> {
+  const db = await dbPromise;
+  const existing = await db.get("projects", id);
+  if (existing && existing.name === name && existing.shared) return;
+  const now = Date.now();
+  await db.put("projects", existing ? { ...existing, name, shared: true } : { id, name, createdAt: now, updatedAt: now, shared: true });
 }
 
 // Switches which project is current — the caller (App.tsx) is

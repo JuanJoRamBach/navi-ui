@@ -1,15 +1,20 @@
-import { useEffect, useState } from "react";
-import { GearIcon, KeyIcon, OrganizationIcon, PersonIcon, XIcon } from "@primer/octicons-react";
-import { spacing, radius, fontSize, fontWeight, neutral, fontFamily } from "./tokens";
+import { useCallback, useEffect, useState } from "react";
+import { BookIcon, FileDirectoryIcon, GearIcon, KeyIcon, OrganizationIcon, PersonIcon, XIcon } from "@primer/octicons-react";
+import { spacing, radius, fontSize, fontWeight, neutral, fontFamily, status } from "./tokens";
 import { getCurrentUser, type NaviUser } from "./auth";
 import { ProfileSettings, TeamSettings } from "./AccountSettings";
 import { ApiKeysSettings } from "./ProviderKeys";
+import { CompanyKnowledgeSettings, ProjectsSettings } from "./KnowledgeSettings";
+import { fetchOverview, isError, type KnowledgeOverview } from "./knowledgeApi";
 
-type Section = "profile" | "organization" | "apiKeys";
+export type SettingsSection = "profile" | "organization" | "knowledge" | "projects" | "apiKeys";
+type Section = SettingsSection;
 
 const SECTIONS: { id: Section; label: string; icon: React.ReactNode; dividerBefore?: boolean }[] = [
   { id: "profile", label: "Your profile", icon: <PersonIcon size={14} /> },
   { id: "organization", label: "Your organization", icon: <OrganizationIcon size={14} /> },
+  { id: "knowledge", label: "Company knowledge", icon: <BookIcon size={14} /> },
+  { id: "projects", label: "Projects", icon: <FileDirectoryIcon size={14} /> },
   { id: "apiKeys", label: "Your API keys", icon: <KeyIcon size={14} />, dividerBefore: true },
 ];
 
@@ -31,12 +36,39 @@ function useNarrow(): boolean {
 // Settings as a window over the app (2026-09-23), same shell as Usage &
 // Savings (UsageSavings.tsx) — replaces the small Settings popover, which
 // had no room for more than one section.
-export function SettingsOverlay({ onClose, initialSection = "profile" }: { onClose: () => void; initialSection?: Section }) {
+export function SettingsOverlay({ onClose, initialSection = "profile", initialProjectId, onKnowledgeChanged }: {
+  onClose: () => void;
+  initialSection?: Section;
+  initialProjectId?: string | null;
+  // Projects created, archived or re-shared here change which projects the
+  // sidebar offers; the app refreshes its list when this fires.
+  onKnowledgeChanged?: () => void;
+}) {
   const [section, setSection] = useState<Section>(initialSection);
   const [me, setMe] = useState<NaviUser | null | undefined>(undefined); // undefined = loading
+  const [overview, setOverview] = useState<KnowledgeOverview | null>(null);
+  const [overviewError, setOverviewError] = useState<string | null>(null);
   const narrow = useNarrow();
 
   useEffect(() => { getCurrentUser().then(setMe); }, []);
+
+  const loadOverview = useCallback(async () => {
+    const r = await fetchOverview();
+    if (isError(r)) setOverviewError(r.error); else { setOverview(r); setOverviewError(null); }
+  }, []);
+  useEffect(() => { void loadOverview(); }, [loadOverview]);
+  const knowledgeChanged = useCallback(() => { void loadOverview(); onKnowledgeChanged?.(); }, [loadOverview, onKnowledgeChanged]);
+
+  // What waits for this person, shown on the menu so an approval doesn't
+  // sit unnoticed until someone happens to open the right screen.
+  const waitingFor = (id: Section): number => {
+    if (!overview) return 0;
+    if (id === "knowledge") return overview.waiting.company ?? 0;
+    if (id === "projects") {
+      return Object.entries(overview.waiting).filter(([s]) => s.startsWith("project:")).reduce((n, [, c]) => n + c, 0);
+    }
+    return 0;
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -109,6 +141,18 @@ export function SettingsOverlay({ onClose, initialSection = "profile" }: { onClo
                   }}
                 >
                   {s.icon} {s.label}
+                  {waitingFor(s.id) > 0 && (
+                    <span
+                      title="Waiting for you"
+                      style={{
+                        marginLeft: "auto", minWidth: 16, padding: "0 5px", borderRadius: 9999, textAlign: "center",
+                        fontSize: 10, lineHeight: "16px", fontVariantNumeric: "tabular-nums",
+                        color: status.warning.color, background: status.warning.bg, border: `1px solid ${status.warning.border}`,
+                      }}
+                    >
+                      {waitingFor(s.id)}
+                    </span>
+                  )}
                 </button>
               </div>
             ))}
@@ -123,6 +167,15 @@ export function SettingsOverlay({ onClose, initialSection = "profile" }: { onClo
               {me && section === "profile" && <ProfileSettings me={me} />}
               {me && section === "organization" && <TeamSettings me={me} />}
               {me && section === "apiKeys" && <ApiKeysSettings />}
+              {me && (section === "knowledge" || section === "projects") && !overview && (
+                <div style={{ fontSize: fontSize.xs, color: neutral.textMuted }}>{overviewError ?? "Loading…"}</div>
+              )}
+              {me && section === "knowledge" && overview && (
+                <CompanyKnowledgeSettings overview={overview} onChanged={knowledgeChanged} />
+              )}
+              {me && section === "projects" && overview && (
+                <ProjectsSettings overview={overview} initialProjectId={initialProjectId} onChanged={knowledgeChanged} />
+              )}
             </div>
           </div>
         </div>
